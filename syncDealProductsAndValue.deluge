@@ -29,7 +29,7 @@ if(deal_id == null || deal_id.toString().trim() == "" || deal_id.toString().trim
 {
 	return "syncDealProductsAndValue skipped: deal_id is empty.";
 }
-dealId = deal_id.toLong();
+dealId = deal_id.toString().trim().toLong();
 info "syncDealProductsAndValue started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);

@@ -47,7 +47,7 @@ if(deal_id == null || deal_id.toString().trim() == "" || deal_id.toString().trim
 {
 	return "normalizeDealCommercialState skipped: deal_id is empty.";
 }
-dealId = deal_id.toLong();
+dealId = deal_id.toString().trim().toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);
@@ -360,9 +360,9 @@ bestLostContactName = "";
 anyOpenContact = false;
 anyOpenWorking = false;
 
-if(accountId != "")
+if(accountId != null && accountId.toString().trim() != "" && accountId.toString().trim() != "null")
 {
-	accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
+	accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toString().trim().toLong());
 	info "Account Contacts retrieved for Deal partition rollup:";
 	info accountContacts;
 	
@@ -381,7 +381,7 @@ if(accountId != "")
 			}
 			if(candidateContactId != "")
 			{
-				candidateContact = zoho.crm.getRecordById("Contacts", candidateContactId.toLong());
+				candidateContact = zoho.crm.getRecordById("Contacts", candidateContactId.toString().trim().toLong());
 				if(candidateContact != null)
 				{
 					candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);
@@ -485,9 +485,9 @@ if(currentPrimaryContactId != "")
 			}
 		}
 	}
-	if(!processedIds.contains(currentPrimaryContactId))
+	if(currentPrimaryContactId != null && currentPrimaryContactId.toString().trim() != "" && currentPrimaryContactId.toString().trim() != "null" && !processedIds.contains(currentPrimaryContactId))
 	{
-		candidateContact = zoho.crm.getRecordById("Contacts", currentPrimaryContactId.toLong());
+		candidateContact = zoho.crm.getRecordById("Contacts", currentPrimaryContactId.toString().trim().toLong());
 		if(candidateContact != null)
 		{
 			candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);

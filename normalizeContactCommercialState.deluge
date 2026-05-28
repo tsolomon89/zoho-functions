@@ -294,7 +294,7 @@ if(contactUpdateMap.size() > 0)
 // ======================================================
 // IF NO ACCOUNT, STOP
 // ======================================================
-if(accountId == "")
+if(accountId == null || accountId == "" || accountId == "null")
 {
 	return "Contact normalized. No linked Account, so no Deal/Account rollup performed.";
 }
@@ -335,7 +335,11 @@ if(contactProductInterestStaging != "")
 }
 
 derivedAccountKey = "";
-accountRecord = zoho.crm.getRecordById("Accounts", accountId.toLong());
+accountRecord = null;
+if(accountId != null && accountId.toString().trim() != "" && accountId.toString().trim() != "null")
+{
+	accountRecord = zoho.crm.getRecordById("Accounts", accountId.toString().trim().toLong());
+}
 if(accountRecord != null)
 {
 	accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
@@ -449,7 +453,11 @@ anyOpenContact = false;
 anyOpenWorking = false;
 processedContactIds = List();
 
-accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
+accountContacts = List();
+if(accountId != null && accountId.toString().trim() != "" && accountId.toString().trim() != "null")
+{
+	accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toString().trim().toLong());
+}
 info "Account Contacts retrieved for partition rollup:";
 info accountContacts;
 
@@ -736,9 +744,13 @@ if(shouldUpdateStage == true)
 dealRollupUpdateMap.put(FIELD_STATE, rollupState);
 dealRollupUpdateMap.put(FIELD_STATUS, rollupStatus);
 
-updateDealRollupResponse = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealRollupUpdateMap);
-info "Deal rollup update response:";
-info updateDealRollupResponse;
+updateDealRollupResponse = Map();
+if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toString().trim() != "null")
+{
+	updateDealRollupResponse = zoho.crm.updateRecord("Deals", finalDealId.toString().trim().toLong(), dealRollupUpdateMap);
+	info "Deal rollup update response:";
+	info updateDealRollupResponse;
+}
 
 // ======================================================
 // SYNC PRODUCT & DEAL VALUE

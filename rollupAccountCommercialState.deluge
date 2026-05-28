@@ -33,7 +33,7 @@ if(account_id == null || account_id.toString().trim() == "" || account_id.toStri
 {
 	return "rollupAccountCommercialState skipped: account_id is empty.";
 }
-accountId = account_id.toLong();
+accountId = account_id.toString().trim().toLong();
 info "rollupAccountCommercialState started for Account ID:";
 info accountId;
 accountRecord = zoho.crm.getRecordById("Accounts",accountId);
