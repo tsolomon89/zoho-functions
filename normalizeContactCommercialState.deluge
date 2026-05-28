@@ -306,321 +306,355 @@ if(accountId == "")
 	return "Contact normalized. No linked Account, so no Deal/Account rollup performed.";
 }
 // ======================================================
-// FIND RELEVANT DEAL UNDER ACCOUNT
+// COMPUTE CANONICAL DEAL KEY
 // ======================================================
-existingDealId = "";
-existingDealRecord = Map();
-bestOpenRank = 0;
-bestLostRank = 0;
-bestProductOpenRank = 0;
-bestProductLostRank = 0;
-bestOpenDeal = Map();
-bestLostDeal = Map();
-bestProductOpenDeal = Map();
-bestProductLostDeal = Map();
-relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountName.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
-info "Related Deals under Account via searchRecords:";
-info relatedDeals;
-if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
+productKey = "general";
+if(contactProductInterestStaging != "")
 {
-	for each  dealCandidate in relatedDeals
+	cleanPI = contactProductInterestStaging.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
+	piList = cleanPI.toList(",");
+	sortedList = List();
+	for each item in piList
 	{
-		dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
-		dealCandidateState = ifnull(dealCandidate.get(FIELD_STATE),VALUE_OPEN);
-		dealRank = 0;
-		if(dealCandidateStage == "Marketing Consent")
+		trimmedItem = item.trim().replaceAll("  "," ");
+		if(trimmedItem != "")
 		{
-			dealRank = 1;
+			sortedList.add(trimmedItem);
 		}
-		else if(dealCandidateStage == "Demo Booking")
+	}
+	sortedList.sort();
+	joinedPI = "";
+	for each item in sortedList
+	{
+		if(joinedPI == "")
 		{
-			dealRank = 2;
-		}
-		else if(dealCandidateStage == "Demo Booked")
-		{
-			dealRank = 3;
-		}
-		else if(dealCandidateStage == "Demo Attended")
-		{
-			dealRank = 4;
-		}
-		else if(dealCandidateStage == "Commercials Sent")
-		{
-			dealRank = 5;
-		}
-		else if(dealCandidateStage == "Commercials Signed")
-		{
-			dealRank = 6;
-		}
-		else if(dealCandidateStage == "Onboarding")
-		{
-			dealRank = 7;
-		}
-		else if(dealCandidateStage == "Renewal")
-		{
-			dealRank = 8;
-		}
-		dealProductMatches = false;
-		dealStaging = ifnull(dealCandidate.get("Product_Interest_Staging"),"").toString();
-		if(contactProductInterestStaging != "" && dealStaging != "")
-		{
-			parts = contactProductInterestStaging.toList(",");
-			for each  part in parts
-			{
-				trimmedName = part.trim();
-				if(trimmedName != "" && dealStaging.contains(trimmedName))
-				{
-					dealProductMatches = true;
-				}
-			}
-		}
-		if(dealCandidateState == VALUE_LOST)
-		{
-			if(dealProductMatches == true)
-			{
-				if(dealRank > bestProductLostRank)
-				{
-					bestProductLostRank = dealRank;
-					bestProductLostDeal = dealCandidate;
-				}
-			}
-			else
-			{
-				if(dealRank > bestLostRank)
-				{
-					bestLostRank = dealRank;
-					bestLostDeal = dealCandidate;
-				}
-			}
+			joinedPI = item;
 		}
 		else
 		{
-			if(dealProductMatches == true)
-			{
-				if(dealRank > bestProductOpenRank)
-				{
-					bestProductOpenRank = dealRank;
-					bestProductOpenDeal = dealCandidate;
-				}
-			}
-			else
-			{
-				if(dealRank > bestOpenRank)
-				{
-					bestOpenRank = dealRank;
-					bestOpenDeal = dealCandidate;
-				}
-			}
+			joinedPI = joinedPI + "+" + item;
 		}
 	}
-	if(hasProductStaging == true && bestProductOpenRank > 0)
+	if(joinedPI != "")
 	{
-		existingDealRecord = bestProductOpenDeal;
-		if(existingDealRecord.get("id") != null)
-		{
-			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-		}
+		productKey = joinedPI;
 	}
-	else if(bestOpenRank > 0)
-	{
-		existingDealRecord = bestOpenDeal;
-		if(existingDealRecord.get("id") != null)
-		{
-			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-		}
-	}
-	else if(hasProductStaging == true && bestProductLostRank > 0)
-	{
-		existingDealRecord = bestProductLostDeal;
-		if(existingDealRecord.get("id") != null)
-		{
-			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-		}
-	}
-	else if(bestLostRank > 0)
-	{
-		existingDealRecord = bestLostDeal;
-		if(existingDealRecord.get("id") != null)
-		{
-			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-		}
-	}
-}
-if(existingDealId == null || existingDealId == "null")
-{
-	existingDealId = "";
-}
-finalDealId = existingDealId;
-info "Selected Deal ID:";
-info existingDealId;
-// ======================================================
-// CREATE DEAL IF NONE EXISTS
-// ======================================================
-finalDealId = existingDealId;
-currentDealRank = 0;
-if(finalDealId == "")
-{
-	return "Contact normalized. No existing Deal found under Account; Contact normalizer did not create a Deal to avoid duplicates.";
 }
 
-// Fetch current Deal to inspect Stage Rank and prevent backward regressions
-currentDealStage = ifnull(existingDealRecord.get(FIELD_DEAL_STAGE),"");
-	if(currentDealStage == "Marketing Consent")
-	{
-		currentDealRank = 1;
-	}
-	else if(currentDealStage == "Demo Booking")
-	{
-		currentDealRank = 2;
-	}
-	else if(currentDealStage == "Demo Booked")
-	{
-		currentDealRank = 3;
-	}
-	else if(currentDealStage == "Demo Attended")
-	{
-		currentDealRank = 4;
-	}
-	else if(currentDealStage == "Commercials Sent")
-	{
-		currentDealRank = 5;
-	}
-	else if(currentDealStage == "Commercials Signed")
-	{
-		currentDealRank = 6;
-	}
-	else if(currentDealStage == "Onboarding")
-	{
-		currentDealRank = 7;
-	}
-	else if(currentDealStage == "Renewal")
-	{
-		currentDealRank = 8;
-	}
-// ======================================================
-// TEMPORARY CONTACT ROLLUP WITHOUT CONTACT ROLES
-// ======================================================
-rollupContactIds = List();
-accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.replaceAll("zcrm_","").trim().toLong());
-info "Account Contacts for temporary rollup:";
-info accountContacts;
-if(accountContacts != null && accountContacts.size() > 0)
+derivedAccountKey = "";
+accountRecord = zoho.crm.getRecordById("Accounts", accountId.toLong());
+if(accountRecord != null)
 {
-	for each  accountContact in accountContacts
+	accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+	accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
+	accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
+	
+	derivedDomain = "";
+	if(accountWebsite != "")
 	{
-		if(accountContact.get("id") != null)
+		rawUrl = accountWebsite;
+		normalizedDomain = rawUrl.toLowerCase().trim();
+		normalizedDomain = normalizedDomain.replaceAll("https://","");
+		normalizedDomain = normalizedDomain.replaceAll("http://","");
+		normalizedDomain = normalizedDomain.replaceAll("www.","");
+		if(normalizedDomain.contains("/"))
 		{
-			cId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
-			if(cId != "" && cId != "null")
-			{
-				rollupContactIds.add(cId);
-			}
+			parts = normalizedDomain.toList("/");
+			normalizedDomain = parts.get(0);
+		}
+		derivedDomain = normalizedDomain.trim();
+	}
+	if(derivedDomain == "" && accountName.contains(".") && !accountName.contains(" "))
+	{
+		rawUrl = accountName.toLowerCase().trim();
+		normalizedDomain = rawUrl.toLowerCase().trim();
+		normalizedDomain = normalizedDomain.replaceAll("https://","");
+		normalizedDomain = normalizedDomain.replaceAll("http://","");
+		normalizedDomain = normalizedDomain.replaceAll("www.","");
+		if(normalizedDomain.contains("/"))
+		{
+			parts = normalizedDomain.toList("/");
+			normalizedDomain = parts.get(0);
+		}
+		derivedDomain = normalizedDomain.trim();
+	}
+	
+	derivedAccountKey = accountKey;
+	if(derivedAccountKey == "")
+	{
+		derivedAccountKey = derivedDomain;
+	}
+	if(derivedAccountKey == "")
+	{
+		derivedAccountKey = accountName;
+	}
+	derivedAccountKey = derivedAccountKey.toLowerCase().trim();
+	derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
+}
+dealKey = derivedAccountKey + "::" + productKey;
+dealKey = dealKey.toLowerCase().trim();
+
+// ======================================================
+// STRICT IDEMPOTENT DEAL RESOLUTION (SINGLE-WRITER)
+// ======================================================
+dealKeySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+if(dealKeySearch == null || !dealKeySearch.toString().startsWith("[") || dealKeySearch.size() == 0)
+{
+	return "normalizeContactCommercialState completed. No matching Deal with Deal_Key: " + dealKey + " found under Account. No Deal rollup performed.";
+}
+existingDealRecord = dealKeySearch.get(0);
+finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
+dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
+
+// Derive Deal productKey to ensure exact partition matches
+dealProductKey = "general";
+if(dealProductInterestStaging != "")
+{
+	dCleanPI = dealProductInterestStaging.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
+	dPiList = dCleanPI.toList(",");
+	dSortedList = List();
+	for each dItem in dPiList
+	{
+		dTrimmedItem = dItem.trim().replaceAll("  "," ");
+		if(dTrimmedItem != "")
+		{
+			dSortedList.add(dTrimmedItem);
 		}
 	}
+	dSortedList.sort();
+	dJoinedPI = "";
+	for each dItem in dSortedList
+	{
+		if(dJoinedPI == "")
+		{
+			dJoinedPI = dItem;
+		}
+		else
+		{
+			dJoinedPI = dJoinedPI + "+" + dItem;
+		}
+	}
+	if(dJoinedPI != "")
+	{
+		dealProductKey = dJoinedPI;
+	}
 }
-if(!rollupContactIds.contains(contactId.toString()))
-{
-	rollupContactIds.add(contactId.toString());
-}
+
+// ======================================================
+// GATHER AND PARTITION RELEVANT CONTACTS FOR ROLLUP
+// ======================================================
 bestOpenRank = 0;
 bestLostRank = 0;
 bestOpenContactId = "";
 bestLostContactId = "";
 bestOpenStage = "";
 bestLostStage = "";
+bestOpenContactName = "";
+bestLostContactName = "";
 anyOpenContact = false;
 anyOpenWorking = false;
-for each  candidateContactId in rollupContactIds
+processedContactIds = List();
+
+accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
+info "Account Contacts retrieved for partition rollup:";
+info accountContacts;
+
+if(accountContacts != null && accountContacts.size() > 0)
 {
-	candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.replaceAll("zcrm_","").trim().toLong());
-	if(candidateContact != null)
+	for each accountContact in accountContacts
 	{
-		candidateStage = ifnull(candidateContact.get(FIELD_STAGE),DEFAULT_STAGE);
-		candidateState = ifnull(candidateContact.get(FIELD_STATE),VALUE_OPEN);
-		candidateStatus = ifnull(candidateContact.get(FIELD_STATUS),VALUE_NEW);
-		candidateProductInterest = ifnull(candidateContact.get("Product_Interest_Staging"),"").toString().trim();
-		candidateProductMatches = false;
-		if(contactProductInterestStaging == "")
+		candidateContactId = "";
+		if(accountContact.get("id") != null)
 		{
-			candidateProductMatches = true;
+			candidateContactId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
 		}
-		else if(candidateProductInterest != "")
+		if(candidateContactId == "null")
 		{
-			parts = contactProductInterestStaging.toList(",");
-			for each  part in parts
-			{
-				trimmedName = part.trim();
-				if(trimmedName != "" && candidateProductInterest.contains(trimmedName))
-				{
-					candidateProductMatches = true;
-				}
-			}
+			candidateContactId = "";
 		}
-		if(candidateProductMatches == true)
+		if(candidateContactId != "")
 		{
-			candidateRank = 0;
-			if(candidateStage == "Marketing Consent")
+			processedContactIds.add(candidateContactId);
+			candidateContact = zoho.crm.getRecordById("Contacts", candidateContactId.toLong());
+			if(candidateContact != null)
 			{
-				candidateRank = 1;
-			}
-			else if(candidateStage == "Demo Booking")
-			{
-				candidateRank = 2;
-			}
-			else if(candidateStage == "Demo Booked")
-			{
-				candidateRank = 3;
-			}
-			else if(candidateStage == "Demo Attended")
-			{
-				candidateRank = 4;
-			}
-			else if(candidateStage == "Commercials Sent")
-			{
-				candidateRank = 5;
-			}
-			else if(candidateStage == "Commercials Signed")
-			{
-				candidateRank = 6;
-			}
-			else if(candidateStage == "Onboarding")
-			{
-				candidateRank = 7;
-			}
-			else if(candidateStage == "Renewal")
-			{
-				candidateRank = 8;
-			}
-			if(candidateState == VALUE_LOST)
-			{
-				if(candidateRank > bestLostRank)
+				candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);
+				candidateState = ifnull(candidateContact.get(FIELD_STATE), VALUE_OPEN);
+				candidateStatus = ifnull(candidateContact.get(FIELD_STATUS), VALUE_NEW);
+				candidateProductInterest = ifnull(candidateContact.get("Product_Interest_Staging"), "").toString().trim();
+				cFirstName = ifnull(candidateContact.get("First_Name"), "");
+				cLastName = ifnull(candidateContact.get("Last_Name"), "");
+				cFullName = (cFirstName + " " + cLastName).trim();
+				
+				// Derive candidate's Product_Key
+				cProductKey = "general";
+				if(candidateProductInterest != "")
 				{
-					bestLostRank = candidateRank;
-					bestLostContactId = candidateContactId;
-					bestLostStage = candidateStage;
+					cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
+					cPiList = cCleanPI.toList(",");
+					cSortedList = List();
+					for each cItem in cPiList
+					{
+						cTrimmedItem = cItem.trim().replaceAll("  "," ");
+						if(cTrimmedItem != "")
+						{
+							cSortedList.add(cTrimmedItem);
+						}
+					}
+					cSortedList.sort();
+					cJoinedPI = "";
+					for each cItem in cSortedList
+					{
+						if(cJoinedPI == "")
+						{
+							cJoinedPI = cItem;
+						}
+						else
+						{
+							cJoinedPI = cJoinedPI + "+" + cItem;
+						}
+					}
+					if(cJoinedPI != "")
+					{
+						cProductKey = cJoinedPI;
+					}
 				}
-			}
-			else
-			{
-				anyOpenContact = true;
-				if(candidateStatus == VALUE_WORKING)
+				
+				// Match strictly by exact product motion key
+				if(cProductKey == dealProductKey)
 				{
-					anyOpenWorking = true;
-				}
-				if(candidateRank > bestOpenRank)
-				{
-					bestOpenRank = candidateRank;
-					bestOpenContactId = candidateContactId;
-					bestOpenStage = candidateStage;
+					candidateRank = 0;
+					if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+					else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+					else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+					else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+					else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+					else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+					else if(candidateStage == "Onboarding") { candidateRank = 7; }
+					else if(candidateStage == "Renewal") { candidateRank = 8; }
+					
+					if(candidateState == VALUE_LOST)
+					{
+						if(candidateRank > bestLostRank)
+						{
+							bestLostRank = candidateRank;
+							bestLostContactId = candidateContactId;
+							bestLostStage = candidateStage;
+							bestLostContactName = cFullName;
+						}
+					}
+					else
+					{
+						anyOpenContact = true;
+						if(candidateStatus == VALUE_WORKING)
+						{
+							anyOpenWorking = true;
+						}
+						if(candidateRank > bestOpenRank)
+						{
+							bestOpenRank = candidateRank;
+							bestOpenContactId = candidateContactId;
+							bestOpenStage = candidateStage;
+							bestOpenContactName = cFullName;
+						}
+					}
 				}
 			}
 		}
 	}
 }
+
+// Ensure the trigger contact is processed even if Zoho sync is lagging
+if(!processedContactIds.contains(contactId.toString()))
+{
+	candidateStage = ifnull(contactRecord.get(FIELD_STAGE), DEFAULT_STAGE);
+	candidateState = ifnull(contactRecord.get(FIELD_STATE), VALUE_OPEN);
+	candidateStatus = ifnull(contactRecord.get(FIELD_STATUS), VALUE_NEW);
+	candidateProductInterest = ifnull(contactRecord.get("Product_Interest_Staging"), "").toString().trim();
+	cFirstName = ifnull(contactRecord.get("First_Name"), "");
+	cLastName = ifnull(contactRecord.get("Last_Name"), "");
+	cFullName = (cFirstName + " " + cLastName).trim();
+	
+	cProductKey = "general";
+	if(candidateProductInterest != "")
+	{
+		cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
+		cPiList = cCleanPI.toList(",");
+		cSortedList = List();
+		for each cItem in cPiList
+		{
+			cTrimmedItem = cItem.trim().replaceAll("  "," ");
+			if(cTrimmedItem != "")
+			{
+				cSortedList.add(cTrimmedItem);
+			}
+		}
+		cSortedList.sort();
+		cJoinedPI = "";
+		for each cItem in cSortedList
+		{
+			if(cJoinedPI == "")
+			{
+				cJoinedPI = cItem;
+			}
+			else
+			{
+				cJoinedPI = cJoinedPI + "+" + cItem;
+			}
+		}
+		if(cJoinedPI != "")
+		{
+			cProductKey = cJoinedPI;
+		}
+	}
+	
+	if(cProductKey == dealProductKey)
+	{
+		candidateRank = 0;
+		if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+		else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+		else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+		else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+		else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+		else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+		else if(candidateStage == "Onboarding") { candidateRank = 7; }
+		else if(candidateStage == "Renewal") { candidateRank = 8; }
+		
+		if(candidateState == VALUE_LOST)
+		{
+			if(candidateRank > bestLostRank)
+			{
+				bestLostRank = candidateRank;
+				bestLostContactId = contactId.toString();
+				bestLostStage = candidateStage;
+				bestLostContactName = cFullName;
+			}
+		}
+		else
+		{
+			anyOpenContact = true;
+			if(candidateStatus == VALUE_WORKING)
+			{
+				anyOpenWorking = true;
+			}
+			if(candidateRank > bestOpenRank)
+			{
+				bestOpenRank = candidateRank;
+				bestOpenContactId = contactId.toString();
+				bestOpenStage = candidateStage;
+				bestOpenContactName = cFullName;
+			}
+		}
+	}
+}
+
+// Determine Rollup Primary Info
 rollupPrimaryContactId = "";
-rollupStage = DEFAULT_STAGE;
+rollupStage = "";
 rollupState = VALUE_OPEN;
 rollupStatus = VALUE_NEW;
+
 if(anyOpenContact == true)
 {
 	rollupPrimaryContactId = bestOpenContactId;
@@ -635,116 +669,84 @@ if(anyOpenContact == true)
 		rollupStatus = VALUE_NEW;
 	}
 }
-else
+else if(bestLostContactId != "")
 {
 	rollupPrimaryContactId = bestLostContactId;
 	rollupStage = bestLostStage;
 	rollupState = VALUE_LOST;
 	rollupStatus = VALUE_CLOSED;
 }
-rollupOpportunity = "MQL";
-if(rollupState == VALUE_LOST)
-{
-	if(rollupStage == "Marketing Consent")
-	{
-		rollupOpportunity = "MQL";
-	}
-	else if(rollupStage == "Demo Booking" || rollupStage == "Demo Booked" || rollupStage == "Demo Attended")
-	{
-		rollupOpportunity = "SQL";
-	}
-	else if(rollupStage == "Commercials Sent" || rollupStage == "Commercials Signed")
-	{
-		rollupOpportunity = "FTP";
-	}
-	else if(rollupStage == "Onboarding" || rollupStage == "Renewal")
-	{
-		rollupOpportunity = "RTP";
-	}
-}
 else
 {
-	if(rollupStage == "Marketing Consent")
-	{
-		rollupOpportunity = "MQL";
-	}
-	else if(rollupStage == "Demo Booking" || rollupStage == "Demo Booked" || rollupStage == "Demo Attended")
-	{
-		rollupOpportunity = "SQL";
-	}
-	else if(rollupStage == "Commercials Sent")
-	{
-		rollupOpportunity = "FTP";
-	}
-	else if(rollupStage == "Commercials Signed")
-	{
-		rollupOpportunity = "RTP";
-		rollupStage = "Onboarding";
-	}
-	else if(rollupStage == "Onboarding" || rollupStage == "Renewal")
-	{
-		rollupOpportunity = "RTP";
-	}
+	// Fallback to primary contact if no exact partition matches
+	rollupPrimaryContactId = contactId.toString();
+	rollupStage = contactStage;
+	rollupState = contactState;
+	rollupStatus = contactStatus;
 }
-// Get current rollup rank
+
+// Stage → Opportunity Mapping and Advanced transitions
+rollupOpportunity = "MQL";
+if(rollupStage == "Marketing Consent") { rollupOpportunity = "MQL"; }
+else if(rollupStage == "Demo Booking" || rollupStage == "Demo Booked" || rollupStage == "Demo Attended") { rollupOpportunity = "SQL"; }
+else if(rollupStage == "Commercials Sent") { rollupOpportunity = "FTP"; }
+else if(rollupStage == "Commercials Signed") { rollupOpportunity = "RTP"; rollupStage = "Onboarding"; }
+else if(rollupStage == "Onboarding") { rollupOpportunity = "RTP"; }
+else if(rollupStage == "Renewal") { rollupOpportunity = "RTP"; }
+
+// Compare ranks for non-regression check
+currentDealStage = ifnull(existingDealRecord.get(FIELD_DEAL_STAGE),"");
+currentDealRank = 0;
+if(currentDealStage == "Marketing Consent") { currentDealRank = 1; }
+else if(currentDealStage == "Demo Booking") { currentDealRank = 2; }
+else if(currentDealStage == "Demo Booked") { currentDealRank = 3; }
+else if(currentDealStage == "Demo Attended") { currentDealRank = 4; }
+else if(currentDealStage == "Commercials Sent") { currentDealRank = 5; }
+else if(currentDealStage == "Commercials Signed") { currentDealRank = 6; }
+else if(currentDealStage == "Onboarding") { currentDealRank = 7; }
+else if(currentDealStage == "Renewal") { currentDealRank = 8; }
+
 rollupRank = 0;
-if(rollupStage == "Marketing Consent")
+if(rollupStage == "Marketing Consent") { rollupRank = 1; }
+else if(rollupStage == "Demo Booking") { rollupRank = 2; }
+else if(rollupStage == "Demo Booked") { rollupRank = 3; }
+else if(rollupStage == "Demo Attended") { rollupRank = 4; }
+else if(rollupStage == "Commercials Sent") { rollupRank = 5; }
+else if(rollupStage == "Commercials Signed") { rollupRank = 6; }
+else if(rollupStage == "Onboarding") { rollupRank = 7; }
+else if(rollupStage == "Renewal") { rollupRank = 8; }
+
+dealCurrentState = ifnull(existingDealRecord.get(FIELD_DEAL_STATE), VALUE_OPEN);
+shouldUpdateStage = false;
+if(dealCurrentState == VALUE_LOST)
 {
-	rollupRank = 1;
+	shouldUpdateStage = true;
 }
-else if(rollupStage == "Demo Booking")
+else if(rollupRank >= currentDealRank)
 {
-	rollupRank = 2;
+	shouldUpdateStage = true;
 }
-else if(rollupStage == "Demo Booked")
-{
-	rollupRank = 3;
-}
-else if(rollupStage == "Demo Attended")
-{
-	rollupRank = 4;
-}
-else if(rollupStage == "Commercials Sent")
-{
-	rollupRank = 5;
-}
-else if(rollupStage == "Commercials Signed")
-{
-	rollupRank = 6;
-}
-else if(rollupStage == "Onboarding")
-{
-	rollupRank = 7;
-}
-else if(rollupStage == "Renewal")
-{
-	rollupRank = 8;
-}
-// ======================================================
-// UPDATE DEAL STATE (PREVENTING BACKWARD REGRESSIONS)
-// ======================================================
+
+// Update Deal Rollup State
 dealRollupUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
 	contactLookupMap = Map();
-	contactLookupMap.put("id", rollupPrimaryContactId.replaceAll("zcrm_","").trim().toLong());
+	contactLookupMap.put("id", rollupPrimaryContactId.toLong());
 	dealRollupUpdateMap.put("Contact_Name", contactLookupMap);
 }
-// ONLY roll Stage/Opportunity forward, never backward
-if(rollupRank >= currentDealRank)
+if(shouldUpdateStage == true)
 {
-	dealRollupUpdateMap.put(FIELD_DEAL_OPPORTUNITY,rollupOpportunity);
-	dealRollupUpdateMap.put(FIELD_DEAL_STAGE,rollupStage);
+	dealRollupUpdateMap.put(FIELD_DEAL_OPPORTUNITY, rollupOpportunity);
+	dealRollupUpdateMap.put(FIELD_DEAL_STAGE, rollupStage);
 }
-dealRollupUpdateMap.put(FIELD_STATE,rollupState);
-dealRollupUpdateMap.put(FIELD_STATUS,rollupStatus);
-if(contactProductInterestStaging != "")
-{
-	dealRollupUpdateMap.put("Product_Interest_Staging",contactProductInterestStaging);
-}
-updateDealRollupResponse = zoho.crm.updateRecord("Deals",finalDealId.replaceAll("zcrm_","").trim().toLong(),dealRollupUpdateMap);
+dealRollupUpdateMap.put(FIELD_STATE, rollupState);
+dealRollupUpdateMap.put(FIELD_STATUS, rollupStatus);
+
+updateDealRollupResponse = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealRollupUpdateMap);
 info "Deal rollup update response:";
 info updateDealRollupResponse;
+
 // ======================================================
 // SYNC PRODUCT & DEAL VALUE
 // ======================================================
@@ -760,6 +762,7 @@ if(finalDealId != "")
 accountRollupResponse = automation.rollupAccountCommercialState(accountId);
 info "rollupAccountCommercialState response:";
 info accountRollupResponse;
+
 // ======================================================
 // FINAL RESULT
 // ======================================================
