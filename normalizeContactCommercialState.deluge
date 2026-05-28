@@ -325,7 +325,7 @@ if(relatedDeals != null && relatedDeals.size() > 0)
 {
 	for each  dealCandidate in relatedDeals
 	{
-		dealCandidateStage = ifnull(dealCandidate.get(FIELD_STAGE),"");
+		dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
 		dealCandidateState = ifnull(dealCandidate.get(FIELD_STATE),VALUE_OPEN);
 		dealRank = 0;
 		if(dealCandidateStage == "Marketing Consent")
