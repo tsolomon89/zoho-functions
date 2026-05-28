@@ -38,11 +38,17 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH LEAD
 // ======================================================
-if(lead_id == null || lead_id == "" || lead_id == "null")
+leadIdStr = ifnull(lead_id,"").toString().trim();
+if(leadIdStr == "" || leadIdStr == "null")
 {
 	return "Failed: lead_id is empty or null.";
 }
-leadId = lead_id.replaceAll("zcrm_","").trim().toLong();
+leadIdStr = leadIdStr.replaceAll("zcrm_","").trim();
+if(leadIdStr == "")
+{
+	return "Failed: lead_id resolved to empty after cleanup.";
+}
+leadId = leadIdStr.toLong();
 info "convertLead2 started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
