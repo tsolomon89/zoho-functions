@@ -20,7 +20,7 @@ string automation.convertLead2(String lead_id)
 // All ID handling follows baseline patterns:
 // - No replaceAll("zcrm_","") on IDs
 // - No .toString().startsWith("[") on search results
-// - Lookup fields passed as raw string IDs (baseline proven pattern)
+// - Lookup fields use {"id": value} maps (Zoho docs requirement)
 // - Simple .toLong() on ID parameters
 // ======================================================
 // ======================================================
@@ -599,7 +599,7 @@ info finalDealId;
 if(existingDealId != "" && finalContactId != "")
 {
 	dealContactUpdateMap = Map();
-	dealContactUpdateMap.put("Contact_Name",finalContactId);
+	dealContactUpdateMap.put("Contact_Name",{"id":finalContactId});
 	updateDealContactResp = zoho.crm.updateRecord("Deals",existingDealId.toLong(),dealContactUpdateMap);
 	info "Existing Deal updated with Contact:";
 	info updateDealContactResp;
@@ -835,14 +835,14 @@ if(finalDealId != "")
 	{
 		dealUpdateMap.put("Connected_To",leadRecord.get("Connected_To"));
 	}
-	// Lookup fields: raw string IDs (baseline proven pattern)
+	// Lookup fields: must use {"id": value} map per Zoho docs
 	if(finalAccountId != "")
 	{
-		dealUpdateMap.put("Account_Name",finalAccountId);
+		dealUpdateMap.put("Account_Name",{"id":finalAccountId});
 	}
 	if(finalContactId != "")
 	{
-		dealUpdateMap.put("Contact_Name",finalContactId);
+		dealUpdateMap.put("Contact_Name",{"id":finalContactId});
 	}
 	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.toLong(),dealUpdateMap);
 	info "Deal enriched/updated post-conversion:";
