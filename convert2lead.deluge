@@ -611,13 +611,10 @@ if(existingContactId != "")
 if(existingDealId == "")
 {
 	dealMap = Map();
-	if(derivedCompany != "")
+	dealName = derivedCompany;
+	if(dealName == "")
 	{
-		dealName = derivedCompany + " - " + targetOpportunity + " - " + targetStage;
-	}
-	else
-	{
-		dealName = firstName + " " + lastName + " - " + targetOpportunity + " - " + targetStage;
+		dealName = firstName + " " + lastName;
 	}
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealMap.put("Deal_Name",dealName);
@@ -676,13 +673,10 @@ fallbackDealResponse = Map();
 if(finalDealId == "" && finalAccountId != "")
 {
 	dealCreateMap = Map();
-	if(derivedCompany != "")
+	dealName = derivedCompany;
+	if(dealName == "")
 	{
-		dealName = derivedCompany + " - " + targetOpportunity + " - " + targetStage;
-	}
-	else
-	{
-		dealName = firstName + " " + lastName + " - " + targetOpportunity + " - " + targetStage;
+		dealName = firstName + " " + lastName;
 	}
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealCreateMap.put("Deal_Name",dealName);

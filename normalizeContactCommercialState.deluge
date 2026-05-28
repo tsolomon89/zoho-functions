@@ -436,13 +436,10 @@ currentDealRank = 0;
 if(finalDealId == "")
 {
 	dealCreateMap = Map();
-	if(accountName != "")
+	dealName = accountName;
+	if(dealName == "")
 	{
-		dealName = accountName + " - " + targetOpportunity + " - " + targetStage;
-	}
-	else
-	{
-		dealName = firstName + " " + lastName + " - " + targetOpportunity + " - " + targetStage;
+		dealName = firstName + " " + lastName;
 	}
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealCreateMap.put("Deal_Name",dealName);
