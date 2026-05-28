@@ -510,7 +510,7 @@ existingDealId = "";
 existingDealRecord = Map();
 if(existingAccountId != "")
 {
-	relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + existingAccountId.replaceAll("zcrm_","").trim() + ")");
+	relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
 	info "Related Deals under Account via searchRecords:";
 	info relatedDeals;
 	if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
@@ -811,7 +811,7 @@ if(finalAccountId != "")
 	// 2. If not found by Deal_Key, search Deals under Account by stage rank/product fallback as secondary check
 	if(finalDealId == "")
 	{
-		relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + finalAccountId.replaceAll("zcrm_","").trim() + ")");
+		relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
 		if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
 		{
 			bestProductOpenRank = 0;

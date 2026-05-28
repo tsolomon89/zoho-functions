@@ -42,7 +42,8 @@ info accountRecord;
 // ======================================================
 // FETCH RELATED DEALS
 // ======================================================
-accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountId.toString() + ")");
+accountName = ifnull(accountRecord.get("Account_Name"),"");
+accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountName.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
 info "Related Deals for Account rollup via searchRecords:";
 info accountDeals;
 // ======================================================

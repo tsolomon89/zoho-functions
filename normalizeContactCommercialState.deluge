@@ -318,7 +318,7 @@ bestOpenDeal = Map();
 bestLostDeal = Map();
 bestProductOpenDeal = Map();
 bestProductLostDeal = Map();
-relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountId.replaceAll("zcrm_","").trim() + ")");
+relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountName.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
 info "Related Deals under Account via searchRecords:";
 info relatedDeals;
 if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
