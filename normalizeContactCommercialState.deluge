@@ -448,6 +448,13 @@ if(finalDealId == "")
 	return "normalizeContactCommercialState completed. No matching Deal with Deal_Key: " + dealKey + " found under Account. No Deal rollup performed.";
 }
 
+// Fetch the full Deal record by ID to guarantee all custom fields are populated
+existingDealRecord = zoho.crm.getRecordById("Deals", finalDealId.toLong());
+if(existingDealRecord == null)
+{
+	return "normalizeContactCommercialState completed. Matching Deal record could not be fetched by ID: " + finalDealId;
+}
+
 dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
 dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 
