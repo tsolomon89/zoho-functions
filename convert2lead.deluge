@@ -44,12 +44,14 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH LEAD
 // ======================================================
-if(lead_id == null || lead_id.toString().trim() == "" || lead_id.toString().trim() == "null")
+rawId = ifnull(lead_id,"").toString().replaceAll("zcrm_","").trim();
+
+if(rawId == "" || rawId == "null")
 {
-	info "convertLead2: lead_id is empty/null. Exiting.";
-	return "Failed: lead_id is empty/null.";
+	return "Failed: missing lead_id. Check Zoho workflow argument mapping.";
 }
-leadId = lead_id.toString().trim().toLong();
+
+leadId = rawId.toLong();
 info "convertLead2 started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
@@ -607,7 +609,8 @@ if(existingDealId != null && existingDealId.toString().trim() != "" && existingD
 	contactLookup = Map();
 	contactLookup.put("id",finalContactId.toString().trim());
 	dealContactUpdateMap.put("Contact_Name",contactLookup);
-	updateDealContactResp = zoho.crm.updateRecord("Deals",existingDealId.toString().trim().toLong(),dealContactUpdateMap);
+	existingDealIdLong = existingDealId.toString().trim().toLong();
+	updateDealContactResp = zoho.crm.updateRecord("Deals",existingDealIdLong,dealContactUpdateMap);
 	info "Existing Deal updated with Contact:";
 	info updateDealContactResp;
 }
@@ -649,7 +652,8 @@ if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 	// 4. Related records on Account
 	if(finalDealId == "" && finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
 	{
-		fbRelatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountId.toString().trim().toLong());
+		finalAccountIdLong = finalAccountId.toString().trim().toLong();
+		fbRelatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountIdLong);
 		if(fbRelatedDeals != null && fbRelatedDeals.size() > 0)
 		{
 			finalDealId = fbRelatedDeals.get(0).get("id").toString();
@@ -669,7 +673,8 @@ info finalDealId;
 if(finalContactId != null && finalContactId.toString().trim() != "" && finalContactId.toString().trim() != "null")
 {
 	contactUpdateMap = Map();
-	currentContact = zoho.crm.getRecordById("Contacts",finalContactId.toString().trim().toLong());
+	finalContactIdLong = finalContactId.toString().trim().toLong();
+	currentContact = zoho.crm.getRecordById("Contacts",finalContactIdLong);
 	if(currentContact != null)
 	{
 		if(ifnull(currentContact.get("First_Name"),"") == "" && firstName != "")
@@ -745,7 +750,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		}
 		if(contactUpdateMap.size() > 0)
 		{
-			updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactId.toString().trim().toLong(),contactUpdateMap);
+			updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactIdLong,contactUpdateMap);
 			info "Contact updated/enriched:";
 			info updateContactResponse;
 		}
@@ -757,7 +762,8 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
 {
 	accountUpdateMap = Map();
-	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountId.toString().trim().toLong());
+	finalAccountIdLong = finalAccountId.toString().trim().toLong();
+	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountIdLong);
 	if(currentAccount != null)
 	{
 		if(ifnull(currentAccount.get("Account_Name"),"") == "" && derivedCompany != "")
@@ -809,7 +815,7 @@ if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAcco
 		}
 		if(accountUpdateMap.size() > 0)
 		{
-			updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountId.toString().trim().toLong(),accountUpdateMap);
+			updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountIdLong,accountUpdateMap);
 			info "Account updated/enriched:";
 			info updateAccountResponse;
 		}
@@ -855,7 +861,8 @@ if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toS
 		contactLookup.put("id",finalContactId);
 		dealUpdateMap.put("Contact_Name",contactLookup);
 	}
-	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.toString().trim().toLong(),dealUpdateMap);
+	finalDealIdLong = finalDealId.toString().trim().toLong();
+	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealIdLong,dealUpdateMap);
 	info "Deal enriched/updated post-conversion:";
 	info updateDealResponse;
 }
@@ -865,7 +872,7 @@ if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toS
 if(finalContactId != null && finalContactId.toString().trim() != "" && finalContactId.toString().trim() != "null")
 {
 	noteMap = Map();
-	noteMap.put("Parent_Id",finalContactId.toString().trim().toLong());
+	noteMap.put("Parent_Id",finalContactIdLong);
 	noteMap.put("$se_module","Contacts");
 	noteMap.put("Note_Title","Lead Conversion Debug Log");
 	noteContent = "Lead Conversion debug results:\n\n";
@@ -888,7 +895,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 else if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
 {
 	noteMap = Map();
-	noteMap.put("Parent_Id",finalAccountId.toString().trim().toLong());
+	noteMap.put("Parent_Id",finalAccountIdLong);
 	noteMap.put("$se_module","Accounts");
 	noteMap.put("Note_Title","Lead Conversion Debug Log");
 	noteContent = "Lead Conversion debug results:\n\n";
@@ -911,7 +918,7 @@ else if(finalAccountId != null && finalAccountId.toString().trim() != "" && fina
 // ======================================================
 // HANDOFF TO CONTACT NORMALIZER
 // ======================================================
-if(finalContactId != "")
+if(finalContactId != null && finalContactId.toString().trim() != "" && finalContactId.toString().trim() != "null")
 {
 	normalizerResponse = automation.normalizeContactCommercialState(finalContactId);
 	info "normalizeContactCommercialState response:";

@@ -25,11 +25,14 @@ UPDATE_EXPECTED_REVENUE = false;
 // ======================================================
 // FETCH DEAL
 // ======================================================
-if(deal_id == null || deal_id.toString().trim() == "" || deal_id.toString().trim() == "null")
+rawId = ifnull(deal_id,"").toString().replaceAll("zcrm_","").trim();
+
+if(rawId == "" || rawId == "null")
 {
-	return "syncDealProductsAndValue skipped: deal_id is empty.";
+	return "Failed: missing deal_id. Check Zoho workflow argument mapping.";
 }
-dealId = deal_id.toString().trim().toLong();
+
+dealId = rawId.toLong();
 info "syncDealProductsAndValue started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);

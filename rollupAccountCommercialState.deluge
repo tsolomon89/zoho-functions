@@ -29,11 +29,14 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH ACCOUNT
 // ======================================================
-if(account_id == null || account_id.toString().trim() == "" || account_id.toString().trim() == "null")
+rawId = ifnull(account_id,"").toString().replaceAll("zcrm_","").trim();
+
+if(rawId == "" || rawId == "null")
 {
-	return "rollupAccountCommercialState skipped: account_id is empty.";
+	return "Failed: missing account_id. Check Zoho workflow argument mapping.";
 }
-accountId = account_id.toString().trim().toLong();
+
+accountId = rawId.toLong();
 info "rollupAccountCommercialState started for Account ID:";
 info accountId;
 accountRecord = zoho.crm.getRecordById("Accounts",accountId);

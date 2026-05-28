@@ -43,11 +43,14 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH DEAL
 // ======================================================
-if(deal_id == null || deal_id.toString().trim() == "" || deal_id.toString().trim() == "null")
+rawId = ifnull(deal_id,"").toString().replaceAll("zcrm_","").trim();
+
+if(rawId == "" || rawId == "null")
 {
-	return "normalizeDealCommercialState skipped: deal_id is empty.";
+	return "Failed: missing deal_id. Check Zoho workflow argument mapping.";
 }
-dealId = deal_id.toString().trim().toLong();
+
+dealId = rawId.toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);
@@ -362,7 +365,8 @@ anyOpenWorking = false;
 
 if(accountId != null && accountId.toString().trim() != "" && accountId.toString().trim() != "null")
 {
-	accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toString().trim().toLong());
+	accountIdLong = accountId.toString().trim().toLong();
+	accountContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountIdLong);
 	info "Account Contacts retrieved for Deal partition rollup:";
 	info accountContacts;
 	
@@ -381,7 +385,8 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 			}
 			if(candidateContactId != "")
 			{
-				candidateContact = zoho.crm.getRecordById("Contacts", candidateContactId.toString().trim().toLong());
+				candidateContactIdLong = candidateContactId.toString().trim().toLong();
+				candidateContact = zoho.crm.getRecordById("Contacts", candidateContactIdLong);
 				if(candidateContact != null)
 				{
 					candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);
@@ -487,7 +492,8 @@ if(currentPrimaryContactId != "")
 	}
 	if(currentPrimaryContactId != null && currentPrimaryContactId.toString().trim() != "" && currentPrimaryContactId.toString().trim() != "null" && !processedIds.contains(currentPrimaryContactId))
 	{
-		candidateContact = zoho.crm.getRecordById("Contacts", currentPrimaryContactId.toString().trim().toLong());
+		currentPrimaryContactIdLong = currentPrimaryContactId.toString().trim().toLong();
+		candidateContact = zoho.crm.getRecordById("Contacts", currentPrimaryContactIdLong);
 		if(candidateContact != null)
 		{
 			candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);
@@ -687,7 +693,7 @@ info productSyncResponse;
 // ======================================================
 // ROLLUP ACCOUNT
 // ======================================================
-if(accountId != "")
+if(accountId != null && accountId.toString().trim() != "" && accountId.toString().trim() != "null")
 {
 	accountRollupResponse = automation.rollupAccountCommercialState(accountId);
 	info "rollupAccountCommercialState response:";
