@@ -9,7 +9,9 @@ string automation.normalizeContactCommercialState(String contact_id)
 //
 // Purpose:
 // - Normalize Contact Stage / State / Status.
-// - Find or create/reuse relevant Deal.
+// - Find/reuse relevant Deal only.
+// - Do not create Deals.
+// - Roll up Contact state/stage into the existing Deal.
 // - Set Deal.Contact_Name to furthest viable Contact.
 // - Rollup Contact Stage to Deal Stage ONLY if it rolls forward (no backward regression).
 // - Hand off to syncDealProductsAndValue & rollupAccountCommercialState.

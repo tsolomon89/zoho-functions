@@ -413,6 +413,8 @@ info existingContactId;
 // Do NOT manually create Account. Let convertLead do it.
 // ======================================================
 existingAccountId = "";
+existingAccountRecord = Map();
+
 // 1. Linked Account of existing Contact (baseline pattern)
 if(existingContactId != "")
 {
@@ -420,11 +422,90 @@ if(existingContactId != "")
 	if(linkedAccount != null)
 	{
 		existingAccountId = linkedAccount.get("id").toString();
+		existingAccountRecord = linkedAccount;
 	}
 }
 info "Account from Contact lookup:";
 info existingAccountId;
-// 2. Lookup by normalized Company Name (baseline pattern)
+
+// 2. Search by Account_Key = derivedAccountKey
+if(existingAccountId == "" && derivedAccountKey != "")
+{
+	// A. Search by Name matching derivedAccountKey
+	accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + derivedAccountKey + ")");
+	if(accSearch != null && accSearch.toString().startsWith("[") && accSearch.size() > 0)
+	{
+		for each acc in accSearch
+		{
+			aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
+			if(aKey == derivedAccountKey)
+			{
+				existingAccountId = acc.get("id").toString();
+				existingAccountRecord = acc;
+			}
+		}
+	}
+	// B. Search by Website matching derivedAccountKey
+	if(existingAccountId == "")
+	{
+		accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + derivedAccountKey + ")");
+		if(accSearch != null && accSearch.toString().startsWith("[") && accSearch.size() > 0)
+		{
+			for each acc in accSearch
+			{
+				aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
+				if(aKey == derivedAccountKey)
+				{
+					existingAccountId = acc.get("id").toString();
+					existingAccountRecord = acc;
+				}
+			}
+		}
+	}
+}
+
+// 3. Search by Account_Key = Lead.Account_Key (if present)
+leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
+if(existingAccountId == "" && leadAccountKey != "")
+{
+	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeLeadAccountKey != "")
+	{
+		// A. Search by Name matching Lead.Account_Key
+		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeLeadAccountKey + ")");
+		if(accSearch != null && accSearch.toString().startsWith("[") && accSearch.size() > 0)
+		{
+			for each acc in accSearch
+			{
+				aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
+				if(aKey == safeLeadAccountKey)
+				{
+					existingAccountId = acc.get("id").toString();
+					existingAccountRecord = acc;
+				}
+			}
+		}
+		// B. Search by Website matching Lead.Account_Key
+		if(existingAccountId == "")
+		{
+			accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + safeLeadAccountKey + ")");
+			if(accSearch != null && accSearch.toString().startsWith("[") && accSearch.size() > 0)
+			{
+				for each acc in accSearch
+				{
+					aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
+					if(aKey == safeLeadAccountKey)
+					{
+						existingAccountId = acc.get("id").toString();
+						existingAccountRecord = acc;
+					}
+				}
+			}
+		}
+	}
+}
+
+// 4. Lookup by normalized Company Name (baseline pattern)
 safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeCompanyQuery != "")
 {
@@ -437,7 +518,8 @@ if(existingAccountId == "" && safeCompanyQuery != "")
 		existingAccountId = existingAccountRecord.get("id").toString();
 	}
 }
-// 3. Lookup by Website (normalized domain)
+
+// 5. Lookup by Website (normalized domain)
 safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeDomainQuery != "")
 {
@@ -450,7 +532,8 @@ if(existingAccountId == "" && safeDomainQuery != "")
 		existingAccountId = existingAccountRecord.get("id").toString();
 	}
 }
-// 4. Lookup Account Name equals normalized domain
+
+// 6. Lookup Account Name equals normalized domain
 if(existingAccountId == "" && safeDomainQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeDomainQuery + ")");
@@ -465,68 +548,91 @@ if(existingAccountId == "" && safeDomainQuery != "")
 info "Existing Account ID:";
 info existingAccountId;
 // ======================================================
-// FIND EXISTING DEAL (search BEFORE conversion — baseline pattern)
+// FIND EXISTING DEAL (search BEFORE conversion)
 // ======================================================
 existingDealId = "";
-// 1. Search Deals under the Account by company name and filter by Deal_Key
-if(existingDealId == "" && safeCompanyQuery != "")
+migrationFallbackDealId = "";
+candidateDealsList = List();
+
+// 1. Gather Deals from related Account records
+if(existingAccountId != "" && existingAccountId != "null")
 {
-	dealSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeCompanyQuery + ")");
-	info "Deal search by company to match Deal_Key:";
-	info dealSearch;
-	if(dealSearch != null && dealSearch.toString().startsWith("[") && dealSearch.size() > 0)
+	existingAccountIdLong = existingAccountId.toLong();
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", existingAccountIdLong);
+	if(relDeals != null && relDeals.toString().startsWith("[") && relDeals.size() > 0)
 	{
-		for each dealRec in dealSearch
+		for each d in relDeals
 		{
-			dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
-			if(dKey == dealKey)
+			candidateDealsList.add(d);
+		}
+	}
+}
+
+// 2. Gather Deals from company name search
+if(safeCompanyQuery != "")
+{
+	coDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeCompanyQuery + ")");
+	if(coDeals != null && coDeals.toString().startsWith("[") && coDeals.size() > 0)
+	{
+		for each d in coDeals
+		{
+			candidateDealsList.add(d);
+		}
+	}
+}
+
+// 3. Gather Deals from domain name search
+if(safeDomainQuery != "")
+{
+	domDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeDomainQuery + ")");
+	if(domDeals != null && domDeals.toString().startsWith("[") && domDeals.size() > 0)
+	{
+		for each d in domDeals
+		{
+			candidateDealsList.add(d);
+		}
+	}
+}
+
+// Scan candidates according to reuse rules
+processedDealIds = List();
+exactMatchDealId = "";
+
+for each candDeal in candidateDealsList
+{
+	cDealId = ifnull(candDeal.get("id"),"").toString().trim();
+	if(cDealId != "" && cDealId != "null" && !processedDealIds.contains(cDealId))
+	{
+		processedDealIds.add(cDealId);
+		cDealKey = ifnull(candDeal.get("Deal_Key"),"").toString().trim();
+		
+		if(cDealKey == dealKey)
+		{
+			exactMatchDealId = cDealId;
+		}
+		else if(cDealKey == "")
+		{
+			if(migrationFallbackDealId == "")
 			{
-				existingDealId = dealRec.get("id").toString();
+				migrationFallbackDealId = cDealId;
 			}
 		}
 	}
 }
-// 2. Search Deals under the Account by domain name and filter by Deal_Key
-if(existingDealId == "" && safeDomainQuery != "")
+
+if(exactMatchDealId != "")
 {
-	dealSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeDomainQuery + ")");
-	info "Deal search by domain to match Deal_Key:";
-	info dealSearch;
-	if(dealSearch != null && dealSearch.toString().startsWith("[") && dealSearch.size() > 0)
-	{
-		for each dealRec in dealSearch
-		{
-			dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
-			if(dKey == dealKey)
-			{
-				existingDealId = dealRec.get("id").toString();
-			}
-		}
-	}
+	existingDealId = exactMatchDealId;
+	info "Deal matched exactly by Deal_Key: " + existingDealId;
 }
-// 3. Fallback: search by Account_Name/company (baseline pattern - first matching deal)
-if(existingDealId == "" && safeCompanyQuery != "")
+else if(migrationFallbackDealId != "")
 {
-	dealSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeCompanyQuery + ")");
-	info "Deal search fallback by company:";
-	info dealSearch;
-	if(dealSearch != null && dealSearch.toString().startsWith("[") && dealSearch.size() > 0)
-	{
-		existingDealRecord = dealSearch.get(0);
-		existingDealId = existingDealRecord.get("id").toString();
-	}
+	existingDealId = migrationFallbackDealId;
+	info "Deal matched via blank-key migration fallback: " + existingDealId;
 }
-// 4. Fallback: search by domain as Account_Name
-if(existingDealId == "" && safeDomainQuery != "")
+else
 {
-	dealSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeDomainQuery + ")");
-	info "Deal search fallback by domain:";
-	info dealSearch;
-	if(dealSearch != null && dealSearch.toString().startsWith("[") && dealSearch.size() > 0)
-	{
-		existingDealRecord = dealSearch.get(0);
-		existingDealId = existingDealRecord.get("id").toString();
-	}
+	info "No reusable existing Deal found. Native Deal creation will occur.";
 }
 info "Existing Deal ID:";
 info existingDealId;
@@ -661,50 +767,82 @@ if(existingDealId != null && existingDealId.toString().trim() != "" && existingD
 if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 {
 	info "Fallback Deal recovery: no Deal ID from conversion. Searching broadly...";
-	// 1. Related records on Account (most precise, matching Deal_Key)
-	if(finalDealId == "" && finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
+	fbDealsList = List();
+	
+	if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
 	{
 		finalAccountIdLong = finalAccountId.toString().trim().toLong();
-		fbRelatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountIdLong);
-		if(fbRelatedDeals != null && fbRelatedDeals.toString().startsWith("[") && fbRelatedDeals.size() > 0)
+		fbRelDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", finalAccountIdLong);
+		if(fbRelDeals != null && fbRelDeals.toString().startsWith("[") && fbRelDeals.size() > 0)
 		{
-			for each dealRec in fbRelatedDeals
+			for each d in fbRelDeals
 			{
-				dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
-				if(dKey == dealKey)
+				fbDealsList.add(d);
+			}
+		}
+	}
+	
+	if(safeCompanyQuery != "")
+	{
+		fbCoDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeCompanyQuery + ")");
+		if(fbCoDeals != null && fbCoDeals.toString().startsWith("[") && fbCoDeals.size() > 0)
+		{
+			for each d in fbCoDeals
+			{
+				fbDealsList.add(d);
+			}
+		}
+	}
+	
+	if(safeDomainQuery != "")
+	{
+		fbDomDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeDomainQuery + ")");
+		if(fbDomDeals != null && fbDomDeals.toString().startsWith("[") && fbDomDeals.size() > 0)
+		{
+			for each d in fbDomDeals
+			{
+				fbDealsList.add(d);
+			}
+		}
+	}
+	
+	fbProcessedIds = List();
+	fbExactId = "";
+	fbMigrationId = "";
+	
+	for each dRec in fbDealsList
+	{
+		dId = ifnull(dRec.get("id"),"").toString().trim();
+		if(dId != "" && dId != "null" && !fbProcessedIds.contains(dId))
+		{
+			fbProcessedIds.add(dId);
+			dKey = ifnull(dRec.get("Deal_Key"),"").toString().trim();
+			
+			if(dKey == dealKey)
+			{
+				fbExactId = dId;
+			}
+			else if(dKey == "")
+			{
+				if(fbMigrationId == "")
 				{
-					finalDealId = dealRec.get("id").toString();
-					info "Fallback: found Deal via related records matching Deal_Key: " + finalDealId;
+					fbMigrationId = dId;
 				}
 			}
-			if(finalDealId == "")
-			{
-				finalDealId = fbRelatedDeals.get(0).get("id").toString();
-				info "Fallback: found Deal via related records (first under Account): " + finalDealId;
-			}
 		}
 	}
-	// 2. Search by Account_Name (company)
-	if(finalDealId == "" && safeCompanyQuery != "")
+	
+	if(fbExactId != "")
 	{
-		fbCompanySearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeCompanyQuery + ")");
-		if(fbCompanySearch != null && fbCompanySearch.toString().startsWith("[") && fbCompanySearch.size() > 0)
-		{
-			finalDealId = fbCompanySearch.get(0).get("id").toString();
-			info "Fallback: found Deal via company: " + finalDealId;
-		}
+		finalDealId = fbExactId;
+		info "Fallback: resolved exact matching Deal via Deal_Key: " + finalDealId;
 	}
-	// 3. Search by Account_Name (domain)
-	if(finalDealId == "" && safeDomainQuery != "")
+	else if(fbMigrationId != "")
 	{
-		fbDomainSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeDomainQuery + ")");
-		if(fbDomainSearch != null && fbDomainSearch.toString().startsWith("[") && fbDomainSearch.size() > 0)
-		{
-			finalDealId = fbDomainSearch.get(0).get("id").toString();
-			info "Fallback: found Deal via domain: " + finalDealId;
-		}
+		finalDealId = fbMigrationId;
+		info "Fallback: resolved Deal via blank-key migration: " + finalDealId;
 	}
-	if(finalDealId == "")
+	else
 	{
 		info "WARNING: No Deal found after exhaustive search. Skipping create to prevent duplicates.";
 	}
