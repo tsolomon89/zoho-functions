@@ -162,12 +162,12 @@ if(derivedAccountKey == "")
 derivedAccountKey = derivedAccountKey.toLowerCase().trim();
 
 derivedAccountKey = derivedAccountKey.toLowerCase().trim();
-derivedAccountKey = derivedAccountKey.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").replaceAll("&", "").replaceAll(" ","");
+derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
 
 dealKey = derivedAccountKey + "__";
 if(leadProductInterestStr != "")
 {
-	dealKey = dealKey + leadProductInterestStr.replaceAll(",", "__").replaceAll(";", "__").replaceAll(" ", "").replaceAll(":", "").replaceAll("(", "").replaceAll(")", "");
+	dealKey = dealKey + leadProductInterestStr.replaceAll("[,;]", "__").replaceAll("[\\(\\)\\: ]", "");
 }
 else
 {
@@ -202,7 +202,7 @@ existingContactId = "";
 existingContactRecord = Map();
 if(email != "")
 {
-	safeEmail = email.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+	safeEmail = email.replaceAll("[\\(\\)\\:\\,]", "").trim();
 	if(safeEmail != "")
 	{
 		contactSearch = zoho.crm.searchRecords("Contacts","(Email:equals:" + safeEmail + ")");
@@ -218,7 +218,7 @@ if(email != "")
 }
 if(existingContactId == "" && phone != "")
 {
-	safePhone = phone.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+	safePhone = phone.replaceAll("[\\(\\)\\:\\,]", "").trim();
 	if(safePhone != "")
 	{
 		contactSearch = zoho.crm.searchRecords("Contacts","(Phone:equals:" + safePhone + ")");
@@ -281,7 +281,7 @@ if(existingAccountId == null || existingAccountId == "null")
 
 // 3. Account_Key custom field on Lead
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
-safeLeadAccountKey = leadAccountKey.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeLeadAccountKey != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
@@ -300,7 +300,7 @@ if(existingAccountId == null || existingAccountId == "null")
 }
 
 // 3. Lookup by normalized Company Name
-safeCompanyQuery = derivedCompany.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeCompanyQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeCompanyQuery + ")");
@@ -319,7 +319,7 @@ if(existingAccountId == null || existingAccountId == "null")
 }
 
 // 4. Lookup by Website (normalized domain)
-safeDomainQuery = derivedDomain.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeDomainQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + safeDomainQuery + ")");
