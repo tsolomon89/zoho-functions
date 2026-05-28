@@ -1,4 +1,4 @@
-string automation.convertLead2(String lead_id)
+string automation.convert_mql_lead_to_sql(String lead_id)
 {
 // ======================================================
 // convertLead2
@@ -45,7 +45,7 @@ VALUE_CLOSED = "Closed";
 // FETCH LEAD (baseline pattern: lead_id.toLong())
 // ======================================================
 leadId = lead_id.toLong();
-info "convertLead2 started for Lead ID:";
+info "convert_mql_lead_to_sql started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
 info "Lead record:";
