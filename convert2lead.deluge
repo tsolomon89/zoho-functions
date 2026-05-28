@@ -610,25 +610,35 @@ if(hasCodeOrMessage == true && hasContacts == false && hasAccounts == false && h
 // ======================================================
 // RESOLVE FINAL IDS (baseline pattern — direct .get())
 // ======================================================
-finalContactId = existingContactId;
-finalAccountId = existingAccountId;
-finalDealId = existingDealId;
+finalContactId = "";
 if(conversionResponse.get("Contacts") != null)
 {
 	finalContactId = conversionResponse.get("Contacts").toString();
 }
+
+if(finalContactId == null || finalContactId.toString().trim() == "" || finalContactId.toString().trim() == "null")
+{
+	return "FAILED: Lead was not converted into a Contact. Lead ID: " + leadId + " | Map: " + conversionMap.toString() + " | Response: " + conversionResponse.toString();
+}
+
+finalAccountId = "";
 if(conversionResponse.get("Accounts") != null)
 {
 	finalAccountId = conversionResponse.get("Accounts").toString();
 }
+if(finalAccountId == "" || finalAccountId == "null")
+{
+	finalAccountId = existingAccountId;
+}
+
+finalDealId = "";
 if(conversionResponse.get("Deals") != null)
 {
 	finalDealId = conversionResponse.get("Deals").toString();
 }
-
-if((finalContactId == null || finalContactId.trim() == "" || finalContactId == "null") && (finalAccountId == null || finalAccountId.trim() == "" || finalAccountId == "null"))
+if(finalDealId == "" || finalDealId == "null")
 {
-	return "FAILED: Converted Contact and Account IDs are both blank. Lead ID: " + leadId + " | Map: " + conversionMap.toString() + " | Response: " + conversionResponse.toString();
+	finalDealId = existingDealId;
 }
 
 info "Final Contact ID:";
