@@ -71,7 +71,7 @@ if(contactState == "")
 }
 // Read staging Product Interest string
 contactProductInterestStaging = ifnull(contactRecord.get("Product_Interest_Staging"),"").toString().trim();
-contactProductInterestStaging = contactProductInterestStaging.replaceAll(";",",");
+contactProductInterestStaging = contactProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 hasProductStaging = false;
 if(contactProductInterestStaging != "")
 {

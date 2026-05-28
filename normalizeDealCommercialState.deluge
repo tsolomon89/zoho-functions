@@ -77,7 +77,7 @@ else if(reasonForLoss != "")
 	dealLostReasons = reasonForLoss;
 }
 dealProductInterestStaging = ifnull(dealRecord.get("Product_Interest_Staging"),"").toString().trim();
-dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",");
+dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 hasProductStaging = false;
 if(dealProductInterestStaging != "")
 {

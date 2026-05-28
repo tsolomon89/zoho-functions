@@ -40,28 +40,18 @@ info dealRecord;
 // ======================================================
 dealStaging = ifnull(dealRecord.get("Product_Interest_Staging"),"").toString().trim();
 dealStaging = dealStaging.replaceAll(";",",");
-productInterestName = "";
-productInterest = dealRecord.get("Product_Interest");
-if(productInterest != null && productInterest.get("name") != null)
-{
-	productInterestName = productInterest.get("name").toString().trim();
-}
 productNamesList = List();
 if(dealStaging != "")
 {
 	parts = dealStaging.toList(",");
 	for each  part in parts
 	{
-		pName = part.trim();
+		pName = part.trim().replaceAll("\"","").replaceAll("'","");
 		if(pName != "" && !productNamesList.contains(pName))
 		{
 			productNamesList.add(pName);
 		}
 	}
-}
-if(productInterestName != "" && !productNamesList.contains(productInterestName))
-{
-	productNamesList.add(productInterestName);
 }
 // Read related Products list if readable/accessible
 relatedProducts = zoho.crm.getRelatedRecords("Products","Deals",dealId);
@@ -69,7 +59,7 @@ if(relatedProducts != null && relatedProducts.size() > 0)
 {
 	for each  relProd in relatedProducts
 	{
-		relName = ifnull(relProd.get("Product_Name"),"").toString().trim();
+		relName = ifnull(relProd.get("Product_Name"),"").toString().trim().replaceAll("\"","").replaceAll("'","");
 		if(relName != "" && !productNamesList.contains(relName))
 		{
 			productNamesList.add(relName);
