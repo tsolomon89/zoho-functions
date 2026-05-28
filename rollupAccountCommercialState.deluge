@@ -29,7 +29,7 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH ACCOUNT
 // ======================================================
-accountId = account_id.replaceAll("zcrm_","").trim().toLong();
+accountId = account_id.toLong();
 info "rollupAccountCommercialState started for Account ID:";
 info accountId;
 accountRecord = zoho.crm.getRecordById("Accounts",accountId);

@@ -25,7 +25,7 @@ UPDATE_EXPECTED_REVENUE = false;
 // ======================================================
 // FETCH DEAL
 // ======================================================
-dealId = deal_id.replaceAll("zcrm_","").trim().toLong();
+dealId = deal_id.toLong();
 info "syncDealProductsAndValue started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);

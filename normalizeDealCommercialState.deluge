@@ -43,7 +43,7 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH DEAL
 // ======================================================
-dealId = deal_id.replaceAll("zcrm_","").trim().toLong();
+dealId = deal_id.toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);
@@ -103,26 +103,15 @@ if(accountId == null || accountId == "null")
 {
 	accountId = "";
 }
-else
-{
-	accountId = accountId.replaceAll("zcrm_","").trim();
-}
 currentPrimaryContactId = "";
 contactLookup = dealRecord.get("Contact_Name");
-if(contactLookup != null && contactLookup.toString().contains("id"))
+if(contactLookup != null)
 {
-	if(contactLookup.get("id") != null)
-	{
-		currentPrimaryContactId = contactLookup.get("id").toString();
-	}
+	currentPrimaryContactId = contactLookup.get("id").toString();
 }
 if(currentPrimaryContactId == null || currentPrimaryContactId == "null")
 {
 	currentPrimaryContactId = "";
-}
-else
-{
-	currentPrimaryContactId = currentPrimaryContactId.replaceAll("zcrm_","").trim();
 }
 info "Deal Stage:";
 info dealStage;
@@ -380,7 +369,7 @@ if(accountId != "")
 			candidateContactId = "";
 			if(accountContact.get("id") != null)
 			{
-				candidateContactId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
+				candidateContactId = accountContact.get("id").toString();
 			}
 			if(candidateContactId == "null")
 			{
@@ -488,7 +477,7 @@ if(currentPrimaryContactId != "")
 		{
 			if(accountContact.get("id") != null)
 			{
-				processedIds.add(accountContact.get("id").toString().replaceAll("zcrm_","").trim());
+				processedIds.add(accountContact.get("id").toString());
 			}
 		}
 	}
@@ -671,9 +660,7 @@ info rollupOpportunity;
 dealUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	contactLookupMap = Map();
-	contactLookupMap.put("id", rollupPrimaryContactId.replaceAll("zcrm_","").trim().toLong());
-	dealUpdateMap.put("Contact_Name", contactLookupMap);
+	dealUpdateMap.put("Contact_Name", rollupPrimaryContactId);
 }
 dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY, rollupOpportunity);
 dealUpdateMap.put(FIELD_DEAL_STAGE, rollupStage);

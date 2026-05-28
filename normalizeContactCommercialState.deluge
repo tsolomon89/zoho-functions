@@ -43,7 +43,7 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH CONTACT
 // ======================================================
-contactId = contact_id.replaceAll("zcrm_","").trim().toLong();
+contactId = contact_id.toLong();
 info "normalizeContactCommercialState started for Contact ID:";
 info contactId;
 contactRecord = zoho.crm.getRecordById("Contacts",contactId);
@@ -82,24 +82,13 @@ if(contactProductInterestStaging != "")
 accountId = "";
 accountName = "";
 accountLookup = contactRecord.get("Account_Name");
-if(accountLookup != null && accountLookup.toString().contains("id"))
+if(accountLookup != null)
 {
-	if(accountLookup.get("id") != null)
-	{
-		accountId = accountLookup.get("id").toString();
-	}
+	accountId = accountLookup.get("id").toString();
 	if(accountLookup.get("name") != null)
 	{
 		accountName = accountLookup.get("name").toString();
 	}
-}
-if(accountId == null || accountId == "null")
-{
-	accountId = "";
-}
-else
-{
-	accountId = accountId.replaceAll("zcrm_","").trim();
 }
 info "Contact Stage:";
 info contactStage;
@@ -398,12 +387,12 @@ dealKey = dealKey.toLowerCase().trim();
 // STRICT IDEMPOTENT DEAL RESOLUTION (SINGLE-WRITER)
 // ======================================================
 dealKeySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-if(dealKeySearch == null || !dealKeySearch.toString().startsWith("[") || dealKeySearch.size() == 0)
+if(dealKeySearch == null || dealKeySearch.size() == 0)
 {
 	return "normalizeContactCommercialState completed. No matching Deal with Deal_Key: " + dealKey + " found under Account. No Deal rollup performed.";
 }
 existingDealRecord = dealKeySearch.get(0);
-finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+finalDealId = existingDealRecord.get("id").toString();
 dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
 dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 
@@ -467,7 +456,7 @@ if(accountContacts != null && accountContacts.size() > 0)
 		candidateContactId = "";
 		if(accountContact.get("id") != null)
 		{
-			candidateContactId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
+			candidateContactId = accountContact.get("id").toString();
 		}
 		if(candidateContactId == "null")
 		{
@@ -731,9 +720,7 @@ else if(rollupRank >= currentDealRank)
 dealRollupUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	contactLookupMap = Map();
-	contactLookupMap.put("id", rollupPrimaryContactId.toLong());
-	dealRollupUpdateMap.put("Contact_Name", contactLookupMap);
+	dealRollupUpdateMap.put("Contact_Name", rollupPrimaryContactId);
 }
 if(shouldUpdateStage == true)
 {
