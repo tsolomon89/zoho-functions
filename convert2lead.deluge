@@ -709,14 +709,36 @@ conversionMap = Map();
 conversionMap.put("overwrite",false);
 if(existingAccountId != "")
 {
-	conversionMap.put("Accounts",existingAccountId.replaceAll("zcrm_","").trim().toLong());
+	conversionMap.put("Accounts",existingAccountId.replaceAll("zcrm_","").trim());
 }
 if(existingContactId != "")
 {
-	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim().toLong());
+	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim());
 }
-// Note: We deliberately DO NOT put "Deals" in the conversion map to prevent implicit Zoho Deal creation.
-// convertLead2 will act as the single controlled direct Deal writer.
+if(existingDealId == "")
+{
+	dealMap = Map();
+	dealName = derivedCompany;
+	if(dealName == "")
+	{
+		dealName = firstName + " " + lastName;
+	}
+	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
+	dealMap.put("Deal_Name",dealName);
+	dealMap.put("Closing_Date",closingDate);
+	dealMap.put("Stage",targetOpportunity);
+	if(leadSource != "")
+	{
+		dealMap.put("Lead_Source",leadSource);
+	}
+	conversionMap.put("Deals",dealMap);
+	info "New Deal will be created via convertLead:";
+	info dealMap;
+}
+else
+{
+	info "Existing Deal found. No new Deal will be created in convertLead.";
+}
 
 info "Conversion map:";
 info conversionMap;
@@ -731,7 +753,7 @@ info conversionResponse;
 // ======================================================
 finalContactId = existingContactId;
 finalAccountId = existingAccountId;
-finalDealId = "";
+finalDealId = existingDealId;
 if(conversionResponse != null)
 {
 	if(conversionResponse.get("Contacts") != null)
@@ -742,6 +764,10 @@ if(conversionResponse != null)
 	{
 		finalAccountId = conversionResponse.get("Accounts").toString().replaceAll("zcrm_","").trim();
 	}
+	if(conversionResponse.get("Deals") != null)
+	{
+		finalDealId = conversionResponse.get("Deals").toString().replaceAll("zcrm_","").trim();
+	}
 }
 if(finalContactId == null || finalContactId == "null")
 {
@@ -750,6 +776,10 @@ if(finalContactId == null || finalContactId == "null")
 if(finalAccountId == null || finalAccountId == "null")
 {
 	finalAccountId = "";
+}
+if(finalDealId == null || finalDealId == "null")
+{
+	finalDealId = "";
 }
 info "Final Contact ID:";
 info finalContactId;
