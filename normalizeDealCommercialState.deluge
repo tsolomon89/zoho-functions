@@ -41,7 +41,7 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH DEAL
 // ======================================================
-dealId = deal_id.toLong();
+dealId = deal_id.replaceAll("zcrm_","").trim().toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
 dealRecord = zoho.crm.getRecordById("Deals",dealId);
@@ -312,7 +312,7 @@ anyOpenContact = false;
 anyOpenWorking = false;
 if(accountId != "")
 {
-	accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.toLong());
+	accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.replaceAll("zcrm_","").trim().toLong());
 	info "Account Contacts for temporary Deal rollup:";
 	info accountContacts;
 	if(accountContacts != null && accountContacts.size() > 0)
@@ -326,7 +326,7 @@ if(accountId != "")
 			}
 			if(candidateContactId != "")
 			{
-				candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.toLong());
+				candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.replaceAll("zcrm_","").trim().toLong());
 				if(candidateContact != null)
 				{
 					candidateStage = ifnull(candidateContact.get(FIELD_STAGE),DEFAULT_STAGE);

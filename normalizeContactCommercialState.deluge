@@ -41,7 +41,7 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH CONTACT
 // ======================================================
-contactId = contact_id.toLong();
+contactId = contact_id.replaceAll("zcrm_","").trim().toLong();
 info "normalizeContactCommercialState started for Contact ID:";
 info contactId;
 contactRecord = zoho.crm.getRecordById("Contacts",contactId);
@@ -308,7 +308,7 @@ bestOpenDeal = Map();
 bestLostDeal = Map();
 bestProductOpenDeal = Map();
 bestProductLostDeal = Map();
-relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",accountId.toLong());
+relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",accountId.replaceAll("zcrm_","").trim().toLong());
 info "Related Deals under Account:";
 info relatedDeals;
 if(relatedDeals != null && relatedDeals.size() > 0)
@@ -516,7 +516,7 @@ else
 // TEMPORARY CONTACT ROLLUP WITHOUT CONTACT ROLES
 // ======================================================
 rollupContactIds = List();
-accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.toLong());
+accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.replaceAll("zcrm_","").trim().toLong());
 info "Account Contacts for temporary rollup:";
 info accountContacts;
 if(accountContacts != null && accountContacts.size() > 0)
@@ -543,7 +543,7 @@ anyOpenContact = false;
 anyOpenWorking = false;
 for each  candidateContactId in rollupContactIds
 {
-	candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.toLong());
+	candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.replaceAll("zcrm_","").trim().toLong());
 	if(candidateContact != null)
 	{
 		candidateStage = ifnull(candidateContact.get(FIELD_STAGE),DEFAULT_STAGE);
@@ -751,7 +751,7 @@ if(contactProductInterestStaging != "")
 {
 	dealRollupUpdateMap.put("Product_Interest_Staging",contactProductInterestStaging);
 }
-updateDealRollupResponse = zoho.crm.updateRecord("Deals",finalDealId.toLong(),dealRollupUpdateMap);
+updateDealRollupResponse = zoho.crm.updateRecord("Deals",finalDealId.replaceAll("zcrm_","").trim().toLong(),dealRollupUpdateMap);
 info "Deal rollup update response:";
 info updateDealRollupResponse;
 // ======================================================

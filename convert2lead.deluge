@@ -37,7 +37,7 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH LEAD
 // ======================================================
-leadId = lead_id.toLong();
+leadId = lead_id.replaceAll("zcrm_","").trim().toLong();
 info "convertLead2 started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
@@ -181,7 +181,7 @@ if(email != "")
 	if(contactSearch != null && contactSearch.size() > 0)
 	{
 		existingContactRecord = contactSearch.get(0);
-		existingContactId = existingContactRecord.get("id").toString();
+		existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 if(existingContactId == "" && phone != "")
@@ -190,7 +190,7 @@ if(existingContactId == "" && phone != "")
 	if(contactSearch != null && contactSearch.size() > 0)
 	{
 		existingContactRecord = contactSearch.get(0);
-		existingContactId = existingContactRecord.get("id").toString();
+		existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 info "Existing Contact ID:";
@@ -200,13 +200,17 @@ info existingContactId;
 // ======================================================
 existingAccountId = "";
 existingAccountRecord = Map();
-// 1. Linked Account of existing Contact
+// 1. Linked Account of existing Contact (Re-fetch to bypass search lookup null limit)
 if(existingContactId != "")
 {
-	linkedAccount = existingContactRecord.get("Account_Name");
-	if(linkedAccount != null && linkedAccount.get("id") != null)
+	existingContactRecord = zoho.crm.getRecordById("Contacts",existingContactId.toLong());
+	if(existingContactRecord != null)
 	{
-		existingAccountId = linkedAccount.get("id").toString();
+		linkedAccount = existingContactRecord.get("Account_Name");
+		if(linkedAccount != null && linkedAccount.get("id") != null)
+		{
+			existingAccountId = linkedAccount.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
 // 2. Account_Key custom field
@@ -217,7 +221,7 @@ if(existingAccountId == "" && leadAccountKey != "")
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
+		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 // 3. Lookup by normalized Company Name
@@ -227,7 +231,7 @@ if(existingAccountId == "" && derivedCompany != "")
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
+		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 // 4. Lookup by Website (normalized domain)
@@ -237,7 +241,7 @@ if(existingAccountId == "" && derivedDomain != "")
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
+		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 // 5. Lookup Account Name equals normalized domain
@@ -247,7 +251,7 @@ if(existingAccountId == "" && derivedDomain != "")
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
+		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 info "Existing Account ID:";
@@ -406,7 +410,7 @@ existingDealId = "";
 existingDealRecord = Map();
 if(existingAccountId != "")
 {
-	relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",existingAccountId.toLong());
+	relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",existingAccountId.replaceAll("zcrm_","").trim().toLong());
 	info "Related Deals under Account:";
 	info relatedDeals;
 	if(relatedDeals != null && relatedDeals.size() > 0)
@@ -535,15 +539,18 @@ info existingDealId;
 // ======================================================
 // BUILD CONVERSION MAP
 // ======================================================
+// ======================================================
+// BUILD CONVERSION MAP
+// ======================================================
 conversionMap = Map();
 conversionMap.put("overwrite",false);
 if(existingAccountId != "")
 {
-	conversionMap.put("Accounts",existingAccountId);
+	conversionMap.put("Accounts",existingAccountId.replaceAll("zcrm_","").trim().toLong());
 }
 if(existingContactId != "")
 {
-	conversionMap.put("Contacts",existingContactId);
+	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim().toLong());
 }
 // ======================================================
 // BUILD DEAL MAP ONLY IF NO EXISTING DEAL
@@ -562,26 +569,7 @@ if(existingDealId == "")
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealMap.put("Deal_Name",dealName);
 	dealMap.put("Closing_Date",closingDate);
-	dealMap.put(FIELD_OPPORTUNITY,targetOpportunity);
-	dealMap.put(FIELD_STAGE,targetStage);
-	dealMap.put(FIELD_STATE,derivedState);
-	dealMap.put(FIELD_STATUS,derivedStatus);
-	if(leadSource != "")
-	{
-		dealMap.put("Lead_Source",leadSource);
-	}
-	if(leadProductInterestStr != "")
-	{
-		dealMap.put("Product_Interest_Staging",leadProductInterestStr);
-	}
-	if(leadLostReasons != "")
-	{
-		dealMap.put("Reason_For_Loss",leadLostReasons);
-	}
-	if(leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
-	{
-		dealMap.put("Connected_To",leadRecord.get("Connected_To"));
-	}
+	dealMap.put("Stage",targetStage);
 	conversionMap.put("Deals",dealMap);
 }
 info "Conversion map:";
@@ -600,15 +588,15 @@ finalAccountId = existingAccountId;
 finalDealId = existingDealId;
 if(conversionResponse.get("Contacts") != null)
 {
-	finalContactId = conversionResponse.get("Contacts").toString();
+	finalContactId = conversionResponse.get("Contacts").toString().replaceAll("zcrm_","").trim();
 }
 if(conversionResponse.get("Accounts") != null)
 {
-	finalAccountId = conversionResponse.get("Accounts").toString();
+	finalAccountId = conversionResponse.get("Accounts").toString().replaceAll("zcrm_","").trim();
 }
 if(conversionResponse.get("Deals") != null)
 {
-	finalDealId = conversionResponse.get("Deals").toString();
+	finalDealId = conversionResponse.get("Deals").toString().replaceAll("zcrm_","").trim();
 }
 info "Final Contact ID:";
 info finalContactId;
@@ -634,10 +622,10 @@ if(finalDealId == "" && finalAccountId != "")
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealCreateMap.put("Deal_Name",dealName);
 	dealCreateMap.put("Closing_Date",closingDate);
-	dealCreateMap.put("Account_Name",finalAccountId);
+	dealCreateMap.put("Account_Name",finalAccountId.replaceAll("zcrm_","").trim().toLong());
 	if(finalContactId != "")
 	{
-		dealCreateMap.put("Contact_Name",finalContactId);
+		dealCreateMap.put("Contact_Name",finalContactId.replaceAll("zcrm_","").trim().toLong());
 	}
 	dealCreateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
 	dealCreateMap.put(FIELD_STAGE,targetStage);
@@ -664,7 +652,7 @@ if(finalDealId == "" && finalAccountId != "")
 	info createDealResponse;
 	if(createDealResponse != null && createDealResponse.get("id") != null)
 	{
-		finalDealId = createDealResponse.get("id").toString();
+		finalDealId = createDealResponse.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 // ======================================================
@@ -673,7 +661,7 @@ if(finalDealId == "" && finalAccountId != "")
 if(finalContactId != "")
 {
 	contactUpdateMap = Map();
-	currentContact = zoho.crm.getRecordById("Contacts",finalContactId.toLong());
+	currentContact = zoho.crm.getRecordById("Contacts",finalContactId.replaceAll("zcrm_","").trim().toLong());
 	if(ifnull(currentContact.get("First_Name"),"") == "" && firstName != "")
 	{
 		contactUpdateMap.put("First_Name",firstName);
@@ -747,7 +735,7 @@ if(finalContactId != "")
 	}
 	if(contactUpdateMap.size() > 0)
 	{
-		updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactId.toLong(),contactUpdateMap);
+		updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactId.replaceAll("zcrm_","").trim().toLong(),contactUpdateMap);
 		info "Contact updated/enriched:";
 		info updateContactResponse;
 	}
@@ -758,7 +746,7 @@ if(finalContactId != "")
 if(finalAccountId != "")
 {
 	accountUpdateMap = Map();
-	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountId.toLong());
+	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountId.replaceAll("zcrm_","").trim().toLong());
 	if(ifnull(currentAccount.get("Account_Name"),"") == "" && derivedCompany != "")
 	{
 		accountUpdateMap.put("Account_Name",derivedCompany);
@@ -806,21 +794,25 @@ if(finalAccountId != "")
 	}
 	if(accountUpdateMap.size() > 0)
 	{
-		updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountId.toLong(),accountUpdateMap);
+		updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountId.replaceAll("zcrm_","").trim().toLong(),accountUpdateMap);
 		info "Account updated/enriched:";
 		info updateAccountResponse;
 	}
 }
 // ======================================================
-// ENRICH MATCHED DEAL IF REUSED
+// ENRICH DEAL (NEW, REUSED, OR FALLBACK)
 // ======================================================
-if(finalDealId != "" && existingDealId != "")
+if(finalDealId != "")
 {
 	dealUpdateMap = Map();
 	dealUpdateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
 	dealUpdateMap.put(FIELD_STAGE,targetStage);
 	dealUpdateMap.put(FIELD_STATE,derivedState);
 	dealUpdateMap.put(FIELD_STATUS,derivedStatus);
+	if(leadSource != "")
+	{
+		dealUpdateMap.put("Lead_Source",leadSource);
+	}
 	if(leadProductInterestStr != "")
 	{
 		dealUpdateMap.put("Product_Interest_Staging",leadProductInterestStr);
@@ -829,8 +821,20 @@ if(finalDealId != "" && existingDealId != "")
 	{
 		dealUpdateMap.put("Reason_For_Loss",leadLostReasons);
 	}
-	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.toLong(),dealUpdateMap);
-	info "Reused Deal enriched:";
+	if(leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
+	{
+		dealUpdateMap.put("Connected_To",leadRecord.get("Connected_To"));
+	}
+	if(finalAccountId != "")
+	{
+		dealUpdateMap.put("Account_Name",finalAccountId.replaceAll("zcrm_","").trim().toLong());
+	}
+	if(finalContactId != "")
+	{
+		dealUpdateMap.put("Contact_Name",finalContactId.replaceAll("zcrm_","").trim().toLong());
+	}
+	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.replaceAll("zcrm_","").trim().toLong(),dealUpdateMap);
+	info "Deal enriched/updated post-conversion:";
 	info updateDealResponse;
 }
 // ======================================================
