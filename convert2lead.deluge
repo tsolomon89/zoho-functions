@@ -161,10 +161,13 @@ if(derivedAccountKey == "")
 }
 derivedAccountKey = derivedAccountKey.toLowerCase().trim();
 
-dealKey = derivedAccountKey + "::";
+derivedAccountKey = derivedAccountKey.toLowerCase().trim();
+derivedAccountKey = derivedAccountKey.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").replaceAll("&", "").replaceAll(" ","");
+
+dealKey = derivedAccountKey + "__";
 if(leadProductInterestStr != "")
 {
-	dealKey = dealKey + leadProductInterestStr;
+	dealKey = dealKey + leadProductInterestStr.replaceAll(",", "__").replaceAll(";", "__").replaceAll(" ", "").replaceAll(":", "").replaceAll("(", "").replaceAll(")", "");
 }
 else
 {
@@ -199,21 +202,39 @@ existingContactId = "";
 existingContactRecord = Map();
 if(email != "")
 {
-	contactSearch = zoho.crm.searchRecords("Contacts","(Email:equals:" + email + ")");
-	if(contactSearch != null && contactSearch.size() > 0)
+	safeEmail = email.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+	if(safeEmail != "")
 	{
-		existingContactRecord = contactSearch.get(0);
-		existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		contactSearch = zoho.crm.searchRecords("Contacts","(Email:equals:" + safeEmail + ")");
+		if(contactSearch != null && contactSearch.size() > 0)
+		{
+			existingContactRecord = contactSearch.get(0);
+			if(existingContactRecord.get("id") != null)
+			{
+				existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+		}
 	}
 }
 if(existingContactId == "" && phone != "")
 {
-	contactSearch = zoho.crm.searchRecords("Contacts","(Phone:equals:" + phone + ")");
-	if(contactSearch != null && contactSearch.size() > 0)
+	safePhone = phone.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+	if(safePhone != "")
 	{
-		existingContactRecord = contactSearch.get(0);
-		existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		contactSearch = zoho.crm.searchRecords("Contacts","(Phone:equals:" + safePhone + ")");
+		if(contactSearch != null && contactSearch.size() > 0)
+		{
+			existingContactRecord = contactSearch.get(0);
+			if(existingContactRecord.get("id") != null)
+			{
+				existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+		}
 	}
+}
+if(existingContactId == null || existingContactId == "null")
+{
+	existingContactId = "";
 }
 info "Existing Contact ID:";
 info existingContactId;
@@ -235,6 +256,11 @@ if(existingContactId != "")
 		}
 	}
 }
+if(existingAccountId == null || existingAccountId == "null")
+{
+	existingAccountId = "";
+}
+
 // 2. Search by derived Account_Key (highest priority key lookup)
 if(existingAccountId == "" && derivedAccountKey != "")
 {
@@ -242,49 +268,91 @@ if(existingAccountId == "" && derivedAccountKey != "")
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingAccountRecord.get("id") != null)
+		{
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
+if(existingAccountId == null || existingAccountId == "null")
+{
+	existingAccountId = "";
+}
+
 // 3. Account_Key custom field on Lead
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
-if(existingAccountId == "" && leadAccountKey != "")
+safeLeadAccountKey = leadAccountKey.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+if(existingAccountId == "" && safeLeadAccountKey != "")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + leadAccountKey + ")");
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingAccountRecord.get("id") != null)
+		{
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
+if(existingAccountId == null || existingAccountId == "null")
+{
+	existingAccountId = "";
+}
+
 // 3. Lookup by normalized Company Name
-if(existingAccountId == "" && derivedCompany != "")
+safeCompanyQuery = derivedCompany.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+if(existingAccountId == "" && safeCompanyQuery != "")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + derivedCompany + ")");
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeCompanyQuery + ")");
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingAccountRecord.get("id") != null)
+		{
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
+if(existingAccountId == null || existingAccountId == "null")
+{
+	existingAccountId = "";
+}
+
 // 4. Lookup by Website (normalized domain)
-if(existingAccountId == "" && derivedDomain != "")
+safeDomainQuery = derivedDomain.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+if(existingAccountId == "" && safeDomainQuery != "")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + derivedDomain + ")");
+	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + safeDomainQuery + ")");
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingAccountRecord.get("id") != null)
+		{
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
-// 5. Lookup Account Name equals normalized domain
-if(existingAccountId == "" && derivedDomain != "")
+if(existingAccountId == null || existingAccountId == "null")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + derivedDomain + ")");
+	existingAccountId = "";
+}
+
+// 5. Lookup Account Name equals normalized domain
+if(existingAccountId == "" && safeDomainQuery != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeDomainQuery + ")");
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingAccountRecord.get("id") != null)
+		{
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
+}
+if(existingAccountId == null || existingAccountId == "null")
+{
+	existingAccountId = "";
 }
 info "Existing Account ID:";
 info existingAccountId;
@@ -624,9 +692,16 @@ if(existingAccountId == "")
 		if(accountSearch != null && accountSearch.size() > 0)
 		{
 			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			if(existingAccountRecord.get("id") != null)
+			{
+				existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
 			info "Concurrency fallback: recovered existing Account ID after duplicate collision: " + existingAccountId;
 		}
+	}
+	if(existingAccountId == null || existingAccountId == "null")
+	{
+		existingAccountId = "";
 	}
 }
 
@@ -657,13 +732,24 @@ info conversionResponse;
 finalContactId = existingContactId;
 finalAccountId = existingAccountId;
 finalDealId = "";
-if(conversionResponse.get("Contacts") != null)
+if(conversionResponse != null)
 {
-	finalContactId = conversionResponse.get("Contacts").toString().replaceAll("zcrm_","").trim();
+	if(conversionResponse.get("Contacts") != null)
+	{
+		finalContactId = conversionResponse.get("Contacts").toString().replaceAll("zcrm_","").trim();
+	}
+	if(conversionResponse.get("Accounts") != null)
+	{
+		finalAccountId = conversionResponse.get("Accounts").toString().replaceAll("zcrm_","").trim();
+	}
 }
-if(conversionResponse.get("Accounts") != null)
+if(finalContactId == null || finalContactId == "null")
 {
-	finalAccountId = conversionResponse.get("Accounts").toString().replaceAll("zcrm_","").trim();
+	finalContactId = "";
+}
+if(finalAccountId == null || finalAccountId == "null")
+{
+	finalAccountId = "";
 }
 info "Final Contact ID:";
 info finalContactId;
@@ -681,8 +767,15 @@ if(finalAccountId != "")
 	if(dealKeySearch != null && dealKeySearch.size() > 0)
 	{
 		existingDealRecord = dealKeySearch.get(0);
-		finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		if(existingDealRecord.get("id") != null)
+		{
+			finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 		info "Idempotent search matched Deal via Deal_Key: " + finalDealId;
+	}
+	if(finalDealId == null || finalDealId == "null")
+	{
+		finalDealId = "";
 	}
 	
 	// 2. If not found by Deal_Key, search Deals under Account by stage rank/product fallback as secondary check
@@ -752,24 +845,40 @@ if(finalAccountId != "")
 			if(hasProductSignal == true && bestProductOpenRank > 0)
 			{
 				existingDealRecord = bestProductOpenDeal;
-				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				if(existingDealRecord.get("id") != null)
+				{
+					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				}
 			}
 			else if(bestOpenRank > 0)
 			{
 				existingDealRecord = bestOpenDeal;
-				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				if(existingDealRecord.get("id") != null)
+				{
+					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				}
 			}
 			else if(hasProductSignal == true && bestProductLostRank > 0)
 			{
 				existingDealRecord = bestProductLostDeal;
-				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				if(existingDealRecord.get("id") != null)
+				{
+					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				}
 			}
 			else if(bestLostRank > 0)
 			{
 				existingDealRecord = bestLostDeal;
-				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				if(existingDealRecord.get("id") != null)
+				{
+					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				}
 			}
 		}
+	}
+	if(finalDealId == null || finalDealId == "null")
+	{
+		finalDealId = "";
 	}
 	
 	// 3. If still not found, create Deal directly
@@ -824,11 +933,18 @@ if(finalAccountId != "")
 			if(dealKeySearch != null && dealKeySearch.size() > 0)
 			{
 				existingDealRecord = dealKeySearch.get(0);
-				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				if(existingDealRecord.get("id") != null)
+				{
+					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				}
 				info "Concurrency fallback: recovered existing Deal ID after duplicate collision: " + finalDealId;
 			}
 		}
 	}
+}
+if(finalDealId == null || finalDealId == "null")
+{
+	finalDealId = "";
 }
 info "Final Deal ID:";
 info finalDealId;

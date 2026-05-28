@@ -99,6 +99,14 @@ if(dealRecord.get("Account_Name") != null)
 		accountName = accountLookup.get("name").toString();
 	}
 }
+if(accountId == null || accountId == "null")
+{
+	accountId = "";
+}
+else
+{
+	accountId = accountId.replaceAll("zcrm_","").trim();
+}
 currentPrimaryContactId = "";
 if(dealRecord.get("Contact_Name") != null)
 {
@@ -107,6 +115,14 @@ if(dealRecord.get("Contact_Name") != null)
 	{
 		currentPrimaryContactId = contactLookup.get("id").toString();
 	}
+}
+if(currentPrimaryContactId == null || currentPrimaryContactId == "null")
+{
+	currentPrimaryContactId = "";
+}
+else
+{
+	currentPrimaryContactId = currentPrimaryContactId.replaceAll("zcrm_","").trim();
 }
 info "Deal Stage:";
 info dealStage;
@@ -324,11 +340,15 @@ if(accountId != "")
 			candidateContactId = "";
 			if(accountContact.get("id") != null)
 			{
-				candidateContactId = accountContact.get("id").toString();
+				candidateContactId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+			if(candidateContactId == "null")
+			{
+				candidateContactId = "";
 			}
 			if(candidateContactId != "")
 			{
-				candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.replaceAll("zcrm_","").trim().toLong());
+				candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.toLong());
 				if(candidateContact != null)
 				{
 					candidateStage = ifnull(candidateContact.get(FIELD_STAGE),DEFAULT_STAGE);

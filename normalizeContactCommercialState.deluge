@@ -93,6 +93,14 @@ if(contactRecord.get("Account_Name") != null)
 		accountName = accountLookup.get("name").toString();
 	}
 }
+if(accountId == null || accountId == "null")
+{
+	accountId = "";
+}
+else
+{
+	accountId = accountId.replaceAll("zcrm_","").trim();
+}
 info "Contact Stage:";
 info contactStage;
 info "Contact State:";
@@ -408,24 +416,41 @@ if(relatedDeals != null && relatedDeals.size() > 0)
 	if(hasProductStaging == true && bestProductOpenRank > 0)
 	{
 		existingDealRecord = bestProductOpenDeal;
-		existingDealId = existingDealRecord.get("id").toString();
+		if(existingDealRecord.get("id") != null)
+		{
+			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 	else if(bestOpenRank > 0)
 	{
 		existingDealRecord = bestOpenDeal;
-		existingDealId = existingDealRecord.get("id").toString();
+		if(existingDealRecord.get("id") != null)
+		{
+			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 	else if(hasProductStaging == true && bestProductLostRank > 0)
 	{
 		existingDealRecord = bestProductLostDeal;
-		existingDealId = existingDealRecord.get("id").toString();
+		if(existingDealRecord.get("id") != null)
+		{
+			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 	else if(bestLostRank > 0)
 	{
 		existingDealRecord = bestLostDeal;
-		existingDealId = existingDealRecord.get("id").toString();
+		if(existingDealRecord.get("id") != null)
+		{
+			existingDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		}
 	}
 }
+if(existingDealId == null || existingDealId == "null")
+{
+	existingDealId = "";
+}
+finalDealId = existingDealId;
 info "Selected Deal ID:";
 info existingDealId;
 // ======================================================
@@ -485,7 +510,11 @@ if(accountContacts != null && accountContacts.size() > 0)
 	{
 		if(accountContact.get("id") != null)
 		{
-			rollupContactIds.add(accountContact.get("id").toString());
+			cId = accountContact.get("id").toString().replaceAll("zcrm_","").trim();
+			if(cId != "" && cId != "null")
+			{
+				rollupContactIds.add(cId);
+			}
 		}
 	}
 }
