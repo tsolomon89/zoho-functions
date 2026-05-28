@@ -660,7 +660,9 @@ info rollupOpportunity;
 dealUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	dealUpdateMap.put("Contact_Name", {"id":rollupPrimaryContactId});
+	contactLookup = Map();
+	contactLookup.put("id",rollupPrimaryContactId);
+	dealUpdateMap.put("Contact_Name", contactLookup);
 }
 dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY, rollupOpportunity);
 dealUpdateMap.put(FIELD_DEAL_STAGE, rollupStage);

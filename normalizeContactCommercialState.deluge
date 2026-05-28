@@ -720,7 +720,9 @@ else if(rollupRank >= currentDealRank)
 dealRollupUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	dealRollupUpdateMap.put("Contact_Name", {"id":rollupPrimaryContactId});
+	contactLookup = Map();
+	contactLookup.put("id",rollupPrimaryContactId);
+	dealRollupUpdateMap.put("Contact_Name", contactLookup);
 }
 if(shouldUpdateStage == true)
 {
