@@ -716,7 +716,7 @@ else if(rollupStage == "Commercials Signed") { rollupRank = 6; }
 else if(rollupStage == "Onboarding") { rollupRank = 7; }
 else if(rollupStage == "Renewal") { rollupRank = 8; }
 
-dealCurrentState = ifnull(existingDealRecord.get(FIELD_DEAL_STATE), VALUE_OPEN);
+dealCurrentState = ifnull(existingDealRecord.get(FIELD_STATE), VALUE_OPEN);
 shouldUpdateStage = false;
 if(dealCurrentState == VALUE_LOST)
 {
