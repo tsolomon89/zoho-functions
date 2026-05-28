@@ -38,6 +38,10 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH LEAD
 // ======================================================
+if(lead_id == null || lead_id == "" || lead_id == "null")
+{
+	return "Failed: lead_id is empty or null.";
+}
 leadId = lead_id.replaceAll("zcrm_","").trim().toLong();
 info "convertLead2 started for Lead ID:";
 info leadId;
