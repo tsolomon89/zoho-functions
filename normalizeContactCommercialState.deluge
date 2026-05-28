@@ -726,7 +726,9 @@ else if(rollupStage == "Renewal")
 dealRollupUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	dealRollupUpdateMap.put("Contact_Name",rollupPrimaryContactId);
+	contactLookupMap = Map();
+	contactLookupMap.put("id", rollupPrimaryContactId.replaceAll("zcrm_","").trim().toLong());
+	dealRollupUpdateMap.put("Contact_Name", contactLookupMap);
 }
 // ONLY roll Stage/Opportunity forward, never backward
 if(rollupRank >= currentDealRank)

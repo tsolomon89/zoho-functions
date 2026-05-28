@@ -80,12 +80,16 @@ totalAmount = 0.0;
 resolvedCount = 0;
 for each  prodName in productNamesList
 {
-	prodSearch = zoho.crm.searchRecords("Products","(Product_Name:equals:" + prodName + ")");
-	if(prodSearch != null && prodSearch.size() > 0)
+	safeProdName = prodName.replaceAll(":", "").replaceAll(",", "").replaceAll("(", "").replaceAll(")", "").trim();
+	if(safeProdName != "")
 	{
-		price = ifnull(prodSearch.get(0).get(PRODUCT_VALUE_FIELD),"0").toDecimal();
-		totalAmount = totalAmount + price;
-		resolvedCount = resolvedCount + 1;
+		prodSearch = zoho.crm.searchRecords("Products","(Product_Name:equals:" + safeProdName + ")");
+		if(prodSearch != null && prodSearch.size() > 0)
+		{
+			price = ifnull(prodSearch.get(0).get(PRODUCT_VALUE_FIELD),"0").toDecimal();
+			totalAmount = totalAmount + price;
+			resolvedCount = resolvedCount + 1;
+		}
 	}
 }
 info "Resolved product count:";

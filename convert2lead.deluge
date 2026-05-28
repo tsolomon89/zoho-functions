@@ -893,10 +893,14 @@ if(finalAccountId != "")
 		closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 		dealCreateMap.put("Deal_Name",dealName);
 		dealCreateMap.put("Closing_Date",closingDate);
-		dealCreateMap.put("Account_Name",finalAccountId.toLong());
+		accountLookupMap = Map();
+		accountLookupMap.put("id", finalAccountId.toLong());
+		dealCreateMap.put("Account_Name", accountLookupMap);
 		if(finalContactId != "")
 		{
-			dealCreateMap.put("Contact_Name",finalContactId.toLong());
+			contactLookupMap = Map();
+			contactLookupMap.put("id", finalContactId.toLong());
+			dealCreateMap.put("Contact_Name", contactLookupMap);
 		}
 		dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
 		dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
@@ -1125,11 +1129,15 @@ if(finalDealId != "")
 	}
 	if(finalAccountId != "")
 	{
-		dealUpdateMap.put("Account_Name",finalAccountId.replaceAll("zcrm_","").trim().toLong());
+		accountLookupMap = Map();
+		accountLookupMap.put("id", finalAccountId.replaceAll("zcrm_","").trim().toLong());
+		dealUpdateMap.put("Account_Name", accountLookupMap);
 	}
 	if(finalContactId != "")
 	{
-		dealUpdateMap.put("Contact_Name",finalContactId.replaceAll("zcrm_","").trim().toLong());
+		contactLookupMap = Map();
+		contactLookupMap.put("id", finalContactId.replaceAll("zcrm_","").trim().toLong());
+		dealUpdateMap.put("Contact_Name", contactLookupMap);
 	}
 	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.replaceAll("zcrm_","").trim().toLong(),dealUpdateMap);
 	info "Deal enriched/updated post-conversion:";

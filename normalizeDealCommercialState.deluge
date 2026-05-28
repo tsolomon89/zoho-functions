@@ -534,7 +534,9 @@ info rollupOpportunity;
 dealUpdateMap = Map();
 if(rollupPrimaryContactId != "")
 {
-	dealUpdateMap.put("Contact_Name",rollupPrimaryContactId);
+	contactLookupMap = Map();
+	contactLookupMap.put("id", rollupPrimaryContactId.replaceAll("zcrm_","").trim().toLong());
+	dealUpdateMap.put("Contact_Name", contactLookupMap);
 }
 dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY,rollupOpportunity);
 dealUpdateMap.put(FIELD_DEAL_STAGE,rollupStage);
