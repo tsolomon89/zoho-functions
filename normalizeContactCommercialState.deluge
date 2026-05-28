@@ -398,13 +398,56 @@ dealKey = dealKey.toLowerCase().trim();
 // ======================================================
 // STRICT IDEMPOTENT DEAL RESOLUTION (SINGLE-WRITER)
 // ======================================================
-dealKeySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-if(dealKeySearch == null || dealKeySearch.size() == 0)
+existingDealRecord = null;
+finalDealId = "";
+
+// 1. Get Deals related to the Account
+accountDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
+info "normalizeContactCommercialState: related Deals for Account:";
+info accountDeals;
+
+if(accountDeals != null && accountDeals.toString().startsWith("[") && accountDeals.size() > 0)
+{
+	for each dealRec in accountDeals
+	{
+		dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
+		if(dKey == dealKey)
+		{
+			existingDealRecord = dealRec;
+			finalDealId = dealRec.get("id").toString();
+		}
+	}
+}
+
+// 2. Fallback: search by Account_Name if related records returns nothing
+if(finalDealId == "")
+{
+	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeAccountName != "")
+	{
+		fbSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
+		info "normalizeContactCommercialState: fallback Deal search by Account Name:";
+		info fbSearch;
+		if(fbSearch != null && fbSearch.toString().startsWith("[") && fbSearch.size() > 0)
+		{
+			for each dealRec in fbSearch
+			{
+				dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
+				if(dKey == dealKey)
+				{
+					existingDealRecord = dealRec;
+					finalDealId = dealRec.get("id").toString();
+				}
+			}
+		}
+	}
+}
+
+if(finalDealId == "")
 {
 	return "normalizeContactCommercialState completed. No matching Deal with Deal_Key: " + dealKey + " found under Account. No Deal rollup performed.";
 }
-existingDealRecord = dealKeySearch.get(0);
-finalDealId = existingDealRecord.get("id").toString();
+
 dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
 dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 
