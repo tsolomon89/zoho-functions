@@ -8,12 +8,12 @@ string automation.convertLead2(String lead_id)
 // - Lead updated
 //
 // Purpose:
-// - Lead is intake container.
-// - Validate conversion readiness.
-// - Convert Lead into Contact + Account + Deal.
-// - Avoid duplicate Contact / Account / Deal.
-// - Map Lead data forward.
-// - Pass Product_Interest forward.
+// - Lead is intake container. Always convert if minimal data exists.
+// - Derive clean Website domain & normalize Company names.
+// - Deduplicate Accounts using domain and lookup hierarchy.
+// - Map Phone correctly: Lead.Phone -> Contact.Phone, Lead.Company Phone -> Account.Phone.
+// - Copy Lead multi-select Product Interest text into Contact/Deal Product_Interest_Staging.
+// - Find or create/reuse Deal.
 // - Hand off to normalizeContactCommercialState.
 // ======================================================
 // ======================================================
@@ -57,6 +57,7 @@ website = ifnull(leadRecord.get("Website"),"");
 industry = ifnull(leadRecord.get("Industry"),"");
 email = ifnull(leadRecord.get("Email"),"");
 phone = ifnull(leadRecord.get("Phone"),"");
+companyPhone = ifnull(leadRecord.get("Company_Phone"),"");
 leadSource = ifnull(leadRecord.get("Lead_Source"),"");
 leadStage = ifnull(leadRecord.get(FIELD_STAGE),"");
 leadStatus = ifnull(leadRecord.get(FIELD_STATUS),"");
@@ -65,294 +66,109 @@ if(leadStage == "")
 {
 	leadStage = DEFAULT_STAGE;
 }
-productInterest = leadRecord.get(FIELD_PRODUCT_INTEREST);
-productInterestId = "";
-if(productInterest != null && productInterest.get("id") != null)
+// ======================================================
+// MULTI-SELECT STAGING PRODUCT INTEREST NAMES
+// ======================================================
+leadProductInterestStr = "";
+leadProductInterestObj = leadRecord.get("Product_Interest");
+if(leadProductInterestObj != null)
 {
-	productInterestId = productInterest.get("id").toString();
+	if(leadProductInterestObj.toString().startsWith("[") && leadProductInterestObj.toString().endsWith("]"))
+	{
+		leadProductInterestStr = leadProductInterestObj.toString().replaceAll("\\[","").replaceAll("\\]","");
+	}
+	else
+	{
+		leadProductInterestStr = leadProductInterestObj.toString();
+	}
 }
+leadProductInterestStr = leadProductInterestStr.replaceAll(";",",");
 info "Lead Stage:";
 info leadStage;
 info "Lead Status:";
 info leadStatus;
 info "Lead Lost Reasons:";
 info leadLostReasons;
-info "Lead Product Interest ID:";
-info productInterestId;
+info "Lead Product Interest Staging Str:";
+info leadProductInterestStr;
 // ======================================================
-// REQUIRED FIELD VALIDATION
-//
-// Product_Interest is not required at raw intake.
+// DOMAIN & IDENTITY DERIVATIONS
 // ======================================================
-missingFields = List();
-if(firstName == "")
+derivedCompany = companyName.trim();
+derivedWebsite = website.trim();
+derivedDomain = "";
+companyLooksLikeDomain = false;
+if(derivedCompany.contains(".") && !derivedCompany.contains(" "))
 {
-	missingFields.add("First_Name");
+	companyLooksLikeDomain = true;
 }
-if(lastName == "")
+if(derivedWebsite != "")
 {
-	missingFields.add("Last_Name");
-}
-if(companyName == "")
-{
-	missingFields.add("Company");
-}
-if(website == "")
-{
-	missingFields.add("Website");
-}
-if(industry == "")
-{
-	missingFields.add("Industry");
-}
-if(email == "")
-{
-	missingFields.add("Email");
-}
-if(phone == "")
-{
-	missingFields.add("Phone");
-}
-if(missingFields.size() > 0)
-{
-	info "Lead not converted. Missing required fields:";
-	info missingFields;
-	leadUpdateMap = Map();
-	if(ifnull(leadRecord.get(FIELD_STAGE),"") == "")
+	rawUrl = derivedWebsite;
+	normalizedDomain = rawUrl.toLowerCase().trim();
+	normalizedDomain = normalizedDomain.replaceAll("https://","");
+	normalizedDomain = normalizedDomain.replaceAll("http://","");
+	normalizedDomain = normalizedDomain.replaceAll("www.","");
+	if(normalizedDomain.contains("/"))
 	{
-		leadUpdateMap.put(FIELD_STAGE,DEFAULT_STAGE);
+		parts = normalizedDomain.toList("/");
+		normalizedDomain = parts.get(0);
 	}
-	if(leadLostReasons != "")
-	{
-		leadUpdateMap.put(FIELD_STATUS,VALUE_CLOSED);
-	}
-	else if(leadStatus == "")
-	{
-		leadUpdateMap.put(FIELD_STATUS,VALUE_NEW);
-	}
-	if(leadUpdateMap.size() > 0)
-	{
-		updateLeadResponse = zoho.crm.updateRecord("Leads",leadId,leadUpdateMap);
-		info "Lead lightly normalized but not converted:";
-		info updateLeadResponse;
-	}
-	return "Not converted. Missing required fields: " + missingFields.toString();
+	derivedDomain = normalizedDomain.trim();
 }
-// ======================================================
-// MARKETING CONSENT DETECTION
-// ======================================================
-marketingConsentCaptured = false;
-if(leadRecord.get("Marketing_Consent") != null)
+if(companyLooksLikeDomain == true && derivedWebsite == "")
 {
-	marketingConsentValue = leadRecord.get("Marketing_Consent").toString();
-	if(marketingConsentValue != "" && marketingConsentValue != "false" && marketingConsentValue != "False" && marketingConsentValue != "FALSE" && marketingConsentValue != "No" && marketingConsentValue != "no" && marketingConsentValue != "NO" && marketingConsentValue != "None" && marketingConsentValue != "null")
+	derivedWebsite = companyName.toLowerCase().trim();
+	rawUrl = derivedWebsite;
+	normalizedDomain = rawUrl.toLowerCase().trim();
+	normalizedDomain = normalizedDomain.replaceAll("https://","");
+	normalizedDomain = normalizedDomain.replaceAll("http://","");
+	normalizedDomain = normalizedDomain.replaceAll("www.","");
+	if(normalizedDomain.contains("/"))
 	{
-		marketingConsentCaptured = true;
+		parts = normalizedDomain.toList("/");
+		normalizedDomain = parts.get(0);
+	}
+	derivedDomain = normalizedDomain.trim();
+}
+if(derivedCompany == "" && derivedWebsite != "")
+{
+	derivedCompany = derivedDomain;
+}
+if(derivedCompany == "" && derivedWebsite == "" && email != "")
+{
+	if(email.contains("@"))
+	{
+		emailParts = email.toList("@");
+		emailDomain = emailParts.get(1).toLowerCase().trim();
+		derivedDomain = emailDomain;
+		derivedCompany = emailDomain;
+		derivedWebsite = emailDomain;
 	}
 }
-info "Marketing Consent captured:";
-info marketingConsentCaptured;
-// ======================================================
-// VALID STAGE CHECK
-// ======================================================
-validStage = false;
-if(leadStage == "Marketing Consent")
+if(derivedCompany == "")
 {
-	validStage = true;
-}
-else if(leadStage == "Demo Booking")
-{
-	validStage = true;
-}
-else if(leadStage == "Demo Booked")
-{
-	validStage = true;
-}
-else if(leadStage == "Demo Attended")
-{
-	validStage = true;
-}
-else if(leadStage == "Commercials Sent")
-{
-	validStage = true;
-}
-else if(leadStage == "Commercials Signed")
-{
-	validStage = true;
-}
-else if(leadStage == "Onboarding")
-{
-	validStage = true;
-}
-else if(leadStage == "Renewal")
-{
-	validStage = true;
-}
-if(validStage == false)
-{
-	return "Not converted. Invalid Stage: " + leadStage;
+	derivedCompany = "Unknown Account - " + leadId.toString();
 }
 // ======================================================
-// CONVERSION READINESS
+// PRE-CONVERSION UPDATE
+// Ensures mandatory fields on Leads are not empty for Zoho
 // ======================================================
-conversionReady = false;
-conversionBlockedReason = "";
-if(leadLostReasons != "")
+leadPreMap = Map();
+if(leadRecord.get("Company") == null || leadRecord.get("Company").toString().trim() == "")
 {
-	conversionReady = true;
+	leadPreMap.put("Company",derivedCompany);
 }
-else if(leadStage == "Marketing Consent")
+if(leadRecord.get("Last_Name") == null || leadRecord.get("Last_Name").toString().trim() == "")
 {
-	if(marketingConsentCaptured == true)
-	{
-		conversionReady = true;
-	}
-	else
-	{
-		conversionReady = false;
-		conversionBlockedReason = "Marketing Consent not captured.";
-	}
+	leadPreMap.put("Last_Name","Unknown");
 }
-else
+if(leadPreMap.size() > 0)
 {
-	conversionReady = true;
-}
-if(conversionReady == false)
-{
-	info "Lead not converted:";
-	info conversionBlockedReason;
-	leadUpdateMap2 = Map();
-	if(leadStatus == "")
-	{
-		leadUpdateMap2.put(FIELD_STATUS,VALUE_NEW);
-	}
-	if(leadUpdateMap2.size() > 0)
-	{
-		updateLeadResponse2 = zoho.crm.updateRecord("Leads",leadId,leadUpdateMap2);
-		info "Lead status lightly normalized:";
-		info updateLeadResponse2;
-	}
-	return "Not converted. " + conversionBlockedReason;
-}
-// ======================================================
-// TARGET OPPORTUNITY + TARGET STAGE
-//
-// Marketing Consent + consent captured + required fields
-// means MQL gate passed:
-//   SQL / Demo Booking
-//
-// Commercials Signed means FTP gate passed:
-//   RTP / Onboarding
-// ======================================================
-targetStage = leadStage;
-targetOpportunity = "MQL";
-if(leadLostReasons != "")
-{
-	if(leadStage == "Marketing Consent")
-	{
-		targetOpportunity = "MQL";
-		targetStage = "Marketing Consent";
-	}
-	else if(leadStage == "Demo Booking" || leadStage == "Demo Booked" || leadStage == "Demo Attended")
-	{
-		targetOpportunity = "SQL";
-		targetStage = leadStage;
-	}
-	else if(leadStage == "Commercials Sent" || leadStage == "Commercials Signed")
-	{
-		targetOpportunity = "FTP";
-		targetStage = leadStage;
-	}
-	else if(leadStage == "Onboarding" || leadStage == "Renewal")
-	{
-		targetOpportunity = "RTP";
-		targetStage = leadStage;
-	}
-}
-else
-{
-	if(leadStage == "Marketing Consent")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booking";
-	}
-	else if(leadStage == "Demo Booking")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booking";
-	}
-	else if(leadStage == "Demo Booked")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booked";
-	}
-	else if(leadStage == "Demo Attended")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Attended";
-	}
-	else if(leadStage == "Commercials Sent")
-	{
-		targetOpportunity = "FTP";
-		targetStage = "Commercials Sent";
-	}
-	else if(leadStage == "Commercials Signed")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(leadStage == "Onboarding")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(leadStage == "Renewal")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Renewal";
-	}
-}
-info "Target Opportunity:";
-info targetOpportunity;
-info "Target Stage:";
-info targetStage;
-// ======================================================
-// PRODUCT REQUIREDNESS
-//
-// Product_Interest required once entering FTP/RTP.
-// ======================================================
-productRequired = false;
-if(leadLostReasons == "")
-{
-	if(targetStage == "Commercials Sent" || targetStage == "Commercials Signed" || targetStage == "Onboarding" || targetStage == "Renewal")
-	{
-		productRequired = true;
-	}
-}
-if(productRequired == true && productInterestId == "")
-{
-	return "Not converted. Product_Interest is required for Stage: " + targetStage;
-}
-// ======================================================
-// DERIVE STATE + STATUS
-// ======================================================
-derivedState = VALUE_OPEN;
-if(leadLostReasons != "")
-{
-	derivedState = VALUE_LOST;
-}
-derivedStatus = VALUE_NEW;
-if(derivedState == VALUE_LOST)
-{
-	derivedStatus = VALUE_CLOSED;
-}
-else if(leadStatus == VALUE_WORKING)
-{
-	derivedStatus = VALUE_WORKING;
-}
-else
-{
-	derivedStatus = VALUE_NEW;
+	updateLeadResp = zoho.crm.updateRecord("Leads",leadId,leadPreMap);
+	info "Lead pre-conversion update response:";
+	info updateLeadResp;
+	companyName = derivedCompany;
 }
 // ======================================================
 // FIND EXISTING CONTACT
@@ -380,21 +196,54 @@ if(existingContactId == "" && phone != "")
 info "Existing Contact ID:";
 info existingContactId;
 // ======================================================
-// FIND EXISTING ACCOUNT
+// FIND EXISTING ACCOUNT (LOOKUP HIERARCHY)
 // ======================================================
 existingAccountId = "";
 existingAccountRecord = Map();
+// 1. Linked Account of existing Contact
 if(existingContactId != "")
 {
 	linkedAccount = existingContactRecord.get("Account_Name");
-	if(linkedAccount != null)
+	if(linkedAccount != null && linkedAccount.get("id") != null)
 	{
 		existingAccountId = linkedAccount.get("id").toString();
 	}
 }
-if(existingAccountId == "" && companyName != "")
+// 2. Account_Key custom field
+leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
+if(existingAccountId == "" && leadAccountKey != "")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + companyName + ")");
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + leadAccountKey + ")");
+	if(accountSearch != null && accountSearch.size() > 0)
+	{
+		existingAccountRecord = accountSearch.get(0);
+		existingAccountId = existingAccountRecord.get("id").toString();
+	}
+}
+// 3. Lookup by normalized Company Name
+if(existingAccountId == "" && derivedCompany != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + derivedCompany + ")");
+	if(accountSearch != null && accountSearch.size() > 0)
+	{
+		existingAccountRecord = accountSearch.get(0);
+		existingAccountId = existingAccountRecord.get("id").toString();
+	}
+}
+// 4. Lookup by Website (normalized domain)
+if(existingAccountId == "" && derivedDomain != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + derivedDomain + ")");
+	if(accountSearch != null && accountSearch.size() > 0)
+	{
+		existingAccountRecord = accountSearch.get(0);
+		existingAccountId = existingAccountRecord.get("id").toString();
+	}
+}
+// 5. Lookup Account Name equals normalized domain
+if(existingAccountId == "" && derivedDomain != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + derivedDomain + ")");
 	if(accountSearch != null && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
@@ -404,24 +253,157 @@ if(existingAccountId == "" && companyName != "")
 info "Existing Account ID:";
 info existingAccountId;
 // ======================================================
-// FIND EXISTING DEAL
-//
-// Lean conversion-side matching:
-// - If Product_Interest exists, prefer Deal under same Account
-//   with same Product_Interest.
-// - If no Product_Interest exists, reuse furthest open Deal.
-// - Detailed Contact Role / primary-contact logic happens later.
+// TARGET OPPORTUNITY & TARGET STAGE (ONTOLOGY RULES)
 // ======================================================
+targetStage = leadStage;
+targetOpportunity = "MQL";
+// Check if Marketing Consent is captured
+marketingConsentCaptured = false;
+marketingConsentValue = leadRecord.get("Marketing_Consent");
+if(marketingConsentValue != null)
+{
+	mStr = marketingConsentValue.toString().toLowerCase().trim();
+	if(mStr != "" && mStr != "false" && mStr != "no" && mStr != "null" && mStr != "0")
+	{
+		marketingConsentCaptured = true;
+	}
+}
+// Check commercial ready signals
+readyForCommercials = false;
+readyValObj = leadRecord.get("Ready_For_Commercials");
+if(readyValObj != null)
+{
+	rStr = readyValObj.toString().toLowerCase().trim();
+	if(rStr != "" && rStr != "false" && rStr != "no" && rStr != "null" && rStr != "0")
+	{
+		readyForCommercials = true;
+	}
+}
+demoOutcomeVal = ifnull(leadRecord.get("Demo_Outcome"),"").toString().trim();
+if(demoOutcomeVal == "Qualified" || demoOutcomeVal == "Proceed to Commercials" || demoOutcomeVal == "Proceed to Commercial Terms" || demoOutcomeVal == "Good Demo")
+{
+	readyForCommercials = true;
+}
+hasProductStaging = false;
+if(leadProductInterestStr != "")
+{
+	hasProductStaging = true;
+}
+if(leadLostReasons != "")
+{
+	if(leadStage == "Marketing Consent")
+	{
+		targetOpportunity = "MQL";
+		targetStage = "Marketing Consent";
+	}
+	else if(leadStage == "Demo Booking" || leadStage == "Demo Booked" || leadStage == "Demo Attended")
+	{
+		targetOpportunity = "SQL";
+		targetStage = leadStage;
+	}
+	else if(leadStage == "Commercials Sent" || leadStage == "Commercials Signed")
+	{
+		targetOpportunity = "FTP";
+		targetStage = leadStage;
+	}
+	else if(leadStage == "Onboarding" || leadStage == "Renewal")
+	{
+		targetOpportunity = "RTP";
+		targetStage = leadStage;
+	}
+}
+else
+{
+	if(leadStage == "Marketing Consent")
+	{
+		if(marketingConsentCaptured == true)
+		{
+			targetOpportunity = "SQL";
+			targetStage = "Demo Booking";
+		}
+		else
+		{
+			targetOpportunity = "MQL";
+			targetStage = "Marketing Consent";
+		}
+	}
+	else if(leadStage == "Demo Booking")
+	{
+		targetOpportunity = "SQL";
+		targetStage = "Demo Booking";
+	}
+	else if(leadStage == "Demo Booked")
+	{
+		targetOpportunity = "SQL";
+		targetStage = "Demo Booked";
+	}
+	else if(leadStage == "Demo Attended")
+	{
+		if(readyForCommercials == true && hasProductStaging == true)
+		{
+			targetOpportunity = "FTP";
+			targetStage = "Commercials Sent";
+		}
+		else
+		{
+			targetOpportunity = "SQL";
+			targetStage = "Demo Attended";
+		}
+	}
+	else if(leadStage == "Commercials Sent")
+	{
+		targetOpportunity = "FTP";
+		targetStage = "Commercials Sent";
+	}
+	else if(leadStage == "Commercials Signed")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Onboarding";
+	}
+	else if(leadStage == "Onboarding")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Onboarding";
+	}
+	else if(leadStage == "Renewal")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Renewal";
+	}
+}
+derivedState = VALUE_OPEN;
+if(leadLostReasons != "")
+{
+	derivedState = VALUE_LOST;
+}
+derivedStatus = VALUE_NEW;
+if(derivedState == VALUE_LOST)
+{
+	derivedStatus = VALUE_CLOSED;
+}
+else if(leadStatus == VALUE_WORKING)
+{
+	derivedStatus = VALUE_WORKING;
+}
+else
+{
+	derivedStatus = VALUE_NEW;
+}
+info "Target Opportunity:";
+info targetOpportunity;
+info "Target Stage:";
+info targetStage;
+// ======================================================
+// DEAL MATCHING & REUSABILITY
+// ======================================================
+leadProdList = leadProductInterestStr.toList(",");
+hasProductSignal = false;
+if(leadProdList.size() > 0 && leadProductInterestStr.trim() != "")
+{
+	hasProductSignal = true;
+}
 existingDealId = "";
 existingDealRecord = Map();
-bestOpenRank = 0;
-bestLostRank = 0;
-bestProductOpenRank = 0;
-bestProductLostRank = 0;
-bestOpenDeal = Map();
-bestLostDeal = Map();
-bestProductOpenDeal = Map();
-bestProductLostDeal = Map();
 if(existingAccountId != "")
 {
 	relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",existingAccountId.toLong());
@@ -429,6 +411,14 @@ if(existingAccountId != "")
 	info relatedDeals;
 	if(relatedDeals != null && relatedDeals.size() > 0)
 	{
+		bestProductOpenRank = 0;
+		bestProductOpenDeal = Map();
+		bestOpenRank = 0;
+		bestOpenDeal = Map();
+		bestProductLostRank = 0;
+		bestProductLostDeal = Map();
+		bestLostRank = 0;
+		bestLostDeal = Map();
 		for each  dealCandidate in relatedDeals
 		{
 			dealCandidateStage = ifnull(dealCandidate.get(FIELD_STAGE),"");
@@ -466,18 +456,22 @@ if(existingAccountId != "")
 			{
 				dealRank = 8;
 			}
-			dealProductMatches = false;
-			dealProductInterest = dealCandidate.get(FIELD_PRODUCT_INTEREST);
-			if(productInterestId != "" && dealProductInterest != null && dealProductInterest.get("id") != null)
+			productMatches = false;
+			dealStaging = ifnull(dealCandidate.get("Product_Interest_Staging"),"").toString();
+			if(hasProductSignal == true && dealStaging != "")
 			{
-				if(dealProductInterest.get("id").toString() == productInterestId)
+				for each  prodName in leadProdList
 				{
-					dealProductMatches = true;
+					trimmedName = prodName.trim();
+					if(trimmedName != "" && dealStaging.contains(trimmedName))
+					{
+						productMatches = true;
+					}
 				}
 			}
 			if(dealCandidateState == VALUE_LOST)
 			{
-				if(dealProductMatches == true)
+				if(productMatches == true)
 				{
 					if(dealRank > bestProductLostRank)
 					{
@@ -496,7 +490,7 @@ if(existingAccountId != "")
 			}
 			else
 			{
-				if(dealProductMatches == true)
+				if(productMatches == true)
 				{
 					if(dealRank > bestProductOpenRank)
 					{
@@ -514,35 +508,25 @@ if(existingAccountId != "")
 				}
 			}
 		}
-		if(productInterestId != "")
+		if(hasProductSignal == true && bestProductOpenRank > 0)
 		{
-			if(bestProductOpenRank > 0)
-			{
-				existingDealRecord = bestProductOpenDeal;
-				existingDealId = existingDealRecord.get("id").toString();
-			}
-			else if(bestProductLostRank > 0)
-			{
-				existingDealRecord = bestProductLostDeal;
-				existingDealId = existingDealRecord.get("id").toString();
-			}
-			else
-			{
-				info "No matching product-specific Deal found. A new Deal will be created.";
-			}
+			existingDealRecord = bestProductOpenDeal;
+			existingDealId = existingDealRecord.get("id").toString();
 		}
-		else
+		else if(bestOpenRank > 0)
 		{
-			if(bestOpenRank > 0)
-			{
-				existingDealRecord = bestOpenDeal;
-				existingDealId = existingDealRecord.get("id").toString();
-			}
-			else if(bestLostRank > 0)
-			{
-				existingDealRecord = bestLostDeal;
-				existingDealId = existingDealRecord.get("id").toString();
-			}
+			existingDealRecord = bestOpenDeal;
+			existingDealId = existingDealRecord.get("id").toString();
+		}
+		else if(hasProductSignal == true && bestProductLostRank > 0)
+		{
+			existingDealRecord = bestProductLostDeal;
+			existingDealId = existingDealRecord.get("id").toString();
+		}
+		else if(bestLostRank > 0)
+		{
+			existingDealRecord = bestLostDeal;
+			existingDealId = existingDealRecord.get("id").toString();
 		}
 	}
 }
@@ -567,9 +551,9 @@ if(existingContactId != "")
 if(existingDealId == "")
 {
 	dealMap = Map();
-	if(companyName != "")
+	if(derivedCompany != "")
 	{
-		dealName = companyName + " - " + targetOpportunity + " - " + targetStage;
+		dealName = derivedCompany + " - " + targetOpportunity + " - " + targetStage;
 	}
 	else
 	{
@@ -586,9 +570,9 @@ if(existingDealId == "")
 	{
 		dealMap.put("Lead_Source",leadSource);
 	}
-	if(productInterest != null)
+	if(leadProductInterestStr != "")
 	{
-		dealMap.put(FIELD_PRODUCT_INTEREST,productInterest);
+		dealMap.put("Product_Interest_Staging",leadProductInterestStr);
 	}
 	if(leadLostReasons != "")
 	{
@@ -634,9 +618,6 @@ info "Final Deal ID:";
 info finalDealId;
 // ======================================================
 // ENRICH CONTACT
-//
-// Fill blank fields only, but apply ontology fields from intake.
-// Full Contact rollup happens in normalizeContactCommercialState.
 // ======================================================
 if(finalContactId != "")
 {
@@ -690,9 +671,9 @@ if(finalContactId != "")
 	{
 		contactUpdateMap.put("Lead_Source",leadSource);
 	}
-	if(currentContact.get(FIELD_PRODUCT_INTEREST) == null && productInterest != null)
+	if(leadProductInterestStr != "")
 	{
-		contactUpdateMap.put(FIELD_PRODUCT_INTEREST,productInterest);
+		contactUpdateMap.put("Product_Interest_Staging",leadProductInterestStr);
 	}
 	if(ifnull(currentContact.get("Connected_To"),"") == "" && leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
 	{
@@ -722,21 +703,18 @@ if(finalContactId != "")
 }
 // ======================================================
 // ENRICH ACCOUNT
-//
-// Fill blank fields only.
-// Account State / Status rollup happens later.
 // ======================================================
 if(finalAccountId != "")
 {
 	accountUpdateMap = Map();
 	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountId.toLong());
-	if(ifnull(currentAccount.get("Account_Name"),"") == "" && companyName != "")
+	if(ifnull(currentAccount.get("Account_Name"),"") == "" && derivedCompany != "")
 	{
-		accountUpdateMap.put("Account_Name",companyName);
+		accountUpdateMap.put("Account_Name",derivedCompany);
 	}
-	if(ifnull(currentAccount.get("Website"),"") == "" && website != "")
+	if(ifnull(currentAccount.get("Website"),"") == "" && derivedWebsite != "")
 	{
-		accountUpdateMap.put("Website",website);
+		accountUpdateMap.put("Website",derivedWebsite);
 	}
 	if(ifnull(currentAccount.get("Industry"),"") == "" && industry != "")
 	{
@@ -754,9 +732,9 @@ if(finalAccountId != "")
 	{
 		accountUpdateMap.put("Employees",leadRecord.get("No_of_Employees"));
 	}
-	if(ifnull(currentAccount.get("Phone"),"") == "" && phone != "")
+	if(ifnull(currentAccount.get("Phone"),"") == "" && companyPhone != "")
 	{
-		accountUpdateMap.put("Phone",phone);
+		accountUpdateMap.put("Phone",companyPhone);
 	}
 	if(ifnull(currentAccount.get("Fax"),"") == "" && leadRecord.get("Fax") != null && leadRecord.get("Fax").toString() != "")
 	{
@@ -766,10 +744,6 @@ if(finalAccountId != "")
 	{
 		accountUpdateMap.put("Rating",leadRecord.get("Rating"));
 	}
-	if(currentAccount.get(FIELD_PRODUCT_INTEREST) == null && productInterest != null)
-	{
-		accountUpdateMap.put(FIELD_PRODUCT_INTEREST,productInterest);
-	}
 	if(accountUpdateMap.size() > 0)
 	{
 		updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountId.toLong(),accountUpdateMap);
@@ -778,10 +752,29 @@ if(finalAccountId != "")
 	}
 }
 // ======================================================
+// ENRICH MATCHED DEAL IF REUSED
+// ======================================================
+if(finalDealId != "" && existingDealId != "")
+{
+	dealUpdateMap = Map();
+	dealUpdateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
+	dealUpdateMap.put(FIELD_STAGE,targetStage);
+	dealUpdateMap.put(FIELD_STATE,derivedState);
+	dealUpdateMap.put(FIELD_STATUS,derivedStatus);
+	if(leadProductInterestStr != "")
+	{
+		dealUpdateMap.put("Product_Interest_Staging",leadProductInterestStr);
+	}
+	if(leadLostReasons != "")
+	{
+		dealUpdateMap.put("Reason_For_Loss",leadLostReasons);
+	}
+	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.toLong(),dealUpdateMap);
+	info "Reused Deal enriched:";
+	info updateDealResponse;
+}
+// ======================================================
 // HANDOFF TO CONTACT NORMALIZER
-//
-// normalizeContactCommercialState now exists, so this call
-// should save correctly.
 // ======================================================
 if(finalContactId != "")
 {

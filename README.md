@@ -58,54 +58,56 @@ The automation is divided into 5 modular Deluge custom functions.
 
 ### 1. Intake Processor: `convert2lead.deluge`
 *   **Trigger**: Lead Created or Updated.
-*   **Purpose**: Validates conversion readiness and safely processes the Lead into Contact, Account, and Deal records.
+*   **Purpose**: Implements an **always-convert policy**. Missing fields (e.g. Website, Industry, Phone, Consent, Product Interest) never block conversion. If absolute minimum Zoho fields (Last Name, Company) are empty, fallbacks are derived and pre-updated to ensure successful conversion.
 *   **Deduplication Trees**:
     1.  **Contact lookup**: Searches first by `Email`, then falls back to `Phone`.
     2.  **Account lookup**: Implements a strict priority lookup to prevent duplicate Accounts:
         *   Linked Account from matched Contact.
+        *   Account matching derived `Account_Key` if present on Lead.
         *   Account matching normalized Company name.
-        *   Account matching Website domain.
+        *   Account matching normalized Website domain.
+        *   Account matching normalized domain as Account Name.
         *   Fallback name: `Unknown Account - {Lead ID}`.
 *   **Data Integrity Mapping**:
-    *   **Phone Mapping**: Maps Lead `Phone` to Contact `Phone` only (**never** Account `Phone`).
-    *   **Website Domain Normalization**: Lowercases URLs and strips `https://`, `http://`, `www.`, and trailing `/` to ensure clean lookups.
-    *   **Product Interest Staging**: Treats Lead product interest as staging plain-text names to prevent lookup insertion errors.
+    *   **Phone Mapping**: Lead `Phone` maps strictly to `Contact.Phone` only (**never** Account `Phone`). Lead `Company Phone` maps strictly to `Account.Phone`.
+    *   **Website Domain Normalization**: Standardizes website/company URLs to lowercase and strips protocols (`http://`, `https://`), subdomains (`www.`), trailing slashes, and paths after the slash.
+    *   **Product Interest Staging**: Treats Lead product interest as staging plain-text names, writing the list to `Product_Interest_Staging` on converted Contacts and Deals instead of standard linked/join lookup fields.
+    *   **Deal Matching & Reusability**: Reuses an existing Deal under the Account matching the same product staging signal, or the furthest `Open` Deal, or the furthest `Lost` Deal, fallback to creating a new one if none matches.
 
 ### 2. Contact State Normalizer: `normalizeContactCommercialState.deluge`
 *   **Trigger**: Contact Created or Updated (or called from `convert2lead`).
-*   **Purpose**: Normalizes Contact `Stage`, `State`, and `Status` fields and orchestrates Deal generation or reuse.
+*   **Purpose**: Normalizes Contact Stage, State, and Status fields and orchestrates Deal generation or reuse.
 *   **Key Operations**:
-    *   Examines related `Calls`, `Events`, `Tasks`, and `Notes` to dynamically set status to `Working` if active.
-    *   Resolves the furthest stage among all Contacts under the parent Account.
-    *   Scans related Deals to find the best open, product-matching Deal for reuse.
-    *   Builds or updates the Deal and delegates execution to `syncDealProductsAndValue` and `rollupAccountCommercialState`.
+    *   Examines related Calls, Events, Tasks, and Notes to dynamically set status to `Working` if active, else `New` or `Closed`.
+    *   Applies Opportunity and Stage gates (capturing Marketing Consent, Commercial readiness, etc.).
+    *   **Regression Prevention**: Rollup Contact Stage to Deal Stage ONLY if the contact's stage rank is **higher** than the Deal's current stage rank. Related Contacts can never demote/move a Deal stage backward.
+    *   Triggers `syncDealProductsAndValue` and `rollupAccountCommercialState`.
 
 ### 3. Deal State Normalizer: `normalizeDealCommercialState.deluge`
 *   **Trigger**: Deal Created or Updated.
 *   **Purpose**: Validates commercial readiness gates, maps direct Deal edits to target opportunities, and rolls up contact stages.
 *   **Key Operations**:
     *   Permits manual stage updates as source inputs, translating them to active opportunities.
-    *   Aggregates the statuses of all related Account Contacts.
-    *   **No Backward Roll**: Prevents related Contacts from rolling a Deal stage backward below its direct target stage.
+    *   **Regression Prevention**: Prevents associated Contacts under the Account from rolling a Deal stage backward below its direct target stage.
     *   Triggers downstream Product syncs and Account rollups.
 
 ### 4. Product Syncer & Pricing Engine: `syncDealProductsAndValue.deluge`
-*   **Trigger**: Called by Contact/Deal normalizers, or Deal `Product_Interest` changes.
+*   **Trigger**: Called by Contact/Deal normalizers.
 *   **Purpose**: Queries products, associates them with the Deal, and aggregates their financial value.
 *   **Key Operations**:
-    *   Reads the `Product_Interest` lookup on the Deal.
-    *   Checks the `Products` related list (junction object) for the Deal.
-    *   If the product is not linked yet, links it via `zoho.crm.updateRelatedRecord`.
-    *   Retrieves all linked Products, fetches their full catalog details, sums their `Unit_Price`, and updates Deal `Amount`.
-    *   Includes a fallback calculation that parses pricing directly from the lookup if the related list query fails.
+    *   Extracts product staging signals from `Product_Interest_Staging` on the Deal (handling comma-separated plain text lists of product names).
+    *   Falls back to standard `Product_Interest` name lookup or related Products list.
+    *   Queries the `Products` module by `Product_Name` matching each staging name.
+    *   Sums up their matching catalog price (`Unit_Price`) and updates Deal `Amount`.
+    *   Gracefully returns without failure if no matching product is found.
 
 ### 5. Account Aggregator: `rollupAccountCommercialState.deluge`
-*   **Trigger**: Account Created/Updated, or called by normalizers.
+*   **Trigger**: Called by normalizers.
 *   **Purpose**: Dynamically rolls up commercial values and operational status onto the parent Account record.
 *   **Key Operations**:
     *   **Account State**: Automatically sets to `Open` if **any** associated Deal is `Open`. Sets to `Lost` **only** if all related Deals are marked `Lost`.
     *   **Account Status**: Sets to `Closed` if State is `Lost`. Sets to `Working` if any open Deal is `Working`. Otherwise, defaults to `New`.
-    *   **Product Rollup**: Pulls product interest from the furthest open Deal and updates the Account *only if* the Account product interest field is currently empty.
+    *   **Product Rollup**: Account-level Product Interest writes are disabled for now.
 
 ---
 
@@ -118,6 +120,6 @@ To prevent cascading execution loops, workflows must only trigger on **source fi
 | `Stage` | `Opportunity` |
 | `Marketing_Consent` | `State` |
 | `Lost_Reasons` | `Status` |
-| `Product_Interest (Staging)` | `Amount` |
+| `Product_Interest_Staging` | `Amount` |
 | `Ready_For_Commercials` | `Expected_Revenue` |
 | `Demo_Outcome` | |

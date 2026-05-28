@@ -4,24 +4,23 @@ string automation.rollupAccountCommercialState(String account_id)
 // rollupAccountCommercialState
 //
 // Trigger:
-// - Account created
-// - Account updated
 // - Called by Contact / Deal normalizers
 //
 // Purpose:
 // - Account is the aggregate commercial container.
 // - Roll Account State / Status from related Deals.
-// - Do not force Account Stage or Opportunity.
-// - Optionally fill Account.Product_Interest from furthest Open Deal
-//   only if Account.Product_Interest is blank.
+// - Account State = Open if any related Deal is Open.
+// - Account State = Lost only if all related Deals are Lost.
+// - Account Status = Closed only if Account State = Lost.
+// - Account Status = Working if any Open Deal is Working.
+// - Otherwise New.
+// - Disable Account-level Product_Interest writes.
 // ======================================================
 // ======================================================
 // CONFIG
 // ======================================================
-FIELD_STAGE = "Stage";
 FIELD_STATE = "State";
 FIELD_STATUS = "Status";
-FIELD_PRODUCT_INTEREST = "Product_Interest";
 VALUE_OPEN = "Open";
 VALUE_LOST = "Lost";
 VALUE_NEW = "New";
@@ -72,78 +71,19 @@ if(accountDeals == null || accountDeals.size() == 0)
 }
 // ======================================================
 // ROLLUP FROM RELATED DEALS
-//
-// Rule:
-// - Account State = Open if any related Deal is Open.
-// - Account State = Lost only if all related Deals are Lost.
-// - Account Status = Closed only if Account State = Lost.
-// - Account Status = Working if any Open Deal is Working.
-// - Otherwise New.
 // ======================================================
 accountHasOpenDeal = false;
 accountHasWorkingDeal = false;
-bestOpenDealRank = 0;
-bestLostDealRank = 0;
-bestOpenDealProductInterest = null;
-bestLostDealProductInterest = null;
 for each  accountDeal in accountDeals
 {
 	dealState = ifnull(accountDeal.get(FIELD_STATE),VALUE_OPEN);
 	dealStatus = ifnull(accountDeal.get(FIELD_STATUS),VALUE_NEW);
-	dealStage = ifnull(accountDeal.get(FIELD_STAGE),"");
-	dealProductInterest = accountDeal.get(FIELD_PRODUCT_INTEREST);
-	dealRank = 0;
-	if(dealStage == "Marketing Consent")
-	{
-		dealRank = 1;
-	}
-	else if(dealStage == "Demo Booking")
-	{
-		dealRank = 2;
-	}
-	else if(dealStage == "Demo Booked")
-	{
-		dealRank = 3;
-	}
-	else if(dealStage == "Demo Attended")
-	{
-		dealRank = 4;
-	}
-	else if(dealStage == "Commercials Sent")
-	{
-		dealRank = 5;
-	}
-	else if(dealStage == "Commercials Signed")
-	{
-		dealRank = 6;
-	}
-	else if(dealStage == "Onboarding")
-	{
-		dealRank = 7;
-	}
-	else if(dealStage == "Renewal")
-	{
-		dealRank = 8;
-	}
-	if(dealState == VALUE_LOST)
-	{
-		if(dealRank > bestLostDealRank)
-		{
-			bestLostDealRank = dealRank;
-			bestLostDealProductInterest = dealProductInterest;
-		}
-	}
-	else
+	if(dealState != VALUE_LOST)
 	{
 		accountHasOpenDeal = true;
 		if(dealStatus == VALUE_WORKING)
 		{
 			accountHasWorkingDeal = true;
-		}
-		if(dealRank > bestOpenDealRank)
-		{
-			bestOpenDealRank = dealRank;
-			bestOpenDealProductInterest = dealProductInterest;
 		}
 	}
 }
@@ -174,26 +114,6 @@ info accountRollupState;
 info "Derived Account Status:";
 info accountRollupStatus;
 // ======================================================
-// OPTIONAL PRODUCT INTEREST ROLLUP
-//
-// Only fill Account.Product_Interest if blank.
-// Prefer furthest Open Deal.
-// If all Deals are Lost, use furthest Lost Deal.
-// ======================================================
-accountProductInterest = accountRecord.get(FIELD_PRODUCT_INTEREST);
-productInterestToSet = null;
-if(accountProductInterest == null)
-{
-	if(bestOpenDealProductInterest != null)
-	{
-		productInterestToSet = bestOpenDealProductInterest;
-	}
-	else if(bestLostDealProductInterest != null)
-	{
-		productInterestToSet = bestLostDealProductInterest;
-	}
-}
-// ======================================================
 // UPDATE ACCOUNT
 // ======================================================
 accountUpdateMap = Map();
@@ -207,10 +127,7 @@ if(currentStatus != accountRollupStatus)
 {
 	accountUpdateMap.put(FIELD_STATUS,accountRollupStatus);
 }
-if(productInterestToSet != null)
-{
-	accountUpdateMap.put(FIELD_PRODUCT_INTEREST,productInterestToSet);
-}
+// Account Product Interest writes are disabled
 if(accountUpdateMap.size() > 0)
 {
 	updateAccountResponse = zoho.crm.updateRecord("Accounts",accountId,accountUpdateMap);

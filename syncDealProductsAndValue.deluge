@@ -5,32 +5,22 @@ string automation.syncDealProductsAndValue(String deal_id)
 //
 // Trigger:
 // - Called by normalizeContactCommercialState
-// - Later called by normalizeDealCommercialState
-// - Optional direct workflow when Deal.Product_Interest changes
+// - Called by normalizeDealCommercialState
 //
 // Purpose:
-// - Read Deal.Product_Interest.
-// - Link that Product to the Deal Products related list.
-// - Fetch all Products related to the Deal.
-// - Sum Product values.
+// - Resolve product staging signals from Product_Interest_Staging.
+// - Fallback to standard Product_Interest name or related Products list.
+// - Search matching Products by name.
+// - Sum product Unit_Price values.
 // - Update Deal Amount.
-//
-// Assumptions:
-// - Product_Interest is a single lookup to Products.
-// - Product value field is Unit_Price.
-// - Deal related-list API name for Products is Products.
-//
-// No invokeurl.
-// No connection link name required.
+// - Never block or fail the normalizer if product resolution is incomplete.
 // ======================================================
 // ======================================================
 // CONFIG
 // ======================================================
-FIELD_PRODUCT_INTEREST = "Product_Interest";
 FIELD_AMOUNT = "Amount";
 FIELD_EXPECTED_REVENUE = "Expected_Revenue";
 PRODUCT_VALUE_FIELD = "Unit_Price";
-DEAL_PRODUCTS_RELATED_LIST = "Products";
 UPDATE_EXPECTED_REVENUE = false;
 // ======================================================
 // FETCH DEAL
@@ -46,128 +36,76 @@ if(dealRecord == null)
 info "Deal record fetched:";
 info dealRecord;
 // ======================================================
-// READ DEAL PRODUCT INTEREST
+// EXTRACT PRODUCT STAGING SIGNALS
 // ======================================================
-productInterest = dealRecord.get(FIELD_PRODUCT_INTEREST);
-productInterestId = "";
+dealStaging = ifnull(dealRecord.get("Product_Interest_Staging"),"").toString().trim();
+dealStaging = dealStaging.replaceAll(";",",");
 productInterestName = "";
-if(productInterest != null)
+productInterest = dealRecord.get("Product_Interest");
+if(productInterest != null && productInterest.get("name") != null)
 {
-	if(productInterest.get("id") != null)
-	{
-		productInterestId = productInterest.get("id").toString();
-	}
-	if(productInterest.get("name") != null)
-	{
-		productInterestName = productInterest.get("name").toString();
-	}
+	productInterestName = productInterest.get("name").toString().trim();
 }
-info "Deal Product Interest ID:";
-info productInterestId;
-info "Deal Product Interest Name:";
-info productInterestName;
-// ======================================================
-// FETCH EXISTING DEAL PRODUCTS
-// ======================================================
-existingDealProducts = zoho.crm.getRelatedRecords(DEAL_PRODUCTS_RELATED_LIST,"Deals",dealId);
-info "Existing Deal Products:";
-info existingDealProducts;
-productAlreadyLinked = false;
-if(existingDealProducts != null && existingDealProducts.size() > 0 && productInterestId != "")
+productNamesList = List();
+if(dealStaging != "")
 {
-	for each  existingProduct in existingDealProducts
+	parts = dealStaging.toList(",");
+	for each  part in parts
 	{
-		existingProductId = "";
-		if(existingProduct.get("id") != null)
+		pName = part.trim();
+		if(pName != "" && !productNamesList.contains(pName))
 		{
-			existingProductId = existingProduct.get("id").toString();
-		}
-		if(existingProductId == productInterestId)
-		{
-			productAlreadyLinked = true;
+			productNamesList.add(pName);
 		}
 	}
 }
-info "Product Interest already linked to Deal Products:";
-info productAlreadyLinked;
-// ======================================================
-// LINK PRODUCT INTEREST TO DEAL PRODUCTS
-//
-// If this fails, the function still falls back to calculating
-// from Product_Interest itself.
-// ======================================================
-if(productInterestId != "" && productAlreadyLinked == false)
+if(productInterestName != "" && !productNamesList.contains(productInterestName))
 {
-	relationUpdateMap = Map();
-	linkProductResponse = zoho.crm.updateRelatedRecord(DEAL_PRODUCTS_RELATED_LIST,productInterestId.toLong(),"Deals",dealId,relationUpdateMap);
-	info "Link Product to Deal response:";
-	info linkProductResponse;
+	productNamesList.add(productInterestName);
+}
+// Read related Products list if readable/accessible
+relatedProducts = zoho.crm.getRelatedRecords("Products","Deals",dealId);
+if(relatedProducts != null && relatedProducts.size() > 0)
+{
+	for each  relProd in relatedProducts
+	{
+		relName = ifnull(relProd.get("Product_Name"),"").toString().trim();
+		if(relName != "" && !productNamesList.contains(relName))
+		{
+			productNamesList.add(relName);
+		}
+	}
+}
+info "Combined Product signals resolved for calculation:";
+info productNamesList;
+if(productNamesList.size() == 0)
+{
+	info "no product signal found";
+	return "syncDealProductsAndValue completed. no product signal found";
 }
 // ======================================================
-// RE-FETCH DEAL PRODUCTS AFTER LINK ATTEMPT
-// ======================================================
-dealProductsAfterSync = zoho.crm.getRelatedRecords(DEAL_PRODUCTS_RELATED_LIST,"Deals",dealId);
-info "Deal Products after sync:";
-info dealProductsAfterSync;
-// ======================================================
-// CALCULATE AMOUNT FROM RELATED PRODUCTS
+// RESOLVE PRICES FROM PRODUCTS MODULE & SUM
 // ======================================================
 totalAmount = 0.0;
-productCount = 0;
-if(dealProductsAfterSync != null && dealProductsAfterSync.size() > 0)
+resolvedCount = 0;
+for each  prodName in productNamesList
 {
-	for each  dealProduct in dealProductsAfterSync
+	prodSearch = zoho.crm.searchRecords("Products","(Product_Name:equals:" + prodName + ")");
+	if(prodSearch != null && prodSearch.size() > 0)
 	{
-		dealProductId = "";
-		if(dealProduct.get("id") != null)
-		{
-			dealProductId = dealProduct.get("id").toString();
-		}
-		if(dealProductId != "")
-		{
-			fullProductRecord = zoho.crm.getRecordById("Products",dealProductId.toLong());
-			info "Full Product record for amount calculation:";
-			info fullProductRecord;
-			if(fullProductRecord != null)
-			{
-				productValue = fullProductRecord.get(PRODUCT_VALUE_FIELD);
-				if(productValue != null && productValue.toString() != "")
-				{
-					totalAmount = totalAmount + productValue.toDecimal();
-					productCount = productCount + 1;
-				}
-			}
-		}
+		price = ifnull(prodSearch.get(0).get(PRODUCT_VALUE_FIELD),"0").toDecimal();
+		totalAmount = totalAmount + price;
+		resolvedCount = resolvedCount + 1;
 	}
 }
-// ======================================================
-// FALLBACK:
-// If the Products related list cannot be read or linked,
-// calculate amount from Product_Interest only.
-// ======================================================
-if(totalAmount == 0.0 && productInterestId != "")
-{
-	productInterestRecord = zoho.crm.getRecordById("Products",productInterestId.toLong());
-	info "Fallback Product Interest record:";
-	info productInterestRecord;
-	if(productInterestRecord != null)
-	{
-		productInterestValue = productInterestRecord.get(PRODUCT_VALUE_FIELD);
-		if(productInterestValue != null && productInterestValue.toString() != "")
-		{
-			totalAmount = productInterestValue.toDecimal();
-			productCount = 1;
-		}
-	}
-}
-info "Calculated Product Count:";
-info productCount;
-info "Calculated Deal Amount:";
+info "Resolved product count:";
+info resolvedCount;
+info "Total calculated Amount:";
 info totalAmount;
 // ======================================================
-// UPDATE DEAL VALUE
+// UPDATE DEAL AMOUNT
 // ======================================================
-if(totalAmount > 0)
+if(resolvedCount > 0)
 {
 	dealValueUpdateMap = Map();
 	dealValueUpdateMap.put(FIELD_AMOUNT,totalAmount);
@@ -178,10 +116,11 @@ if(totalAmount > 0)
 	updateDealValueResponse = zoho.crm.updateRecord("Deals",dealId,dealValueUpdateMap);
 	info "Deal value update response:";
 	info updateDealValueResponse;
-	return "syncDealProductsAndValue completed. Deal: " + dealId + " Amount: " + totalAmount + " Product Count: " + productCount;
+	return "syncDealProductsAndValue completed. amount calculated and updated: " + totalAmount;
 }
 else
 {
-	return "syncDealProductsAndValue completed. No product value found. Deal: " + dealId;
+	info "product signal found but no product record matched";
+	return "syncDealProductsAndValue completed. product signal found but no product record matched";
 }
 }

@@ -22,11 +22,11 @@ The Lead object is not the durable source of truth. **Contacts, Accounts, Deals,
 
 ### Main Failures Corrected
 
-1.  **Duplicate Accounts**: Re-assigning existing accounts or using sophisticated lookup priority to prevent bulk-import duplicates.
-2.  **Phone Mapping**: Lead Phone must map to Contact Phone only (never Account Phone).
-3.  **Missing Deals**: Always attempt to create or reuse a Deal when converting.
-4.  **Conversion Gates**: Conversion should happen first. Validation only determines where the record lands in the ontology, not whether it is converted.
-5.  **Product Interest**: Correct multi-select staging values and map them to Products via lookup resolution.
+1.  **Duplicate Accounts**: Preventing duplicates by implementing a strict Account lookup priority tree using Contact lookup, `Account_Key`, normalized Company Name, and normalized Website domains.
+2.  **Phone Mapping**: Lead `Phone` maps strictly to `Contact.Phone` only (**never** Account `Phone`). Lead `Company Phone` maps strictly to `Account.Phone`.
+3.  **Missing Deals**: Reusing or creating a Deal during conversion, matching by account plus product staging signal, furthest Open Deal, or furthest Lost Deal fallback.
+4.  **Conversion Gates**: Conversion happens first (Zero-Block Always-Convert). Validation and data quality only determine where the converted Contact / Deal lands in the ontology.
+5.  **Product Interest Staging**: Correcting Lead multi-select staging values as plain text, mapping them to the staging field `Product_Interest_Staging` on Contacts and Deals, and resolving them against Products to sum Unit Prices for `Deal.Amount` calculations.
 
 ---
 
