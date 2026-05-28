@@ -25,6 +25,8 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_OPPORTUNITY = "Opportunity";
+FIELD_DEAL_OPPORTUNITY = "Stage";
+FIELD_DEAL_STAGE = "Stage_1";
 FIELD_LOST_REASONS = "Lost_Reasons";
 FIELD_PRODUCT_INTEREST = "Product_Interest";
 FIELD_READY_FOR_COMMERCIALS = "Ready_For_Commercials";
@@ -447,8 +449,8 @@ if(finalDealId == "")
 	dealCreateMap.put("Closing_Date",closingDate);
 	dealCreateMap.put("Account_Name",accountId);
 	dealCreateMap.put("Contact_Name",contactId);
-	dealCreateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
-	dealCreateMap.put(FIELD_STAGE,targetStage);
+	dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
+	dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
 	dealCreateMap.put(FIELD_STATE,derivedState);
 	dealCreateMap.put(FIELD_STATUS,derivedStatus);
 	if(leadSource != "")
@@ -478,7 +480,7 @@ if(finalDealId == "")
 else
 {
 	// Fetch current Deal to inspect Stage Rank and prevent backward regressions
-	currentDealStage = ifnull(existingDealRecord.get(FIELD_STAGE),"");
+	currentDealStage = ifnull(existingDealRecord.get(FIELD_DEAL_STAGE),"");
 	if(currentDealStage == "Marketing Consent")
 	{
 		currentDealRank = 1;
@@ -742,8 +744,8 @@ if(rollupPrimaryContactId != "")
 // ONLY roll Stage/Opportunity forward, never backward
 if(rollupRank >= currentDealRank)
 {
-	dealRollupUpdateMap.put(FIELD_OPPORTUNITY,rollupOpportunity);
-	dealRollupUpdateMap.put(FIELD_STAGE,rollupStage);
+	dealRollupUpdateMap.put(FIELD_DEAL_OPPORTUNITY,rollupOpportunity);
+	dealRollupUpdateMap.put(FIELD_DEAL_STAGE,rollupStage);
 }
 dealRollupUpdateMap.put(FIELD_STATE,rollupState);
 dealRollupUpdateMap.put(FIELD_STATUS,rollupStatus);

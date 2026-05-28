@@ -24,6 +24,8 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_OPPORTUNITY = "Opportunity";
+FIELD_DEAL_OPPORTUNITY = "Stage";
+FIELD_DEAL_STAGE = "Stage_1";
 FIELD_LOST_REASONS = "Lost_Reasons";
 FIELD_PRODUCT_INTEREST = "Product_Interest";
 FIELD_READY_FOR_COMMERCIALS = "Ready_For_Commercials";
@@ -54,7 +56,7 @@ info dealRecord;
 // ======================================================
 // READ DEAL VALUES
 // ======================================================
-dealStage = ifnull(dealRecord.get(FIELD_STAGE),"");
+dealStage = ifnull(dealRecord.get(FIELD_DEAL_STAGE),"");
 dealStatus = ifnull(dealRecord.get(FIELD_STATUS),"");
 dealState = ifnull(dealRecord.get(FIELD_STATE),"");
 if(dealStage == "")
@@ -514,8 +516,8 @@ if(rollupPrimaryContactId != "")
 {
 	dealUpdateMap.put("Contact_Name",rollupPrimaryContactId);
 }
-dealUpdateMap.put(FIELD_OPPORTUNITY,rollupOpportunity);
-dealUpdateMap.put(FIELD_STAGE,rollupStage);
+dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY,rollupOpportunity);
+dealUpdateMap.put(FIELD_DEAL_STAGE,rollupStage);
 dealUpdateMap.put(FIELD_STATE,rollupState);
 dealUpdateMap.put(FIELD_STATUS,rollupStatus);
 updateDealResponse = zoho.crm.updateRecord("Deals",dealId,dealUpdateMap);

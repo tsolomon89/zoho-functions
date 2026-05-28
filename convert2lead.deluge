@@ -27,6 +27,8 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_OPPORTUNITY = "Opportunity";
+FIELD_DEAL_OPPORTUNITY = "Stage";
+FIELD_DEAL_STAGE = "Stage_1";
 FIELD_LOST_REASONS = "Lost_Reasons";
 FIELD_PRODUCT_INTEREST = "Product_Interest";
 VALUE_OPEN = "Open";
@@ -425,7 +427,7 @@ if(existingAccountId != "")
 		bestLostDeal = Map();
 		for each  dealCandidate in relatedDeals
 		{
-			dealCandidateStage = ifnull(dealCandidate.get(FIELD_STAGE),"");
+			dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
 			dealCandidateState = ifnull(dealCandidate.get(FIELD_STATE),VALUE_OPEN);
 			dealRank = 0;
 			if(dealCandidateStage == "Marketing Consent")
@@ -539,9 +541,59 @@ info existingDealId;
 // ======================================================
 // BUILD CONVERSION MAP
 // ======================================================
-// ======================================================
-// BUILD CONVERSION MAP
-// ======================================================
+// 1. Explicitly pre-create Account if existingAccountId is blank to prevent duplicate race conditions
+createAccountResponse = Map();
+if(existingAccountId == "")
+{
+	accountCreateMap = Map();
+	accountCreateMap.put("Account_Name",derivedCompany);
+	if(derivedWebsite != "")
+	{
+		accountCreateMap.put("Website",derivedWebsite);
+	}
+	derivedAccountKey = derivedDomain;
+	if(derivedAccountKey == "")
+	{
+		derivedAccountKey = derivedCompany;
+	}
+	accountCreateMap.put("Account_Key",derivedAccountKey);
+	if(industry != "")
+	{
+		accountCreateMap.put("Industry",industry);
+	}
+	if(companyPhone != "")
+	{
+		accountCreateMap.put("Phone",companyPhone);
+	}
+	if(leadRecord.get("Company_Linkedin") != null && leadRecord.get("Company_Linkedin").toString() != "")
+	{
+		accountCreateMap.put("Company_Linkedin",leadRecord.get("Company_Linkedin"));
+	}
+	if(leadRecord.get("Annual_Revenue") != null && leadRecord.get("Annual_Revenue").toString() != "")
+	{
+		accountCreateMap.put("Annual_Revenue",leadRecord.get("Annual_Revenue"));
+	}
+	if(leadRecord.get("No_of_Employees") != null && leadRecord.get("No_of_Employees").toString() != "")
+	{
+		accountCreateMap.put("Employees",leadRecord.get("No_of_Employees"));
+	}
+	if(leadRecord.get("Fax") != null && leadRecord.get("Fax").toString() != "")
+	{
+		accountCreateMap.put("Fax",leadRecord.get("Fax"));
+	}
+	if(leadRecord.get("Rating") != null && leadRecord.get("Rating").toString() != "")
+	{
+		accountCreateMap.put("Rating",leadRecord.get("Rating"));
+	}
+	createAccountResponse = zoho.crm.createRecord("Accounts",accountCreateMap);
+	info "Pre-conversion created Account response:";
+	info createAccountResponse;
+	if(createAccountResponse != null && createAccountResponse.get("id") != null)
+	{
+		existingAccountId = createAccountResponse.get("id").toString().replaceAll("zcrm_","").trim();
+	}
+}
+
 conversionMap = Map();
 conversionMap.put("overwrite",false);
 if(existingAccountId != "")
@@ -552,6 +604,7 @@ if(existingContactId != "")
 {
 	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim().toLong());
 }
+
 // ======================================================
 // BUILD DEAL MAP ONLY IF NO EXISTING DEAL
 // ======================================================
@@ -569,7 +622,18 @@ if(existingDealId == "")
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealMap.put("Deal_Name",dealName);
 	dealMap.put("Closing_Date",closingDate);
-	dealMap.put("Stage",targetStage);
+	dealMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
+	dealMap.put(FIELD_DEAL_STAGE,targetStage);
+	dealMap.put(FIELD_STATE,derivedState);
+	dealMap.put(FIELD_STATUS,derivedStatus);
+	if(leadSource != "")
+	{
+		dealMap.put("Lead_Source",leadSource);
+	}
+	if(leadProductInterestStr != "")
+	{
+		dealMap.put("Product_Interest_Staging",leadProductInterestStr);
+	}
 	conversionMap.put("Deals",dealMap);
 }
 info "Conversion map:";
@@ -608,6 +672,7 @@ info finalDealId;
 // POST-CONVERSION FALLBACK DEAL CREATION
 // If Zoho failed to create/reuse a Deal during convertLead, create one directly.
 // ======================================================
+fallbackDealResponse = Map();
 if(finalDealId == "" && finalAccountId != "")
 {
 	dealCreateMap = Map();
@@ -627,8 +692,8 @@ if(finalDealId == "" && finalAccountId != "")
 	{
 		dealCreateMap.put("Contact_Name",finalContactId.replaceAll("zcrm_","").trim().toLong());
 	}
-	dealCreateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
-	dealCreateMap.put(FIELD_STAGE,targetStage);
+	dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
+	dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
 	dealCreateMap.put(FIELD_STATE,derivedState);
 	dealCreateMap.put(FIELD_STATUS,derivedStatus);
 	if(leadSource != "")
@@ -647,12 +712,12 @@ if(finalDealId == "" && finalAccountId != "")
 	{
 		dealCreateMap.put("Connected_To",leadRecord.get("Connected_To"));
 	}
-	createDealResponse = zoho.crm.createRecord("Deals",dealCreateMap);
+	fallbackDealResponse = zoho.crm.createRecord("Deals",dealCreateMap);
 	info "Fallback created Deal response:";
-	info createDealResponse;
-	if(createDealResponse != null && createDealResponse.get("id") != null)
+	info fallbackDealResponse;
+	if(fallbackDealResponse != null && fallbackDealResponse.get("id") != null)
 	{
-		finalDealId = createDealResponse.get("id").toString().replaceAll("zcrm_","").trim();
+		finalDealId = fallbackDealResponse.get("id").toString().replaceAll("zcrm_","").trim();
 	}
 }
 // ======================================================
@@ -771,9 +836,13 @@ if(finalAccountId != "")
 	{
 		accountUpdateMap.put("Employees",leadRecord.get("No_of_Employees"));
 	}
-	if(ifnull(currentAccount.get("Phone"),"") == "" && companyPhone != "")
+	if(companyPhone != "")
 	{
 		accountUpdateMap.put("Phone",companyPhone);
+	}
+	else if(ifnull(currentAccount.get("Phone"),"").toString().trim() == phone.trim() && phone.trim() != "")
+	{
+		accountUpdateMap.put("Phone","");
 	}
 	if(ifnull(currentAccount.get("Fax"),"") == "" && leadRecord.get("Fax") != null && leadRecord.get("Fax").toString() != "")
 	{
@@ -805,8 +874,8 @@ if(finalAccountId != "")
 if(finalDealId != "")
 {
 	dealUpdateMap = Map();
-	dealUpdateMap.put(FIELD_OPPORTUNITY,targetOpportunity);
-	dealUpdateMap.put(FIELD_STAGE,targetStage);
+	dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
+	dealUpdateMap.put(FIELD_DEAL_STAGE,targetStage);
 	dealUpdateMap.put(FIELD_STATE,derivedState);
 	dealUpdateMap.put(FIELD_STATUS,derivedStatus);
 	if(leadSource != "")
@@ -836,6 +905,47 @@ if(finalDealId != "")
 	updateDealResponse = zoho.crm.updateRecord("Deals",finalDealId.replaceAll("zcrm_","").trim().toLong(),dealUpdateMap);
 	info "Deal enriched/updated post-conversion:";
 	info updateDealResponse;
+}
+// ======================================================
+// ADD DEBUG NOTE ON CONTACT OR ACCOUNT
+// ======================================================
+if(finalContactId != "")
+{
+	noteMap = Map();
+	noteMap.put("Parent_Id",finalContactId.replaceAll("zcrm_","").trim().toLong());
+	noteMap.put("$se_module","Contacts");
+	noteMap.put("Note_Title","Lead Conversion Debug Log");
+	noteContent = "Lead Conversion debug results:\n\n";
+	noteContent = noteContent + "- Lead ID: " + leadId.toString() + "\n";
+	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Account Pre-create Response: " + ifnull(createAccountResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Fallback Deal Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
+	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
+	noteContent = noteContent + "- Final Deal ID: " + finalDealId + "\n";
+	noteMap.put("Note_Content",noteContent);
+	createNoteResponse = zoho.crm.createRecord("Notes",noteMap);
+	info "Debug Note created on Contact:";
+	info createNoteResponse;
+}
+else if(finalAccountId != "")
+{
+	noteMap = Map();
+	noteMap.put("Parent_Id",finalAccountId.replaceAll("zcrm_","").trim().toLong());
+	noteMap.put("$se_module","Accounts");
+	noteMap.put("Note_Title","Lead Conversion Debug Log");
+	noteContent = "Lead Conversion debug results:\n\n";
+	noteContent = noteContent + "- Lead ID: " + leadId.toString() + "\n";
+	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Account Pre-create Response: " + ifnull(createAccountResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Fallback Deal Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
+	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
+	noteContent = noteContent + "- Final Deal ID: " + finalDealId + "\n";
+	noteMap.put("Note_Content",noteContent);
+	createNoteResponse = zoho.crm.createRecord("Notes",noteMap);
+	info "Debug Note created on Account:";
+	info createNoteResponse;
 }
 // ======================================================
 // HANDOFF TO CONTACT NORMALIZER
