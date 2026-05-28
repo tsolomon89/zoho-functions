@@ -553,7 +553,7 @@ if(existingDealId == "")
 	}
 	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 	dealMap.put("Deal_Name",dealName);
-	dealMap.put("Stage",targetOpportunity);
+	dealMap.put("Stage","SQL");
 	dealMap.put("Closing_Date",closingDate);
 	if(leadSource != "")
 	{
@@ -575,6 +575,38 @@ info conversionMap;
 conversionResponse = zoho.crm.convertLead(leadId,conversionMap);
 info "Conversion response:";
 info conversionResponse;
+
+if(conversionResponse == null)
+{
+	return "FAILED: conversionResponse is null. Lead conversion failed. Lead ID: " + leadId;
+}
+
+hasCodeOrMessage = false;
+if(conversionResponse.get("code") != null || conversionResponse.get("message") != null)
+{
+	hasCodeOrMessage = true;
+}
+hasContacts = false;
+if(conversionResponse.get("Contacts") != null && conversionResponse.get("Contacts").toString().trim() != "")
+{
+	hasContacts = true;
+}
+hasAccounts = false;
+if(conversionResponse.get("Accounts") != null && conversionResponse.get("Accounts").toString().trim() != "")
+{
+	hasAccounts = true;
+}
+hasDeals = false;
+if(conversionResponse.get("Deals") != null && conversionResponse.get("Deals").toString().trim() != "")
+{
+	hasDeals = true;
+}
+
+if(hasCodeOrMessage == true && hasContacts == false && hasAccounts == false && hasDeals == false)
+{
+	return "FAILED: Lead conversion error returned by Zoho. Response: " + conversionResponse.toString() + " | Lead ID: " + leadId + " | Map: " + conversionMap.toString();
+}
+
 // ======================================================
 // RESOLVE FINAL IDS (baseline pattern — direct .get())
 // ======================================================
@@ -593,6 +625,12 @@ if(conversionResponse.get("Deals") != null)
 {
 	finalDealId = conversionResponse.get("Deals").toString();
 }
+
+if((finalContactId == null || finalContactId.trim() == "" || finalContactId == "null") && (finalAccountId == null || finalAccountId.trim() == "" || finalAccountId == "null"))
+{
+	return "FAILED: Converted Contact and Account IDs are both blank. Lead ID: " + leadId + " | Map: " + conversionMap.toString() + " | Response: " + conversionResponse.toString();
+}
+
 info "Final Contact ID:";
 info finalContactId;
 info "Final Account ID:";
