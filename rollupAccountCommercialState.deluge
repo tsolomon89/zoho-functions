@@ -42,13 +42,13 @@ info accountRecord;
 // ======================================================
 // FETCH RELATED DEALS
 // ======================================================
-accountDeals = zoho.crm.getRelatedRecords("Deals","Accounts",accountId);
-info "Related Deals for Account rollup:";
+accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountId.toString() + ")");
+info "Related Deals for Account rollup via searchRecords:";
 info accountDeals;
 // ======================================================
 // IF NO DEALS, SET SAFE DEFAULTS
 // ======================================================
-if(accountDeals == null || accountDeals.size() == 0)
+if(accountDeals == null || !accountDeals.toString().startsWith("[") || accountDeals.size() == 0)
 {
 	accountNoDealsUpdateMap = Map();
 	currentAccountState = ifnull(accountRecord.get(FIELD_STATE),"");

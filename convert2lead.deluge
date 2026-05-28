@@ -510,10 +510,10 @@ existingDealId = "";
 existingDealRecord = Map();
 if(existingAccountId != "")
 {
-	relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",existingAccountId.replaceAll("zcrm_","").trim().toLong());
-	info "Related Deals under Account:";
+	relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + existingAccountId.replaceAll("zcrm_","").trim() + ")");
+	info "Related Deals under Account via searchRecords:";
 	info relatedDeals;
-	if(relatedDeals != null && relatedDeals.size() > 0)
+	if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
 	{
 		bestProductOpenRank = 0;
 		bestProductOpenDeal = Map();
@@ -811,8 +811,8 @@ if(finalAccountId != "")
 	// 2. If not found by Deal_Key, search Deals under Account by stage rank/product fallback as secondary check
 	if(finalDealId == "")
 	{
-		relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountId.toLong());
-		if(relatedDeals != null && relatedDeals.size() > 0)
+		relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + finalAccountId.replaceAll("zcrm_","").trim() + ")");
+		if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
 		{
 			bestProductOpenRank = 0;
 			bestProductOpenDeal = Map();
@@ -982,6 +982,19 @@ if(finalDealId == null || finalDealId == "null")
 }
 info "Final Deal ID:";
 info finalDealId;
+// ======================================================
+// LINK CONTACT TO DEAL
+// ======================================================
+if(finalDealId != "" && finalContactId != "")
+{
+	dealContactUpdateMap = Map();
+	contactLookupMap = Map();
+	contactLookupMap.put("id", finalContactId.toLong());
+	dealContactUpdateMap.put("Contact_Name", contactLookupMap);
+	updateDealContactResp = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealContactUpdateMap);
+	info "Associated Contact with Deal response:";
+	info updateDealContactResp;
+}
 // ======================================================
 // ENRICH CONTACT
 // ======================================================
