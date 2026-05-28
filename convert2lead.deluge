@@ -1,5 +1,7 @@
 string automation.convertLead2(String lead_id)
 {
+	return "CANARY: convertLead2 latest repo version is running. lead_id=" + lead_id;
+
 	DEAL_STAGE = "SQL";
 	DEFAULT_CLOSING_DAYS = 30;
 
