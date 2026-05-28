@@ -137,34 +137,5 @@ string automation.convertLead2(String lead_id)
 	info "Conversion response:";
 	info conversionResponse;
 
-	finalContactId = existingContactId;
-	finalAccountId = existingAccountId;
-	finalDealId = existingDealId;
-	if(conversionResponse.get("Contacts") != null)
-	{
-		finalContactId = conversionResponse.get("Contacts").toString();
-	}
-	if(conversionResponse.get("Accounts") != null)
-	{
-		finalAccountId = conversionResponse.get("Accounts").toString();
-	}
-	if(conversionResponse.get("Deals") != null)
-	{
-		finalDealId = conversionResponse.get("Deals").toString();
-	}
-	if(existingDealId != "" && finalContactId != "")
-	{
-		dealUpdateMap = Map();
-		dealUpdateMap.put("Contact_Name",finalContactId);
-		updateDealResponse = zoho.crm.updateRecord("Deals",existingDealId.toLong(),dealUpdateMap);
-		info "Existing Deal updated with Contact:";
-		info updateDealResponse;
-	}
-	info "Final Contact ID:";
-	info finalContactId;
-	info "Final Account ID:";
-	info finalAccountId;
-	info "Final Deal ID:";
-	info finalDealId;
-	return "Completed. Contact: " + finalContactId + " Account: " + finalAccountId + " Deal: " + finalDealId;
+	return "DEBUG convertLead response: " + conversionResponse.toString();
 }
