@@ -1,0 +1,642 @@
+string automation.normalizeDealCommercialState(String deal_id)
+{
+// ======================================================
+// normalizeDealCommercialState
+//
+// Trigger:
+// - Deal created
+// - Deal updated
+//
+// Purpose:
+// - Deal is the canonical commercial motion object.
+// - Normalize Deal Opportunity / Stage / State / Status.
+// - Use related Account Contacts as temporary rollup source.
+// - Set Deal.Contact_Name to furthest viable Contact where possible.
+// - Sync Deal Products + Amount.
+// - Roll Account commercial State / Status.
+//
+// Important:
+// - This version does NOT use Contact Roles API.
+// - No invokeurl.
+// - No connection link name required.
+// ======================================================
+// ======================================================
+// CONFIG
+// ======================================================
+DEFAULT_STAGE = "Marketing Consent";
+DEFAULT_STATE = "Open";
+DEFAULT_STATUS = "New";
+FIELD_STAGE = "Stage";
+FIELD_STATUS = "Status";
+FIELD_STATE = "State";
+FIELD_OPPORTUNITY = "Opportunity";
+FIELD_LOST_REASONS = "Lost_Reasons";
+FIELD_PRODUCT_INTEREST = "Product_Interest";
+FIELD_READY_FOR_COMMERCIALS = "Ready_For_Commercials";
+FIELD_DEMO_OUTCOME = "Demo_Outcome";
+FIELD_REASON_FOR_LOSS = "Reason_For_Loss";
+VALUE_OPEN = "Open";
+VALUE_LOST = "Lost";
+VALUE_NEW = "New";
+VALUE_WORKING = "Working";
+VALUE_CLOSED = "Closed";
+DEMO_OUTCOME_ADVANCE_VALUE_1 = "Qualified";
+DEMO_OUTCOME_ADVANCE_VALUE_2 = "Proceed to Commercials";
+DEMO_OUTCOME_ADVANCE_VALUE_3 = "Proceed to Commercial Terms";
+DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
+// ======================================================
+// FETCH DEAL
+// ======================================================
+dealId = deal_id.toLong();
+info "normalizeDealCommercialState started for Deal ID:";
+info dealId;
+dealRecord = zoho.crm.getRecordById("Deals",dealId);
+if(dealRecord == null)
+{
+	return "Failed: Deal not found.";
+}
+info "Deal record fetched:";
+info dealRecord;
+// ======================================================
+// READ DEAL VALUES
+// ======================================================
+dealStage = ifnull(dealRecord.get(FIELD_STAGE),"");
+dealStatus = ifnull(dealRecord.get(FIELD_STATUS),"");
+dealState = ifnull(dealRecord.get(FIELD_STATE),"");
+if(dealStage == "")
+{
+	dealStage = DEFAULT_STAGE;
+}
+if(dealState == "")
+{
+	dealState = DEFAULT_STATE;
+}
+dealLostReasons = "";
+customLostReasons = ifnull(dealRecord.get(FIELD_LOST_REASONS),"");
+reasonForLoss = ifnull(dealRecord.get(FIELD_REASON_FOR_LOSS),"");
+if(customLostReasons != "")
+{
+	dealLostReasons = customLostReasons;
+}
+else if(reasonForLoss != "")
+{
+	dealLostReasons = reasonForLoss;
+}
+productInterest = dealRecord.get(FIELD_PRODUCT_INTEREST);
+productInterestId = "";
+if(productInterest != null && productInterest.get("id") != null)
+{
+	productInterestId = productInterest.get("id").toString();
+}
+accountId = "";
+accountName = "";
+if(dealRecord.get("Account_Name") != null)
+{
+	accountLookup = dealRecord.get("Account_Name");
+	if(accountLookup.get("id") != null)
+	{
+		accountId = accountLookup.get("id").toString();
+	}
+	if(accountLookup.get("name") != null)
+	{
+		accountName = accountLookup.get("name").toString();
+	}
+}
+currentPrimaryContactId = "";
+if(dealRecord.get("Contact_Name") != null)
+{
+	contactLookup = dealRecord.get("Contact_Name");
+	if(contactLookup.get("id") != null)
+	{
+		currentPrimaryContactId = contactLookup.get("id").toString();
+	}
+}
+info "Deal Stage:";
+info dealStage;
+info "Deal State:";
+info dealState;
+info "Deal Status:";
+info dealStatus;
+info "Deal Lost Reasons:";
+info dealLostReasons;
+info "Deal Product Interest ID:";
+info productInterestId;
+info "Account ID:";
+info accountId;
+info "Current Primary Contact ID:";
+info currentPrimaryContactId;
+// ======================================================
+// VALID STAGE CHECK
+// ======================================================
+validStage = false;
+if(dealStage == "Marketing Consent")
+{
+	validStage = true;
+}
+else if(dealStage == "Demo Booking")
+{
+	validStage = true;
+}
+else if(dealStage == "Demo Booked")
+{
+	validStage = true;
+}
+else if(dealStage == "Demo Attended")
+{
+	validStage = true;
+}
+else if(dealStage == "Commercials Sent")
+{
+	validStage = true;
+}
+else if(dealStage == "Commercials Signed")
+{
+	validStage = true;
+}
+else if(dealStage == "Onboarding")
+{
+	validStage = true;
+}
+else if(dealStage == "Renewal")
+{
+	validStage = true;
+}
+if(validStage == false)
+{
+	return "Not normalized. Invalid Deal Stage: " + dealStage;
+}
+// ======================================================
+// MANUAL ACTIVITY CHECK
+//
+// First pass:
+// - Calls
+// - Events / Meetings
+// - Tasks
+// - Notes
+// ======================================================
+manualActivityExists = false;
+dealCalls = zoho.crm.getRelatedRecords("Calls","Deals",dealId);
+dealEvents = zoho.crm.getRelatedRecords("Events","Deals",dealId);
+dealTasks = zoho.crm.getRelatedRecords("Tasks","Deals",dealId);
+dealNotes = zoho.crm.getRelatedRecords("Notes","Deals",dealId);
+if(dealCalls != null && dealCalls.size() > 0)
+{
+	manualActivityExists = true;
+}
+if(dealEvents != null && dealEvents.size() > 0)
+{
+	manualActivityExists = true;
+}
+if(dealTasks != null && dealTasks.size() > 0)
+{
+	manualActivityExists = true;
+}
+if(dealNotes != null && dealNotes.size() > 0)
+{
+	manualActivityExists = true;
+}
+info "Manual activity exists:";
+info manualActivityExists;
+// ======================================================
+// COMMERCIAL READINESS CHECK
+// ======================================================
+readyForCommercials = false;
+if(dealRecord.get(FIELD_READY_FOR_COMMERCIALS) != null)
+{
+	readyValue = dealRecord.get(FIELD_READY_FOR_COMMERCIALS).toString();
+	if(readyValue != "" && readyValue != "false" && readyValue != "False" && readyValue != "FALSE" && readyValue != "No" && readyValue != "no" && readyValue != "NO" && readyValue != "None" && readyValue != "null")
+	{
+		readyForCommercials = true;
+	}
+}
+if(dealRecord.get(FIELD_DEMO_OUTCOME) != null)
+{
+	demoOutcome = dealRecord.get(FIELD_DEMO_OUTCOME).toString();
+	if(demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_1 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_2 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_3 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_4)
+	{
+		readyForCommercials = true;
+	}
+}
+info "Ready for Commercials:";
+info readyForCommercials;
+// ======================================================
+// DERIVE DEAL TARGET FROM DEAL ITSELF
+//
+// Direct Deal edits are allowed as source input here.
+// Related Contacts may roll the Deal further forward later,
+// but should not automatically roll a Deal backward.
+// ======================================================
+targetStage = dealStage;
+targetOpportunity = "MQL";
+if(dealLostReasons != "")
+{
+	if(dealStage == "Marketing Consent")
+	{
+		targetOpportunity = "MQL";
+		targetStage = "Marketing Consent";
+	}
+	else if(dealStage == "Demo Booking" || dealStage == "Demo Booked" || dealStage == "Demo Attended")
+	{
+		targetOpportunity = "SQL";
+		targetStage = dealStage;
+	}
+	else if(dealStage == "Commercials Sent" || dealStage == "Commercials Signed")
+	{
+		targetOpportunity = "FTP";
+		targetStage = dealStage;
+	}
+	else if(dealStage == "Onboarding" || dealStage == "Renewal")
+	{
+		targetOpportunity = "RTP";
+		targetStage = dealStage;
+	}
+}
+else
+{
+	if(dealStage == "Marketing Consent")
+	{
+		targetOpportunity = "MQL";
+		targetStage = "Marketing Consent";
+	}
+	else if(dealStage == "Demo Booking")
+	{
+		targetOpportunity = "SQL";
+		targetStage = "Demo Booking";
+	}
+	else if(dealStage == "Demo Booked")
+	{
+		targetOpportunity = "SQL";
+		targetStage = "Demo Booked";
+	}
+	else if(dealStage == "Demo Attended")
+	{
+		if(readyForCommercials == true && productInterestId != "")
+		{
+			targetOpportunity = "FTP";
+			targetStage = "Commercials Sent";
+		}
+		else
+		{
+			targetOpportunity = "SQL";
+			targetStage = "Demo Attended";
+		}
+	}
+	else if(dealStage == "Commercials Sent")
+	{
+		targetOpportunity = "FTP";
+		targetStage = "Commercials Sent";
+	}
+	else if(dealStage == "Commercials Signed")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Onboarding";
+	}
+	else if(dealStage == "Onboarding")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Onboarding";
+	}
+	else if(dealStage == "Renewal")
+	{
+		targetOpportunity = "RTP";
+		targetStage = "Renewal";
+	}
+}
+info "Initial Target Opportunity:";
+info targetOpportunity;
+info "Initial Target Stage:";
+info targetStage;
+// ======================================================
+// PRODUCT REQUIREDNESS
+// ======================================================
+productRequired = false;
+if(dealLostReasons == "")
+{
+	if(targetStage == "Commercials Sent" || targetStage == "Commercials Signed" || targetStage == "Onboarding" || targetStage == "Renewal")
+	{
+		productRequired = true;
+	}
+}
+if(productRequired == true && productInterestId == "")
+{
+	return "Not normalized. Product_Interest is required for Stage: " + targetStage;
+}
+// ======================================================
+// DERIVE DEAL STATE / STATUS FROM DEAL ITSELF
+// ======================================================
+derivedState = VALUE_OPEN;
+if(dealLostReasons != "")
+{
+	derivedState = VALUE_LOST;
+}
+derivedStatus = VALUE_NEW;
+if(derivedState == VALUE_LOST)
+{
+	derivedStatus = VALUE_CLOSED;
+}
+else if(dealStatus == VALUE_WORKING || manualActivityExists == true)
+{
+	derivedStatus = VALUE_WORKING;
+}
+else
+{
+	derivedStatus = VALUE_NEW;
+}
+// ======================================================
+// STAGE RANK FOR CURRENT DEAL TARGET
+// ======================================================
+targetRank = 0;
+if(targetStage == "Marketing Consent")
+{
+	targetRank = 1;
+}
+else if(targetStage == "Demo Booking")
+{
+	targetRank = 2;
+}
+else if(targetStage == "Demo Booked")
+{
+	targetRank = 3;
+}
+else if(targetStage == "Demo Attended")
+{
+	targetRank = 4;
+}
+else if(targetStage == "Commercials Sent")
+{
+	targetRank = 5;
+}
+else if(targetStage == "Commercials Signed")
+{
+	targetRank = 6;
+}
+else if(targetStage == "Onboarding")
+{
+	targetRank = 7;
+}
+else if(targetStage == "Renewal")
+{
+	targetRank = 8;
+}
+// ======================================================
+// TEMPORARY CONTACT ROLLUP WITHOUT CONTACT ROLES
+//
+// Use Contacts under the Account as rollup pool.
+// If Product_Interest exists, prefer matching Product_Interest.
+// Do not roll Deal backward below the Deal's direct target stage.
+// ======================================================
+bestOpenRank = 0;
+bestLostRank = 0;
+bestOpenContactId = "";
+bestLostContactId = "";
+bestOpenStage = "";
+bestLostStage = "";
+bestOpenProductInterest = null;
+bestLostProductInterest = null;
+anyOpenContact = false;
+anyOpenWorking = false;
+if(accountId != "")
+{
+	accountContacts = zoho.crm.getRelatedRecords("Contacts","Accounts",accountId.toLong());
+	info "Account Contacts for temporary Deal rollup:";
+	info accountContacts;
+	if(accountContacts != null && accountContacts.size() > 0)
+	{
+		for each  accountContact in accountContacts
+		{
+			candidateContactId = "";
+			if(accountContact.get("id") != null)
+			{
+				candidateContactId = accountContact.get("id").toString();
+			}
+			if(candidateContactId != "")
+			{
+				candidateContact = zoho.crm.getRecordById("Contacts",candidateContactId.toLong());
+				if(candidateContact != null)
+				{
+					candidateStage = ifnull(candidateContact.get(FIELD_STAGE),DEFAULT_STAGE);
+					candidateState = ifnull(candidateContact.get(FIELD_STATE),VALUE_OPEN);
+					candidateStatus = ifnull(candidateContact.get(FIELD_STATUS),VALUE_NEW);
+					candidateProductInterest = candidateContact.get(FIELD_PRODUCT_INTEREST);
+					candidateProductMatches = false;
+					if(productInterestId == "")
+					{
+						candidateProductMatches = true;
+					}
+					else if(candidateProductInterest != null && candidateProductInterest.get("id") != null)
+					{
+						if(candidateProductInterest.get("id").toString() == productInterestId)
+						{
+							candidateProductMatches = true;
+						}
+					}
+					if(candidateProductMatches == true)
+					{
+						candidateRank = 0;
+						if(candidateStage == "Marketing Consent")
+						{
+							candidateRank = 1;
+						}
+						else if(candidateStage == "Demo Booking")
+						{
+							candidateRank = 2;
+						}
+						else if(candidateStage == "Demo Booked")
+						{
+							candidateRank = 3;
+						}
+						else if(candidateStage == "Demo Attended")
+						{
+							candidateRank = 4;
+						}
+						else if(candidateStage == "Commercials Sent")
+						{
+							candidateRank = 5;
+						}
+						else if(candidateStage == "Commercials Signed")
+						{
+							candidateRank = 6;
+						}
+						else if(candidateStage == "Onboarding")
+						{
+							candidateRank = 7;
+						}
+						else if(candidateStage == "Renewal")
+						{
+							candidateRank = 8;
+						}
+						if(candidateState == VALUE_LOST)
+						{
+							if(candidateRank > bestLostRank)
+							{
+								bestLostRank = candidateRank;
+								bestLostContactId = candidateContactId;
+								bestLostStage = candidateStage;
+								bestLostProductInterest = candidateProductInterest;
+							}
+						}
+						else
+						{
+							anyOpenContact = true;
+							if(candidateStatus == VALUE_WORKING)
+							{
+								anyOpenWorking = true;
+							}
+							if(candidateRank > bestOpenRank)
+							{
+								bestOpenRank = candidateRank;
+								bestOpenContactId = candidateContactId;
+								bestOpenStage = candidateStage;
+								bestOpenProductInterest = candidateProductInterest;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+rollupPrimaryContactId = currentPrimaryContactId;
+rollupStage = targetStage;
+rollupState = derivedState;
+rollupStatus = derivedStatus;
+rollupProductInterest = productInterest;
+rollupOpportunity = targetOpportunity;
+if(anyOpenContact == true)
+{
+	if(bestOpenContactId != "")
+	{
+		rollupPrimaryContactId = bestOpenContactId;
+	}
+	rollupState = VALUE_OPEN;
+	if(anyOpenWorking == true || derivedStatus == VALUE_WORKING)
+	{
+		rollupStatus = VALUE_WORKING;
+	}
+	else
+	{
+		rollupStatus = VALUE_NEW;
+	}
+	// Only roll forward from Contacts, not backward.
+	if(bestOpenRank > targetRank)
+	{
+		rollupStage = bestOpenStage;
+		rollupProductInterest = bestOpenProductInterest;
+	}
+}
+else
+{
+	// If there are no open matching Contacts, preserve Deal source
+	// unless Deal itself is already Lost.
+	if(derivedState == VALUE_LOST)
+	{
+		rollupState = VALUE_LOST;
+		rollupStatus = VALUE_CLOSED;
+		if(bestLostContactId != "")
+		{
+			rollupPrimaryContactId = bestLostContactId;
+		}
+		if(bestLostRank > targetRank)
+		{
+			rollupStage = bestLostStage;
+			rollupProductInterest = bestLostProductInterest;
+		}
+	}
+}
+// ======================================================
+// DERIVE FINAL OPPORTUNITY FROM FINAL ROLLUP STAGE
+// ======================================================
+if(rollupState == VALUE_LOST)
+{
+	if(rollupStage == "Marketing Consent")
+	{
+		rollupOpportunity = "MQL";
+	}
+	else if(rollupStage == "Demo Booking" || rollupStage == "Demo Booked" || rollupStage == "Demo Attended")
+	{
+		rollupOpportunity = "SQL";
+	}
+	else if(rollupStage == "Commercials Sent" || rollupStage == "Commercials Signed")
+	{
+		rollupOpportunity = "FTP";
+	}
+	else if(rollupStage == "Onboarding" || rollupStage == "Renewal")
+	{
+		rollupOpportunity = "RTP";
+	}
+}
+else
+{
+	if(rollupStage == "Marketing Consent")
+	{
+		rollupOpportunity = "MQL";
+	}
+	else if(rollupStage == "Demo Booking" || rollupStage == "Demo Booked" || rollupStage == "Demo Attended")
+	{
+		rollupOpportunity = "SQL";
+	}
+	else if(rollupStage == "Commercials Sent")
+	{
+		rollupOpportunity = "FTP";
+	}
+	else if(rollupStage == "Commercials Signed")
+	{
+		rollupOpportunity = "RTP";
+		rollupStage = "Onboarding";
+	}
+	else if(rollupStage == "Onboarding" || rollupStage == "Renewal")
+	{
+		rollupOpportunity = "RTP";
+	}
+}
+info "Final Rollup Opportunity:";
+info rollupOpportunity;
+info "Final Rollup Stage:";
+info rollupStage;
+info "Final Rollup State:";
+info rollupState;
+info "Final Rollup Status:";
+info rollupStatus;
+info "Final Primary Contact:";
+info rollupPrimaryContactId;
+// ======================================================
+// UPDATE DEAL
+// ======================================================
+dealUpdateMap = Map();
+if(rollupPrimaryContactId != "")
+{
+	dealUpdateMap.put("Contact_Name",rollupPrimaryContactId);
+}
+dealUpdateMap.put(FIELD_OPPORTUNITY,rollupOpportunity);
+dealUpdateMap.put(FIELD_STAGE,rollupStage);
+dealUpdateMap.put(FIELD_STATE,rollupState);
+dealUpdateMap.put(FIELD_STATUS,rollupStatus);
+if(rollupProductInterest != null)
+{
+	dealUpdateMap.put(FIELD_PRODUCT_INTEREST,rollupProductInterest);
+}
+updateDealResponse = zoho.crm.updateRecord("Deals",dealId,dealUpdateMap);
+info "Deal normalized update response:";
+info updateDealResponse;
+// ======================================================
+// SYNC DEAL PRODUCTS + VALUE
+// ======================================================
+productSyncResponse = automation.syncDealProductsAndValue(dealId.toString());
+info "syncDealProductsAndValue response:";
+info productSyncResponse;
+// ======================================================
+// ROLLUP ACCOUNT
+// ======================================================
+if(accountId != "")
+{
+	accountRollupResponse = automation.rollupAccountCommercialState(accountId);
+	info "rollupAccountCommercialState response:";
+	info accountRollupResponse;
+}
+// ======================================================
+// FINAL RESULT
+// ======================================================
+resultMessage = "normalizeDealCommercialState completed. Deal: " + dealId + " Account: " + accountId + " State: " + rollupState + " Status: " + rollupStatus;
+info resultMessage;
+return resultMessage;
+}
