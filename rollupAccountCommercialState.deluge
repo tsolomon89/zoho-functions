@@ -29,6 +29,10 @@ VALUE_CLOSED = "Closed";
 // ======================================================
 // FETCH ACCOUNT
 // ======================================================
+if(account_id == null || account_id.toString().trim() == "" || account_id.toString().trim() == "null")
+{
+	return "rollupAccountCommercialState skipped: account_id is empty.";
+}
 accountId = account_id.toLong();
 info "rollupAccountCommercialState started for Account ID:";
 info accountId;

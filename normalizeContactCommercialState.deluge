@@ -43,6 +43,10 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH CONTACT
 // ======================================================
+if(contact_id == null || contact_id.toString().trim() == "" || contact_id.toString().trim() == "null")
+{
+	return "normalizeContactCommercialState skipped: contact_id is empty.";
+}
 contactId = contact_id.toLong();
 info "normalizeContactCommercialState started for Contact ID:";
 info contactId;

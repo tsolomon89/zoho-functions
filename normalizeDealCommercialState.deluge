@@ -43,6 +43,10 @@ DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH DEAL
 // ======================================================
+if(deal_id == null || deal_id.toString().trim() == "" || deal_id.toString().trim() == "null")
+{
+	return "normalizeDealCommercialState skipped: deal_id is empty.";
+}
 dealId = deal_id.toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
