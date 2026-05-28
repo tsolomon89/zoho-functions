@@ -669,13 +669,16 @@ if(existingDealId != "" && finalContactId != "")
 	info updateDealContactResp;
 }
 // ======================================================
-// FALLBACK DEAL CREATION
-// Only if conversion succeeded but returned no Deal AND no existing Deal
+// FALLBACK DEAL RECOVERY
+// Only if conversion succeeded but returned no Deal AND no existing Deal.
+// The native-created Deal may exist but lacks Deal_Key yet.
+// Search broadly before any direct create.
 // ======================================================
 fallbackDealResponse = Map();
 if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 {
-	// Search one more time by Deal_Key before creating
+	info "Fallback Deal recovery: no Deal ID from conversion. Searching broadly...";
+	// 1. Search by Deal_Key (may miss native Deal that lacks Deal_Key yet)
 	dealKeySearch2 = zoho.crm.searchRecords("Deals","(Deal_Key:equals:" + dealKey + ")");
 	if(dealKeySearch2 != null && dealKeySearch2.toString().startsWith("[") && dealKeySearch2.size() > 0)
 	{
@@ -686,36 +689,54 @@ if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 			info "Fallback: found Deal via Deal_Key search: " + finalDealId;
 		}
 	}
-	// If still no Deal, create one minimally
+	// 2. Search by Account_Name (company) — catches native Deal without Deal_Key
+	if(finalDealId == "" && safeCompanyQuery != "")
+	{
+		fbCompanySearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeCompanyQuery + ")");
+		if(fbCompanySearch != null && fbCompanySearch.toString().startsWith("[") && fbCompanySearch.size() > 0)
+		{
+			fbDealRecord = fbCompanySearch.get(0);
+			if(fbDealRecord != null && fbDealRecord.toString().contains("id") && fbDealRecord.get("id") != null)
+			{
+				finalDealId = fbDealRecord.get("id").toString();
+				info "Fallback: found Deal via Account_Name/company search: " + finalDealId;
+			}
+		}
+	}
+	// 3. Search by Account_Name (domain)
+	if(finalDealId == "" && safeDomainQuery != "")
+	{
+		fbDomainSearch = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeDomainQuery + ")");
+		if(fbDomainSearch != null && fbDomainSearch.toString().startsWith("[") && fbDomainSearch.size() > 0)
+		{
+			fbDealRecord = fbDomainSearch.get(0);
+			if(fbDealRecord != null && fbDealRecord.toString().contains("id") && fbDealRecord.get("id") != null)
+			{
+				finalDealId = fbDealRecord.get("id").toString();
+				info "Fallback: found Deal via Account_Name/domain search: " + finalDealId;
+			}
+		}
+	}
+	// 4. Related records on Account — catches Deal linked via Zoho relationship
 	if(finalDealId == "")
 	{
-		fbDealMap = Map();
-		fbDealName = derivedCompany;
-		if(leadProductInterestStr != "")
+		fbRelatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountId.replaceAll("zcrm_","").trim().toLong());
+		if(fbRelatedDeals != null && fbRelatedDeals.toString().startsWith("[") && fbRelatedDeals.size() > 0)
 		{
-			fbDealName = derivedCompany + " - " + leadProductInterestStr;
+			fbDealRecord = fbRelatedDeals.get(0);
+			if(fbDealRecord != null && fbDealRecord.toString().contains("id") && fbDealRecord.get("id") != null)
+			{
+				finalDealId = fbDealRecord.get("id").toString();
+				info "Fallback: found Deal via getRelatedRecords on Account: " + finalDealId;
+			}
 		}
-		fbClosingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
-		fbDealMap.put("Deal_Name",fbDealName);
-		fbDealMap.put("Closing_Date",fbClosingDate);
-		fbDealMap.put("Stage",targetOpportunity);
-		fbAccountLookup = Map();
-		fbAccountLookup.put("id",finalAccountId.replaceAll("zcrm_","").trim().toLong());
-		fbDealMap.put("Account_Name",fbAccountLookup);
-		fbContactLookup = Map();
-		fbContactLookup.put("id",finalContactId.replaceAll("zcrm_","").trim().toLong());
-		fbDealMap.put("Contact_Name",fbContactLookup);
-		if(leadSource != "")
-		{
-			fbDealMap.put("Lead_Source",leadSource);
-		}
-		fallbackDealResponse = zoho.crm.createRecord("Deals",fbDealMap);
-		info "Fallback Deal creation response:";
-		info fallbackDealResponse;
-		if(fallbackDealResponse != null && fallbackDealResponse.get("id") != null)
-		{
-			finalDealId = fallbackDealResponse.get("id").toString();
-		}
+	}
+	// 5. DISABLED: Direct Deal creation
+	// The native convertLead should always create a Deal when a Deal map is passed.
+	// If we reach here, something unexpected happened. Log it for diagnostics.
+	if(finalDealId == "")
+	{
+		info "WARNING: No Deal found after exhaustive fallback search. convertLead may not have created a Deal. Skipping direct create to prevent duplicates.";
 	}
 }
 if(finalDealId == null || finalDealId == "null")

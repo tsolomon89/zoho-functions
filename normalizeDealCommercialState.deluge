@@ -555,7 +555,7 @@ if(currentPrimaryContactId != "")
 					if(candidateRank > bestLostRank)
 					{
 						bestLostRank = candidateRank;
-						bestLostContactId = currentPrimaryContactId;
+						bestLostContactId = candidateContactId;
 						bestLostStage = candidateStage;
 						bestLostContactName = cFullName;
 					}
@@ -570,7 +570,7 @@ if(currentPrimaryContactId != "")
 					if(candidateRank > bestOpenRank)
 					{
 						bestOpenRank = candidateRank;
-						bestOpenContactId = currentPrimaryContactId;
+						bestOpenContactId = candidateContactId;
 						bestOpenStage = candidateStage;
 						bestOpenContactName = cFullName;
 					}

@@ -41,11 +41,24 @@ info "Account record fetched:";
 info accountRecord;
 // ======================================================
 // FETCH RELATED DEALS
+// Primary: use Account relationship via getRelatedRecords
+// Fallback: search by Account_Name if related records fails
 // ======================================================
 accountName = ifnull(accountRecord.get("Account_Name"),"");
-accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + accountName.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
-info "Related Deals for Account rollup via searchRecords:";
+accountDeals = zoho.crm.getRelatedRecords("Deals","Accounts",accountId);
+info "Related Deals via getRelatedRecords:";
 info accountDeals;
+// Fallback to searchRecords if getRelatedRecords returns nothing
+if(accountDeals == null || !accountDeals.toString().startsWith("[") || accountDeals.size() == 0)
+{
+	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeAccountName != "")
+	{
+		accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeAccountName + ")");
+		info "Related Deals fallback via searchRecords:";
+		info accountDeals;
+	}
+}
 // ======================================================
 // IF NO DEALS, SET SAFE DEFAULTS
 // ======================================================
