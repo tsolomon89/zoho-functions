@@ -164,15 +164,39 @@ derivedAccountKey = derivedAccountKey.toLowerCase().trim();
 derivedAccountKey = derivedAccountKey.toLowerCase().trim();
 derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
 
-dealKey = derivedAccountKey + "__";
+productKey = "general";
 if(leadProductInterestStr != "")
 {
-	dealKey = dealKey + leadProductInterestStr.replaceAll("[,;]", "__").replaceAll("[\\(\\)\\: ]", "");
+	cleanPI = leadProductInterestStr.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
+	piList = cleanPI.toList(",");
+	sortedList = List();
+	for each item in piList
+	{
+		trimmedItem = item.trim().replaceAll("  "," ");
+		if(trimmedItem != "")
+		{
+			sortedList.add(trimmedItem);
+		}
+	}
+	sortedList.sort();
+	joinedPI = "";
+	for each item in sortedList
+	{
+		if(joinedPI == "")
+		{
+			joinedPI = item;
+		}
+		else
+		{
+			joinedPI = joinedPI + "+" + item;
+		}
+	}
+	if(joinedPI != "")
+	{
+		productKey = joinedPI;
+	}
 }
-else
-{
-	dealKey = dealKey + "general";
-}
+dealKey = derivedAccountKey + "::" + productKey;
 dealKey = dealKey.toLowerCase().trim();
 
 // ======================================================
@@ -508,134 +532,6 @@ if(leadProdList.size() > 0 && leadProductInterestStr.trim() != "")
 }
 existingDealId = "";
 existingDealRecord = Map();
-if(existingAccountId != "")
-{
-	relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
-	info "Related Deals under Account via searchRecords:";
-	info relatedDeals;
-	if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
-	{
-		bestProductOpenRank = 0;
-		bestProductOpenDeal = Map();
-		bestOpenRank = 0;
-		bestOpenDeal = Map();
-		bestProductLostRank = 0;
-		bestProductLostDeal = Map();
-		bestLostRank = 0;
-		bestLostDeal = Map();
-		for each  dealCandidate in relatedDeals
-		{
-			dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
-			dealCandidateState = ifnull(dealCandidate.get(FIELD_STATE),VALUE_OPEN);
-			dealRank = 0;
-			if(dealCandidateStage == "Marketing Consent")
-			{
-				dealRank = 1;
-			}
-			else if(dealCandidateStage == "Demo Booking")
-			{
-				dealRank = 2;
-			}
-			else if(dealCandidateStage == "Demo Booked")
-			{
-				dealRank = 3;
-			}
-			else if(dealCandidateStage == "Demo Attended")
-			{
-				dealRank = 4;
-			}
-			else if(dealCandidateStage == "Commercials Sent")
-			{
-				dealRank = 5;
-			}
-			else if(dealCandidateStage == "Commercials Signed")
-			{
-				dealRank = 6;
-			}
-			else if(dealCandidateStage == "Onboarding")
-			{
-				dealRank = 7;
-			}
-			else if(dealCandidateStage == "Renewal")
-			{
-				dealRank = 8;
-			}
-			productMatches = false;
-			dealStaging = ifnull(dealCandidate.get("Product_Interest_Staging"),"").toString();
-			if(hasProductSignal == true && dealStaging != "")
-			{
-				for each  prodName in leadProdList
-				{
-					trimmedName = prodName.trim();
-					if(trimmedName != "" && dealStaging.contains(trimmedName))
-					{
-						productMatches = true;
-					}
-				}
-			}
-			if(dealCandidateState == VALUE_LOST)
-			{
-				if(productMatches == true)
-				{
-					if(dealRank > bestProductLostRank)
-					{
-						bestProductLostRank = dealRank;
-						bestProductLostDeal = dealCandidate;
-					}
-				}
-				else
-				{
-					if(dealRank > bestLostRank)
-					{
-						bestLostRank = dealRank;
-						bestLostDeal = dealCandidate;
-					}
-				}
-			}
-			else
-			{
-				if(productMatches == true)
-				{
-					if(dealRank > bestProductOpenRank)
-					{
-						bestProductOpenRank = dealRank;
-						bestProductOpenDeal = dealCandidate;
-					}
-				}
-				else
-				{
-					if(dealRank > bestOpenRank)
-					{
-						bestOpenRank = dealRank;
-						bestOpenDeal = dealCandidate;
-					}
-				}
-			}
-		}
-		if(hasProductSignal == true && bestProductOpenRank > 0)
-		{
-			existingDealRecord = bestProductOpenDeal;
-			existingDealId = existingDealRecord.get("id").toString();
-		}
-		else if(bestOpenRank > 0)
-		{
-			existingDealRecord = bestOpenDeal;
-			existingDealId = existingDealRecord.get("id").toString();
-		}
-		else if(hasProductSignal == true && bestProductLostRank > 0)
-		{
-			existingDealRecord = bestProductLostDeal;
-			existingDealId = existingDealRecord.get("id").toString();
-		}
-		else if(bestLostRank > 0)
-		{
-			existingDealRecord = bestLostDeal;
-			existingDealId = existingDealRecord.get("id").toString();
-		}
-	}
-}
-info "Existing Deal ID:";
-info existingDealId;
 // ======================================================
 // BUILD CONVERSION MAP
 // ======================================================
@@ -715,30 +611,6 @@ if(existingContactId != "")
 {
 	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim());
 }
-if(existingDealId == "")
-{
-	dealMap = Map();
-	dealName = derivedCompany;
-	if(dealName == "")
-	{
-		dealName = firstName + " " + lastName;
-	}
-	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
-	dealMap.put("Deal_Name",dealName);
-	dealMap.put("Closing_Date",closingDate);
-	dealMap.put("Stage",targetOpportunity);
-	if(leadSource != "")
-	{
-		dealMap.put("Lead_Source",leadSource);
-	}
-	conversionMap.put("Deals",dealMap);
-	info "New Deal will be created via convertLead:";
-	info dealMap;
-}
-else
-{
-	info "Existing Deal found. No new Deal will be created in convertLead.";
-}
 
 info "Conversion map:";
 info conversionMap;
@@ -800,110 +672,18 @@ if(finalAccountId != "")
 		if(existingDealRecord != null && existingDealRecord.toString().contains("id") && existingDealRecord.get("id") != null)
 		{
 			finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-		}
-		info "Idempotent search matched Deal via Deal_Key: " + finalDealId;
-	}
-	if(finalDealId == null || finalDealId == "null")
-	{
-		finalDealId = "";
-	}
-	
-	// 2. If not found by Deal_Key, search Deals under Account by stage rank/product fallback as secondary check
-	if(finalDealId == "")
-	{
-		relatedDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim() + ")");
-		if(relatedDeals != null && relatedDeals.toString().startsWith("[") && relatedDeals.size() > 0)
-		{
-			bestProductOpenRank = 0;
-			bestProductOpenDeal = Map();
-			bestOpenRank = 0;
-			bestOpenDeal = Map();
-			bestProductLostRank = 0;
-			bestProductLostDeal = Map();
-			bestLostRank = 0;
-			bestLostDeal = Map();
-			for each  dealCandidate in relatedDeals
-			{
-				dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
-				dealCandidateState = ifnull(dealCandidate.get(FIELD_DEAL_STATE),VALUE_OPEN);
-				dealRank = 0;
-				if(dealCandidateStage == "Marketing Consent") { dealRank = 1; }
-				else if(dealCandidateStage == "Demo Booking") { dealRank = 2; }
-				else if(dealCandidateStage == "Demo Booked") { dealRank = 3; }
-				else if(dealCandidateStage == "Demo Attended") { dealRank = 4; }
-				else if(dealCandidateStage == "Commercials Sent") { dealRank = 5; }
-				else if(dealCandidateStage == "Commercials Signed") { dealRank = 6; }
-				else if(dealCandidateStage == "Onboarding") { dealRank = 7; }
-				else if(dealCandidateStage == "Renewal") { dealRank = 8; }
-				
-				productMatches = false;
-				dealStaging = ifnull(dealCandidate.get("Product_Interest_Staging"),"").toString();
-				if(hasProductSignal == true && dealStaging != "")
-				{
-					for each  prodName in leadProdList
-					{
-						trimmedName = prodName.trim();
-						if(trimmedName != "" && dealStaging.contains(trimmedName))
-						{
-							productMatches = true;
-						}
-					}
-				}
-				if(dealCandidateState == VALUE_LOST)
-				{
-					if(productMatches == true)
-					{
-						if(dealRank > bestProductLostRank) { bestProductLostRank = dealRank; bestProductLostDeal = dealCandidate; }
-					}
-					else
-					{
-						if(dealRank > bestLostRank) { bestLostRank = dealRank; bestLostDeal = dealCandidate; }
-					}
-				}
-				else
-				{
-					if(productMatches == true)
-					{
-						if(dealRank > bestProductOpenRank) { bestProductOpenRank = dealRank; bestProductOpenDeal = dealCandidate; }
-					}
-					else
-					{
-						if(dealRank > bestOpenRank) { bestOpenRank = dealRank; bestOpenDeal = dealCandidate; }
-					}
-				}
-			}
-			if(hasProductSignal == true && bestProductOpenRank > 0)
-			{
-				existingDealRecord = bestProductOpenDeal;
-				if(existingDealRecord.get("id") != null)
-				{
-					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-				}
-			}
-			else if(bestOpenRank > 0)
-			{
-				existingDealRecord = bestOpenDeal;
-				if(existingDealRecord.get("id") != null)
-				{
-					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-				}
-			}
-			else if(hasProductSignal == true && bestProductLostRank > 0)
-			{
-				existingDealRecord = bestProductLostDeal;
-				if(existingDealRecord.get("id") != null)
-				{
-					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-				}
-			}
-			else if(bestLostRank > 0)
-			{
-				existingDealRecord = bestLostDeal;
-				if(existingDealRecord.get("id") != null)
-				{
-					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
-				}
-			}
+			info "Idempotent search matched Deal via Deal_Key: " + finalDealId;
+			// Update the matched/reused Deal to link the new Contact
+			dealUpdateMap = Map();
+			contactLookupMap = Map();
+			contactLookupMap.put("id", finalContactId.toLong());
+			dealUpdateMap.put("Contact_Name", contactLookupMap);
+			dealUpdateMap.put("Product_Interest_Staging", leadProductInterestStr);
+			dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY, targetOpportunity);
+			dealUpdateMap.put(FIELD_DEAL_STAGE, targetStage);
+			updateDealResp = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealUpdateMap);
+			info "Associated/Updated existing Deal with Contact response:";
+			info updateDealResp;
 		}
 	}
 	if(finalDealId == null || finalDealId == "null")
@@ -911,14 +691,14 @@ if(finalAccountId != "")
 		finalDealId = "";
 	}
 	
-	// 3. If still not found, create Deal directly
+	// 2. If not found, create Deal directly
 	if(finalDealId == "")
 	{
 		dealCreateMap = Map();
 		dealName = derivedCompany;
-		if(dealName == "")
+		if(leadProductInterestStr != "")
 		{
-			dealName = firstName + " " + lastName;
+			dealName = derivedCompany + " - " + leadProductInterestStr;
 		}
 		closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
 		dealCreateMap.put("Deal_Name",dealName);
@@ -937,13 +717,10 @@ if(finalAccountId != "")
 		dealCreateMap.put(FIELD_STATE,derivedState);
 		dealCreateMap.put(FIELD_STATUS,derivedStatus);
 		dealCreateMap.put("Deal_Key",dealKey);
+		dealCreateMap.put("Product_Interest_Staging",leadProductInterestStr);
 		if(leadSource != "")
 		{
 			dealCreateMap.put("Lead_Source",leadSource);
-		}
-		if(leadProductInterestStr != "")
-		{
-			dealCreateMap.put("Product_Interest_Staging",leadProductInterestStr);
 		}
 		if(leadLostReasons != "")
 		{
@@ -982,19 +759,6 @@ if(finalDealId == null || finalDealId == "null")
 }
 info "Final Deal ID:";
 info finalDealId;
-// ======================================================
-// LINK CONTACT TO DEAL
-// ======================================================
-if(finalDealId != "" && finalContactId != "")
-{
-	dealContactUpdateMap = Map();
-	contactLookupMap = Map();
-	contactLookupMap.put("id", finalContactId.toLong());
-	dealContactUpdateMap.put("Contact_Name", contactLookupMap);
-	updateDealContactResp = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealContactUpdateMap);
-	info "Associated Contact with Deal response:";
-	info updateDealContactResp;
-}
 // ======================================================
 // ENRICH CONTACT
 // ======================================================
@@ -1197,9 +961,13 @@ if(finalContactId != "")
 	noteMap.put("Note_Title","Lead Conversion Debug Log");
 	noteContent = "Lead Conversion debug results:\n\n";
 	noteContent = noteContent + "- Lead ID: " + leadId.toString() + "\n";
+	noteContent = noteContent + "- Account_Key: " + derivedAccountKey + "\n";
+	noteContent = noteContent + "- Product_Key: " + productKey + "\n";
+	noteContent = noteContent + "- Deal_Key: " + dealKey + "\n";
 	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
 	noteContent = noteContent + "- Account Pre-create Response: " + ifnull(createAccountResponse,"").toString() + "\n";
-	noteContent = noteContent + "- Fallback Deal Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Deal Search Response (Key): " + ifnull(dealKeySearch,"").toString() + "\n";
+	noteContent = noteContent + "- Deal Create/Fallback Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
 	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
 	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
 	noteContent = noteContent + "- Final Deal ID: " + finalDealId + "\n";
@@ -1216,9 +984,13 @@ else if(finalAccountId != "")
 	noteMap.put("Note_Title","Lead Conversion Debug Log");
 	noteContent = "Lead Conversion debug results:\n\n";
 	noteContent = noteContent + "- Lead ID: " + leadId.toString() + "\n";
+	noteContent = noteContent + "- Account_Key: " + derivedAccountKey + "\n";
+	noteContent = noteContent + "- Product_Key: " + productKey + "\n";
+	noteContent = noteContent + "- Deal_Key: " + dealKey + "\n";
 	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
 	noteContent = noteContent + "- Account Pre-create Response: " + ifnull(createAccountResponse,"").toString() + "\n";
-	noteContent = noteContent + "- Fallback Deal Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
+	noteContent = noteContent + "- Deal Search Response (Key): " + ifnull(dealKeySearch,"").toString() + "\n";
+	noteContent = noteContent + "- Deal Create/Fallback Response: " + ifnull(fallbackDealResponse,"").toString() + "\n";
 	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
 	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
 	noteContent = noteContent + "- Final Deal ID: " + finalDealId + "\n";
