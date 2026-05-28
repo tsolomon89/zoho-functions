@@ -435,49 +435,11 @@ finalDealId = existingDealId;
 currentDealRank = 0;
 if(finalDealId == "")
 {
-	dealCreateMap = Map();
-	dealName = accountName;
-	if(dealName == "")
-	{
-		dealName = firstName + " " + lastName;
-	}
-	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
-	dealCreateMap.put("Deal_Name",dealName);
-	dealCreateMap.put("Closing_Date",closingDate);
-	dealCreateMap.put("Account_Name",accountId);
-	dealCreateMap.put("Contact_Name",contactId);
-	dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
-	dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
-	dealCreateMap.put(FIELD_STATE,derivedState);
-	dealCreateMap.put(FIELD_STATUS,derivedStatus);
-	if(leadSource != "")
-	{
-		dealCreateMap.put("Lead_Source",leadSource);
-	}
-	if(contactProductInterestStaging != "")
-	{
-		dealCreateMap.put("Product_Interest_Staging",contactProductInterestStaging);
-	}
-	if(contactLostReasons != "")
-	{
-		dealCreateMap.put("Reason_For_Loss",contactLostReasons);
-	}
-	if(contactRecord.get("Connected_To") != null && contactRecord.get("Connected_To").toString() != "")
-	{
-		dealCreateMap.put("Connected_To",contactRecord.get("Connected_To"));
-	}
-	createDealResponse = zoho.crm.createRecord("Deals",dealCreateMap);
-	info "Created Deal response:";
-	info createDealResponse;
-	if(createDealResponse != null && createDealResponse.get("id") != null)
-	{
-		finalDealId = createDealResponse.get("id").toString();
-	}
+	return "Contact normalized. No existing Deal found under Account; Contact normalizer did not create a Deal to avoid duplicates.";
 }
-else
-{
-	// Fetch current Deal to inspect Stage Rank and prevent backward regressions
-	currentDealStage = ifnull(existingDealRecord.get(FIELD_DEAL_STAGE),"");
+
+// Fetch current Deal to inspect Stage Rank and prevent backward regressions
+currentDealStage = ifnull(existingDealRecord.get(FIELD_DEAL_STAGE),"");
 	if(currentDealStage == "Marketing Consent")
 	{
 		currentDealRank = 1;
@@ -510,7 +472,6 @@ else
 	{
 		currentDealRank = 8;
 	}
-}
 // ======================================================
 // TEMPORARY CONTACT ROLLUP WITHOUT CONTACT ROLES
 // ======================================================

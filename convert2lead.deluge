@@ -152,6 +152,24 @@ if(derivedCompany == "")
 {
 	derivedCompany = "Unknown Account - " + leadId.toString();
 }
+derivedAccountKey = derivedDomain;
+if(derivedAccountKey == "")
+{
+	derivedAccountKey = derivedCompany;
+}
+derivedAccountKey = derivedAccountKey.toLowerCase().trim();
+
+dealKey = derivedAccountKey + "::";
+if(leadProductInterestStr != "")
+{
+	dealKey = dealKey + leadProductInterestStr;
+}
+else
+{
+	dealKey = dealKey + "general";
+}
+dealKey = dealKey.toLowerCase().trim();
+
 // ======================================================
 // PRE-CONVERSION UPDATE
 // Ensures mandatory fields on Leads are not empty for Zoho
@@ -215,7 +233,17 @@ if(existingContactId != "")
 		}
 	}
 }
-// 2. Account_Key custom field
+// 2. Search by derived Account_Key (highest priority key lookup)
+if(existingAccountId == "" && derivedAccountKey != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
+	if(accountSearch != null && accountSearch.size() > 0)
+	{
+		existingAccountRecord = accountSearch.get(0);
+		existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+	}
+}
+// 3. Account_Key custom field on Lead
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
 if(existingAccountId == "" && leadAccountKey != "")
 {
@@ -551,11 +579,6 @@ if(existingAccountId == "")
 	{
 		accountCreateMap.put("Website",derivedWebsite);
 	}
-	derivedAccountKey = derivedDomain;
-	if(derivedAccountKey == "")
-	{
-		derivedAccountKey = derivedCompany;
-	}
 	accountCreateMap.put("Account_Key",derivedAccountKey);
 	if(industry != "")
 	{
@@ -592,6 +615,17 @@ if(existingAccountId == "")
 	{
 		existingAccountId = createAccountResponse.get("id").toString().replaceAll("zcrm_","").trim();
 	}
+	else
+	{
+		// Safe fallback: search again to catch concurrent insert race conditions
+		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
+		if(accountSearch != null && accountSearch.size() > 0)
+		{
+			existingAccountRecord = accountSearch.get(0);
+			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			info "Concurrency fallback: recovered existing Account ID after duplicate collision: " + existingAccountId;
+		}
+	}
 }
 
 conversionMap = Map();
@@ -604,35 +638,9 @@ if(existingContactId != "")
 {
 	conversionMap.put("Contacts",existingContactId.replaceAll("zcrm_","").trim().toLong());
 }
+// Note: We deliberately DO NOT put "Deals" in the conversion map to prevent implicit Zoho Deal creation.
+// convertLead2 will act as the single controlled direct Deal writer.
 
-// ======================================================
-// BUILD DEAL MAP ONLY IF NO EXISTING DEAL
-// ======================================================
-if(existingDealId == "")
-{
-	dealMap = Map();
-	dealName = derivedCompany;
-	if(dealName == "")
-	{
-		dealName = firstName + " " + lastName;
-	}
-	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
-	dealMap.put("Deal_Name",dealName);
-	dealMap.put("Closing_Date",closingDate);
-	dealMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
-	dealMap.put(FIELD_DEAL_STAGE,targetStage);
-	dealMap.put(FIELD_STATE,derivedState);
-	dealMap.put(FIELD_STATUS,derivedStatus);
-	if(leadSource != "")
-	{
-		dealMap.put("Lead_Source",leadSource);
-	}
-	if(leadProductInterestStr != "")
-	{
-		dealMap.put("Product_Interest_Staging",leadProductInterestStr);
-	}
-	conversionMap.put("Deals",dealMap);
-}
 info "Conversion map:";
 info conversionMap;
 // ======================================================
@@ -646,7 +654,7 @@ info conversionResponse;
 // ======================================================
 finalContactId = existingContactId;
 finalAccountId = existingAccountId;
-finalDealId = existingDealId;
+finalDealId = "";
 if(conversionResponse.get("Contacts") != null)
 {
 	finalContactId = conversionResponse.get("Contacts").toString().replaceAll("zcrm_","").trim();
@@ -655,65 +663,173 @@ if(conversionResponse.get("Accounts") != null)
 {
 	finalAccountId = conversionResponse.get("Accounts").toString().replaceAll("zcrm_","").trim();
 }
-if(conversionResponse.get("Deals") != null)
-{
-	finalDealId = conversionResponse.get("Deals").toString().replaceAll("zcrm_","").trim();
-}
 info "Final Contact ID:";
 info finalContactId;
 info "Final Account ID:";
 info finalAccountId;
-info "Final Deal ID:";
-info finalDealId;
+
 // ======================================================
-// POST-CONVERSION FALLBACK DEAL CREATION
-// If Zoho failed to create/reuse a Deal during convertLead, create one directly.
+// IDEMPOTENT DEAL CREATION & REUSE (SINGLE-WRITER VIA DEAL KEY)
 // ======================================================
 fallbackDealResponse = Map();
-if(finalDealId == "" && finalAccountId != "")
+if(finalAccountId != "")
 {
-	dealCreateMap = Map();
-	dealName = derivedCompany;
-	if(dealName == "")
+	// 1. Search Deals by Deal_Key first to handle concurrent bulk inserts perfectly
+	dealKeySearch = zoho.crm.searchRecords("Deals","(Deal_Key:equals:" + dealKey + ")");
+	if(dealKeySearch != null && dealKeySearch.size() > 0)
 	{
-		dealName = firstName + " " + lastName;
+		existingDealRecord = dealKeySearch.get(0);
+		finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+		info "Idempotent search matched Deal via Deal_Key: " + finalDealId;
 	}
-	closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
-	dealCreateMap.put("Deal_Name",dealName);
-	dealCreateMap.put("Closing_Date",closingDate);
-	dealCreateMap.put("Account_Name",finalAccountId.replaceAll("zcrm_","").trim().toLong());
-	if(finalContactId != "")
+	
+	// 2. If not found by Deal_Key, search Deals under Account by stage rank/product fallback as secondary check
+	if(finalDealId == "")
 	{
-		dealCreateMap.put("Contact_Name",finalContactId.replaceAll("zcrm_","").trim().toLong());
+		relatedDeals = zoho.crm.getRelatedRecords("Deals","Accounts",finalAccountId.toLong());
+		if(relatedDeals != null && relatedDeals.size() > 0)
+		{
+			bestProductOpenRank = 0;
+			bestProductOpenDeal = Map();
+			bestOpenRank = 0;
+			bestOpenDeal = Map();
+			bestProductLostRank = 0;
+			bestProductLostDeal = Map();
+			bestLostRank = 0;
+			bestLostDeal = Map();
+			for each  dealCandidate in relatedDeals
+			{
+				dealCandidateStage = ifnull(dealCandidate.get(FIELD_DEAL_STAGE),"");
+				dealCandidateState = ifnull(dealCandidate.get(FIELD_DEAL_STATE),VALUE_OPEN);
+				dealRank = 0;
+				if(dealCandidateStage == "Marketing Consent") { dealRank = 1; }
+				else if(dealCandidateStage == "Demo Booking") { dealRank = 2; }
+				else if(dealCandidateStage == "Demo Booked") { dealRank = 3; }
+				else if(dealCandidateStage == "Demo Attended") { dealRank = 4; }
+				else if(dealCandidateStage == "Commercials Sent") { dealRank = 5; }
+				else if(dealCandidateStage == "Commercials Signed") { dealRank = 6; }
+				else if(dealCandidateStage == "Onboarding") { dealRank = 7; }
+				else if(dealCandidateStage == "Renewal") { dealRank = 8; }
+				
+				productMatches = false;
+				dealStaging = ifnull(dealCandidate.get("Product_Interest_Staging"),"").toString();
+				if(hasProductSignal == true && dealStaging != "")
+				{
+					for each  prodName in leadProdList
+					{
+						trimmedName = prodName.trim();
+						if(trimmedName != "" && dealStaging.contains(trimmedName))
+						{
+							productMatches = true;
+						}
+					}
+				}
+				if(dealCandidateState == VALUE_LOST)
+				{
+					if(productMatches == true)
+					{
+						if(dealRank > bestProductLostRank) { bestProductLostRank = dealRank; bestProductLostDeal = dealCandidate; }
+					}
+					else
+					{
+						if(dealRank > bestLostRank) { bestLostRank = dealRank; bestLostDeal = dealCandidate; }
+					}
+				}
+				else
+				{
+					if(productMatches == true)
+					{
+						if(dealRank > bestProductOpenRank) { bestProductOpenRank = dealRank; bestProductOpenDeal = dealCandidate; }
+					}
+					else
+					{
+						if(dealRank > bestOpenRank) { bestOpenRank = dealRank; bestOpenDeal = dealCandidate; }
+					}
+				}
+			}
+			if(hasProductSignal == true && bestProductOpenRank > 0)
+			{
+				existingDealRecord = bestProductOpenDeal;
+				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+			else if(bestOpenRank > 0)
+			{
+				existingDealRecord = bestOpenDeal;
+				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+			else if(hasProductSignal == true && bestProductLostRank > 0)
+			{
+				existingDealRecord = bestProductLostDeal;
+				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+			else if(bestLostRank > 0)
+			{
+				existingDealRecord = bestLostDeal;
+				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+			}
+		}
 	}
-	dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
-	dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
-	dealCreateMap.put(FIELD_STATE,derivedState);
-	dealCreateMap.put(FIELD_STATUS,derivedStatus);
-	if(leadSource != "")
+	
+	// 3. If still not found, create Deal directly
+	if(finalDealId == "")
 	{
-		dealCreateMap.put("Lead_Source",leadSource);
-	}
-	if(leadProductInterestStr != "")
-	{
-		dealCreateMap.put("Product_Interest_Staging",leadProductInterestStr);
-	}
-	if(leadLostReasons != "")
-	{
-		dealCreateMap.put("Reason_For_Loss",leadLostReasons);
-	}
-	if(leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
-	{
-		dealCreateMap.put("Connected_To",leadRecord.get("Connected_To"));
-	}
-	fallbackDealResponse = zoho.crm.createRecord("Deals",dealCreateMap);
-	info "Fallback created Deal response:";
-	info fallbackDealResponse;
-	if(fallbackDealResponse != null && fallbackDealResponse.get("id") != null)
-	{
-		finalDealId = fallbackDealResponse.get("id").toString().replaceAll("zcrm_","").trim();
+		dealCreateMap = Map();
+		dealName = derivedCompany;
+		if(dealName == "")
+		{
+			dealName = firstName + " " + lastName;
+		}
+		closingDate = zoho.currentdate.addDay(DEFAULT_CLOSING_DAYS).toString("yyyy-MM-dd");
+		dealCreateMap.put("Deal_Name",dealName);
+		dealCreateMap.put("Closing_Date",closingDate);
+		dealCreateMap.put("Account_Name",finalAccountId.toLong());
+		if(finalContactId != "")
+		{
+			dealCreateMap.put("Contact_Name",finalContactId.toLong());
+		}
+		dealCreateMap.put(FIELD_DEAL_OPPORTUNITY,targetOpportunity);
+		dealCreateMap.put(FIELD_DEAL_STAGE,targetStage);
+		dealCreateMap.put(FIELD_STATE,derivedState);
+		dealCreateMap.put(FIELD_STATUS,derivedStatus);
+		dealCreateMap.put("Deal_Key",dealKey);
+		if(leadSource != "")
+		{
+			dealCreateMap.put("Lead_Source",leadSource);
+		}
+		if(leadProductInterestStr != "")
+		{
+			dealCreateMap.put("Product_Interest_Staging",leadProductInterestStr);
+		}
+		if(leadLostReasons != "")
+		{
+			dealCreateMap.put("Reason_For_Loss",leadLostReasons);
+		}
+		if(leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
+		{
+			dealCreateMap.put("Connected_To",leadRecord.get("Connected_To"));
+		}
+		fallbackDealResponse = zoho.crm.createRecord("Deals",dealCreateMap);
+		info "Directly created Deal response:";
+		info fallbackDealResponse;
+		if(fallbackDealResponse != null && fallbackDealResponse.get("id") != null)
+		{
+			finalDealId = fallbackDealResponse.get("id").toString().replaceAll("zcrm_","").trim();
+		}
+		else
+		{
+			// Safe fallback search by Deal_Key to recover from concurrent insert collision
+			dealKeySearch = zoho.crm.searchRecords("Deals","(Deal_Key:equals:" + dealKey + ")");
+			if(dealKeySearch != null && dealKeySearch.size() > 0)
+			{
+				existingDealRecord = dealKeySearch.get(0);
+				finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
+				info "Concurrency fallback: recovered existing Deal ID after duplicate collision: " + finalDealId;
+			}
+		}
 	}
 }
+info "Final Deal ID:";
+info finalDealId;
 // ======================================================
 // ENRICH CONTACT
 // ======================================================
@@ -872,6 +988,7 @@ if(finalDealId != "")
 	dealUpdateMap.put(FIELD_DEAL_STAGE,targetStage);
 	dealUpdateMap.put(FIELD_STATE,derivedState);
 	dealUpdateMap.put(FIELD_STATUS,derivedStatus);
+	dealUpdateMap.put("Deal_Key",dealKey);
 	if(leadSource != "")
 	{
 		dealUpdateMap.put("Lead_Source",leadSource);
