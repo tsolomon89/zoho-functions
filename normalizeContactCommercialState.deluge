@@ -81,9 +81,9 @@ if(contactProductInterestStaging != "")
 }
 accountId = "";
 accountName = "";
-if(contactRecord.get("Account_Name") != null)
+accountLookup = contactRecord.get("Account_Name");
+if(accountLookup != null && accountLookup.toString().contains("id"))
 {
-	accountLookup = contactRecord.get("Account_Name");
 	if(accountLookup.get("id") != null)
 	{
 		accountId = accountLookup.get("id").toString();

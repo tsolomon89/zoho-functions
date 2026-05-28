@@ -206,10 +206,10 @@ if(email != "")
 	if(safeEmail != "")
 	{
 		contactSearch = zoho.crm.searchRecords("Contacts","(Email:equals:" + safeEmail + ")");
-		if(contactSearch != null && contactSearch.size() > 0)
+		if(contactSearch != null && contactSearch.toString().startsWith("[") && contactSearch.size() > 0)
 		{
 			existingContactRecord = contactSearch.get(0);
-			if(existingContactRecord.get("id") != null)
+			if(existingContactRecord != null && existingContactRecord.toString().contains("id") && existingContactRecord.get("id") != null)
 			{
 				existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
 			}
@@ -222,10 +222,10 @@ if(existingContactId == "" && phone != "")
 	if(safePhone != "")
 	{
 		contactSearch = zoho.crm.searchRecords("Contacts","(Phone:equals:" + safePhone + ")");
-		if(contactSearch != null && contactSearch.size() > 0)
+		if(contactSearch != null && contactSearch.toString().startsWith("[") && contactSearch.size() > 0)
 		{
 			existingContactRecord = contactSearch.get(0);
-			if(existingContactRecord.get("id") != null)
+			if(existingContactRecord != null && existingContactRecord.toString().contains("id") && existingContactRecord.get("id") != null)
 			{
 				existingContactId = existingContactRecord.get("id").toString().replaceAll("zcrm_","").trim();
 			}
@@ -250,7 +250,7 @@ if(existingContactId != "")
 	if(existingContactRecord != null)
 	{
 		linkedAccount = existingContactRecord.get("Account_Name");
-		if(linkedAccount != null && linkedAccount.get("id") != null)
+		if(linkedAccount != null && linkedAccount.toString().contains("id"))
 		{
 			existingAccountId = linkedAccount.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -265,10 +265,10 @@ if(existingAccountId == null || existingAccountId == "null")
 if(existingAccountId == "" && derivedAccountKey != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		if(existingAccountRecord.get("id") != null)
+		if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 		{
 			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -285,10 +285,10 @@ safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeLeadAccountKey != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		if(existingAccountRecord.get("id") != null)
+		if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 		{
 			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -304,10 +304,10 @@ safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeCompanyQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeCompanyQuery + ")");
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		if(existingAccountRecord.get("id") != null)
+		if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 		{
 			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -323,10 +323,10 @@ safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(existingAccountId == "" && safeDomainQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + safeDomainQuery + ")");
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		if(existingAccountRecord.get("id") != null)
+		if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 		{
 			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -341,10 +341,10 @@ if(existingAccountId == null || existingAccountId == "null")
 if(existingAccountId == "" && safeDomainQuery != "")
 {
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeDomainQuery + ")");
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 	{
 		existingAccountRecord = accountSearch.get(0);
-		if(existingAccountRecord.get("id") != null)
+		if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 		{
 			existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -689,10 +689,10 @@ if(existingAccountId == "")
 	{
 		// Safe fallback: search again to catch concurrent insert race conditions
 		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
-		if(accountSearch != null && accountSearch.size() > 0)
+		if(accountSearch != null && accountSearch.toString().startsWith("[") && accountSearch.size() > 0)
 		{
 			existingAccountRecord = accountSearch.get(0);
-			if(existingAccountRecord.get("id") != null)
+			if(existingAccountRecord != null && existingAccountRecord.toString().contains("id") && existingAccountRecord.get("id") != null)
 			{
 				existingAccountId = existingAccountRecord.get("id").toString().replaceAll("zcrm_","").trim();
 			}
@@ -794,10 +794,10 @@ if(finalAccountId != "")
 {
 	// 1. Search Deals by Deal_Key first to handle concurrent bulk inserts perfectly
 	dealKeySearch = zoho.crm.searchRecords("Deals","(Deal_Key:equals:" + dealKey + ")");
-	if(dealKeySearch != null && dealKeySearch.size() > 0)
+	if(dealKeySearch != null && dealKeySearch.toString().startsWith("[") && dealKeySearch.size() > 0)
 	{
 		existingDealRecord = dealKeySearch.get(0);
-		if(existingDealRecord.get("id") != null)
+		if(existingDealRecord != null && existingDealRecord.toString().contains("id") && existingDealRecord.get("id") != null)
 		{
 			finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
 		}
@@ -964,10 +964,10 @@ if(finalAccountId != "")
 		{
 			// Safe fallback search by Deal_Key to recover from concurrent insert collision
 			dealKeySearch = zoho.crm.searchRecords("Deals","(Deal_Key:equals:" + dealKey + ")");
-			if(dealKeySearch != null && dealKeySearch.size() > 0)
+			if(dealKeySearch != null && dealKeySearch.toString().startsWith("[") && dealKeySearch.size() > 0)
 			{
 				existingDealRecord = dealKeySearch.get(0);
-				if(existingDealRecord.get("id") != null)
+				if(existingDealRecord != null && existingDealRecord.toString().contains("id") && existingDealRecord.get("id") != null)
 				{
 					finalDealId = existingDealRecord.get("id").toString().replaceAll("zcrm_","").trim();
 				}

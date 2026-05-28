@@ -84,11 +84,15 @@ for each  prodName in productNamesList
 	if(safeProdName != "")
 	{
 		prodSearch = zoho.crm.searchRecords("Products","(Product_Name:equals:" + safeProdName + ")");
-		if(prodSearch != null && prodSearch.size() > 0)
+		if(prodSearch != null && prodSearch.toString().startsWith("[") && prodSearch.size() > 0)
 		{
-			price = ifnull(prodSearch.get(0).get(PRODUCT_VALUE_FIELD),"0").toDecimal();
-			totalAmount = totalAmount + price;
-			resolvedCount = resolvedCount + 1;
+			firstProd = prodSearch.get(0);
+			if(firstProd != null)
+			{
+				price = ifnull(firstProd.get(PRODUCT_VALUE_FIELD),"0").toDecimal();
+				totalAmount = totalAmount + price;
+				resolvedCount = resolvedCount + 1;
+			}
 		}
 	}
 }

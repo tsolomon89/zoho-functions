@@ -87,9 +87,9 @@ if(dealProductInterestStaging != "")
 }
 accountId = "";
 accountName = "";
-if(dealRecord.get("Account_Name") != null)
+accountLookup = dealRecord.get("Account_Name");
+if(accountLookup != null && accountLookup.toString().contains("id"))
 {
-	accountLookup = dealRecord.get("Account_Name");
 	if(accountLookup.get("id") != null)
 	{
 		accountId = accountLookup.get("id").toString();
@@ -108,9 +108,9 @@ else
 	accountId = accountId.replaceAll("zcrm_","").trim();
 }
 currentPrimaryContactId = "";
-if(dealRecord.get("Contact_Name") != null)
+contactLookup = dealRecord.get("Contact_Name");
+if(contactLookup != null && contactLookup.toString().contains("id"))
 {
-	contactLookup = dealRecord.get("Contact_Name");
 	if(contactLookup.get("id") != null)
 	{
 		currentPrimaryContactId = contactLookup.get("id").toString();
