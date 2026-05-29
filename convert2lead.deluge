@@ -427,6 +427,114 @@ if(existingContactId != "")
 }
 info "Account from Contact lookup:";
 info existingAccountId;
+
+// 1.5. Concurrent import deduplication block:
+// During bulk imports, multiple Leads for the same company are processed in parallel threads.
+// Because of search index latency, zoho.crm.searchRecords on Accounts won't find the newly created Account yet.
+// However, zoho.crm.getRecordById on Leads is real-time and bypasses the search index.
+// We search for other Leads with the same company name or website, identify ones created earlier (smaller ID),
+// and check their real-time conversion state. If a prior Lead has already been converted, we retrieve
+// and reuse its converted Account ID from $converted_detail in real-time.
+if(existingAccountId == "")
+{
+	safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeCompanyQuery != "")
+	{
+		leadSearch = zoho.crm.searchRecords("Leads", "(Company:equals:" + safeCompanyQuery + ")", 1, 200, {"converted": "both"});
+		if(leadSearch != null && leadSearch.size() > 0)
+		{
+			for each otherLead in leadSearch
+			{
+				otherLeadId = ifnull(otherLead.get("id"), "").toString().trim();
+				if(otherLeadId != "" && otherLeadId != "null" && otherLeadId != leadId.toString())
+				{
+					otherLeadIdLong = otherLeadId.toLong();
+					if(otherLeadIdLong < leadId)
+					{
+						otherLeadDetails = zoho.crm.getRecordById("Leads", otherLeadIdLong, {"converted": "both"});
+						if(otherLeadDetails != null)
+						{
+							isConv = false;
+							isConvVal = otherLeadDetails.get("$converted");
+							if(isConvVal != null)
+							{
+								if(isConvVal.toString() == "true" || isConvVal == true)
+								{
+									isConv = true;
+								}
+							}
+							if(isConv == true)
+							{
+								convDetail = otherLeadDetails.get("$converted_detail");
+								if(convDetail != null)
+								{
+									convAccId = ifnull(convDetail.get("Accounts"), "").toString().trim();
+									if(convAccId != "" && convAccId != "null")
+									{
+										existingAccountId = convAccId;
+										info "Concurrent deduplication: matched Account ID from converted prior Lead " + otherLeadId + ": " + existingAccountId;
+										break;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+if(existingAccountId == "")
+{
+	safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeDomainQuery != "")
+	{
+		leadSearch = zoho.crm.searchRecords("Leads", "(Website:equals:" + safeDomainQuery + ")", 1, 200, {"converted": "both"});
+		if(leadSearch != null && leadSearch.size() > 0)
+		{
+			for each otherLead in leadSearch
+			{
+				otherLeadId = ifnull(otherLead.get("id"), "").toString().trim();
+				if(otherLeadId != "" && otherLeadId != "null" && otherLeadId != leadId.toString())
+				{
+					otherLeadIdLong = otherLeadId.toLong();
+					if(otherLeadIdLong < leadId)
+					{
+						otherLeadDetails = zoho.crm.getRecordById("Leads", otherLeadIdLong, {"converted": "both"});
+						if(otherLeadDetails != null)
+						{
+							isConv = false;
+							isConvVal = otherLeadDetails.get("$converted");
+							if(isConvVal != null)
+							{
+								if(isConvVal.toString() == "true" || isConvVal == true)
+								{
+									isConv = true;
+								}
+							}
+							if(isConv == true)
+							{
+								convDetail = otherLeadDetails.get("$converted_detail");
+								if(convDetail != null)
+								{
+									convAccId = ifnull(convDetail.get("Accounts"), "").toString().trim();
+									if(convAccId != "" && convAccId != "null")
+									{
+										existingAccountId = convAccId;
+										info "Concurrent deduplication: matched Account ID from converted prior Lead " + otherLeadId + ": " + existingAccountId;
+										break;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
 
 // 4. Fallback in-memory check: Search by Account_Key = derivedAccountKey
