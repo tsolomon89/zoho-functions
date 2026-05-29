@@ -389,7 +389,7 @@ candidateDealIds = List();
 // 1. Search Deals directly by Deal_Key first
 if(dealKey != "")
 {
-	keySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:'" + dealKey + "')");
+	keySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
 	if(keySearch != null && keySearch.size() > 0 && !keySearch.toString().startsWith("{"))
 	{
 		for each d in keySearch
@@ -428,7 +428,7 @@ if(candidateDeals.size() == 0 && accountName != "")
 	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
 	if(safeAccountName != "")
 	{
-		nameSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:'" + safeAccountName + "')");
+		nameSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
 		if(nameSearch != null && nameSearch.size() > 0 && !nameSearch.toString().startsWith("{"))
 		{
 			for each d in nameSearch
@@ -621,7 +621,7 @@ if(finalDealId == "")
 		// Concurrency check after creation
 		if(dealKey != "")
 		{
-			postKeySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:'" + dealKey + "')");
+			postKeySearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
 			if(postKeySearch != null && postKeySearch.size() > 1 && !postKeySearch.toString().startsWith("{"))
 			{
 				minDealIdLong = 999999999999999999;
