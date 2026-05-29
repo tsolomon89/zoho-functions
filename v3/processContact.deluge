@@ -8,6 +8,9 @@ void automation.processContact(string contact_id)
 	// - Accounts.Account_Key must be unique.
 	// - Deals.Deal_Key must be unique.
 	// =========================================================================
+	
+	info "VERSION: v3.processContact.deal-stage-fix";
+
 	if(contact_id == null || contact_id == "") { return; }
 	cleanId = contact_id.replaceAll("zcrm_", "").trim();
 
@@ -140,70 +143,7 @@ void automation.processContact(string contact_id)
 		zoho.crm.updateRecord("Contacts", cleanId.toLong(), updConInit);
 	}
 
-	// 4. Ensure Active Deal
-	dealKey = accountKey + "::active";
-	dealId = "";
-	
-	searchDeal = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{"))
-	{
-		dealId = searchDeal.get(0).get("id").toString();
-	}
-	else
-	{
-		dealName = (if(cName != "", cName, accountKey)) + " Deal";
-		dealMap = Map();
-		dealMap.put("Deal_Name", dealName);
-		dealMap.put("Account_Name", accountId);
-		dealMap.put("Deal_Key", dealKey);
-		dealMap.put("State", "Open");
-		dealMap.put("Status", "New");
-		
-		stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
-		initialStage = cStageInit;
-		if(initialStage == "")
-		{
-			initialStage = "Marketing Consent";
-		}
-		initialOpp = "MQL";
-		initialRank = ifnull(stageRanks.get(initialStage), 1);
-		if(initialRank >= 6) { initialOpp = "RTP"; }
-		else if(initialRank == 5) { initialOpp = "FTP"; }
-		else if(initialRank >= 2) { initialOpp = "SQL"; }
-		
-		dealMap.put("Stage_1", initialStage);
-		dealMap.put("Stage", initialOpp);
-		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-		dealMap.put("Contact_Name", cleanId);
-		
-		dRes = zoho.crm.createRecord("Deals", dealMap);
-		if(dRes.get("id") != null)
-		{
-			dealId = dRes.get("id").toString();
-		}
-		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
-		{
-			dealId = dRes.get("details").get("id").toString();
-		}
-
-		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{"))
-		{
-			minDealId = 999999999999999999;
-			for each pd in postDealSearch
-			{
-				pdId = pd.get("id").toString();
-				pdLong = pdId.toLong();
-				if(pdLong < minDealId)
-				{
-					minDealId = pdLong;
-					dealId = pdId;
-				}
-			}
-		}
-	}
-
-	// 5. Gather Open Contacts & Product Merge
+	// 4. Gather Open Contacts & Product Merge
 	relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
 	highestStageRank = 0;
 	bestStage = "Marketing Consent";
@@ -251,6 +191,57 @@ void automation.processContact(string contact_id)
 				else if(rank == 5) { bestOpp = "FTP"; }
 				else if(rank >= 2) { bestOpp = "SQL"; }
 				else { bestOpp = "MQL"; }
+			}
+		}
+	}
+
+	// 5. Ensure Active Deal using bestStage/bestOpp
+	dealKey = accountKey + "::active";
+	dealId = "";
+	
+	searchDeal = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{"))
+	{
+		dealId = searchDeal.get(0).get("id").toString();
+	}
+	else
+	{
+		dealName = (if(cName != "", cName, accountKey)) + " Deal";
+		dealMap = Map();
+		dealMap.put("Deal_Name", dealName);
+		dealMap.put("Account_Name", accountId);
+		dealMap.put("Deal_Key", dealKey);
+		dealMap.put("State", "Open");
+		dealMap.put("Status", "New");
+		
+		dealMap.put("Stage_1", bestStage);
+		dealMap.put("Stage", bestOpp);
+		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+		dealMap.put("Contact_Name", cleanId);
+		
+		dRes = zoho.crm.createRecord("Deals", dealMap);
+		if(dRes.get("id") != null)
+		{
+			dealId = dRes.get("id").toString();
+		}
+		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
+		{
+			dealId = dRes.get("details").get("id").toString();
+		}
+
+		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{"))
+		{
+			minDealId = 999999999999999999;
+			for each pd in postDealSearch
+			{
+				pdId = pd.get("id").toString();
+				pdLong = pdId.toLong();
+				if(pdLong < minDealId)
+				{
+					minDealId = pdLong;
+					dealId = pdId;
+				}
 			}
 		}
 	}

@@ -8,6 +8,9 @@ void automation.processDeal(string deal_id)
 	// - Accounts.Account_Key must be unique.
 	// - Deals.Deal_Key must be unique.
 	// =========================================================================
+	
+	info "VERSION: v3.processDeal.deal-stage-fix";
+
 	if(deal_id == null || deal_id == "") { return; }
 	cleanId = deal_id.replaceAll("zcrm_", "").trim();
 

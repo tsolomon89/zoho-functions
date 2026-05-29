@@ -8,6 +8,8 @@ void automation.processLead(string lead_id)
 	// - Accounts.Account_Key must be unique.
 	// - Deals.Deal_Key must be unique.
 	// =========================================================================
+	
+	info "VERSION: v3.processLead.deal-stage-fix";
 
 	if(lead_id == null || lead_id == "")
 	{
