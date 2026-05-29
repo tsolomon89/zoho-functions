@@ -445,33 +445,20 @@ if(existingAccountId == "" && derivedAccountKey != "")
 	}
 }
 
-// 3. Direct Account_Key search or direct ID lookup using Lead.Account_Key, if present
+// 3. Direct Account_Key search using Lead.Account_Key, if present
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
 if(existingAccountId == "" && leadAccountKey != "")
 {
-	if(leadAccountKey.isNumber() && leadAccountKey.length() >= 15)
+	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeLeadAccountKey != "")
 	{
-		accRecord = zoho.crm.getRecordById("Accounts", leadAccountKey.toLong());
-		if(accRecord != null && accRecord.get("id") != null)
+		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
+		info "Account search by Lead Account_Key:";
+		info accountSearch;
+		if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
 		{
-			existingAccountId = leadAccountKey;
-			existingAccountRecord = accRecord;
-			info "Account found directly by Account ID in Lead Account_Key: " + existingAccountId;
-		}
-	}
-	else
-	{
-		safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-		if(safeLeadAccountKey != "")
-		{
-			accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
-			info "Account search by Lead Account_Key:";
-			info accountSearch;
-			if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
-			{
-				existingAccountRecord = accountSearch.get(0);
-				existingAccountId = existingAccountRecord.get("id").toString();
-			}
+			existingAccountRecord = accountSearch.get(0);
+			existingAccountId = existingAccountRecord.get("id").toString();
 		}
 	}
 }
@@ -704,55 +691,7 @@ if(canonicalAccountId != "")
 	}
 }
 
-// ======================================================
-// COMPANION LEAD REAL-TIME STAMPING
-// To prevent duplicate Accounts under high-concurrency imports (e.g. bulk imports),
-// the converting Lead stamps the created Account ID onto all companion unconverted
-// Leads for the same company or website domain in real-time.
-// ======================================================
-if(finalAccountId != "" && finalAccountId != "null")
-{
-	safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeCompanyQuery != "")
-	{
-		otherLeads = zoho.crm.searchRecords("Leads", "(Company:equals:" + safeCompanyQuery + ")");
-		if(otherLeads != null && otherLeads.size() > 0)
-		{
-			for each ol in otherLeads
-			{
-				olId = ifnull(ol.get("id"), "").toString().trim();
-				olConv = ifnull(ol.get("$converted"), "false").toString();
-				if(olId != "" && olId != "null" && olId != leadId.toString() && olConv != "true")
-				{
-					olMap = Map();
-					olMap.put("Account_Key", finalAccountId);
-					zoho.crm.updateRecord("Leads", olId.toLong(), olMap);
-					info "Concurrent Deduplication: Stamped Account ID " + finalAccountId + " on companion Lead " + olId;
-				}
-			}
-		}
-	}
-	safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeDomainQuery != "" && safeDomainQuery != safeCompanyQuery)
-	{
-		otherLeads = zoho.crm.searchRecords("Leads", "(Website:equals:" + safeDomainQuery + ")");
-		if(otherLeads != null && otherLeads.size() > 0)
-		{
-			for each ol in otherLeads
-			{
-				olId = ifnull(ol.get("id"), "").toString().trim();
-				olConv = ifnull(ol.get("$converted"), "false").toString();
-				if(olId != "" && olId != "null" && olId != leadId.toString() && olConv != "true")
-				{
-					olMap = Map();
-					olMap.put("Account_Key", finalAccountId);
-					zoho.crm.updateRecord("Leads", olId.toLong(), olMap);
-					info "Concurrent Deduplication: Stamped Account ID " + finalAccountId + " on companion Lead " + olId;
-				}
-			}
-		}
-	}
-}
+
 
 if(finalContactId == null || finalContactId.toString().trim() == "" || finalContactId.toString().trim() == "null")
 {
