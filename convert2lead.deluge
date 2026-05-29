@@ -10,12 +10,12 @@ string automation.convertLead2(String lead_id)
 // Architecture:
 // - Baseline shape: convertLead is the core creator.
 // - Search existing records first.
-// - Let convertLead create Contact / Account / Deal natively.
+// - Let convertLead create Contact / Account natively (no Deals).
 // - Post-enrich records after conversion.
 // - Hand off to normalizeContactCommercialState.
 //
 // Do NOT manually pre-create Accounts.
-// Do NOT directly create Deals (except minimal fallback).
+// Do NOT create Deals here. convertLead2 no longer lets convertLead create Deals. Deal creation is owned by normalizeContactCommercialState.
 //
 // All ID handling follows baseline patterns:
 // - No replaceAll("zcrm_","") on IDs
