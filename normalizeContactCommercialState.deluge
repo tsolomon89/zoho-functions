@@ -56,13 +56,6 @@ contactId = rawId.toLong();
 info "normalizeContactCommercialState started for Contact ID:";
 info contactId;
 
-// Database indexing delay to guarantee Zoho's search indexes have caught up
-delayMap = Map();
-delayResp = invokeurl
-[
-	url: "https://httpbin.org/delay/4"
-	type: POST
-];
 contactRecord = zoho.crm.getRecordById("Contacts",contactId);
 if(contactRecord == null)
 {
@@ -577,12 +570,106 @@ if(finalDealId == "")
 					duplicateDealId = finalDealId;
 					finalDealId = canonicalDealId;
 					
+					// Fetch full records of canonical and duplicate Deals to merge Product Interests
+					canonicalDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+					duplicateDeal = zoho.crm.getRecordById("Deals", duplicateDealId.toLong());
+					
+					canonStaging = "";
+					dupStaging = "";
+					if(canonicalDeal != null)
+					{
+						canonStaging = ifnull(canonicalDeal.get("Product_Interest_Staging"), "").toString().trim();
+					}
+					if(duplicateDeal != null)
+					{
+						dupStaging = ifnull(duplicateDeal.get("Product_Interest_Staging"), "").toString().trim();
+					}
+					
+					// Parse and merge
+					mergedList = List();
+					mergedLow = List();
+					if(canonStaging != "")
+					{
+						parts = canonStaging.replaceAll(";", ",").toList(",");
+						for each p in parts
+						{
+							t = p.trim();
+							if(t != "" && !mergedLow.contains(t.toLowerCase()))
+							{
+								mergedList.add(t);
+								mergedLow.add(t.toLowerCase());
+							}
+						}
+					}
+					if(dupStaging != "")
+					{
+						parts = dupStaging.replaceAll(";", ",").toList(",");
+						for each p in parts
+						{
+							t = p.trim();
+							if(t != "" && !mergedLow.contains(t.toLowerCase()))
+							{
+								mergedList.add(t);
+								mergedLow.add(t.toLowerCase());
+							}
+						}
+					}
+					
+					mergedStr = "";
+					for each item in mergedList
+					{
+						if(mergedStr == "")
+						{
+							mergedStr = item;
+						}
+						else
+						{
+							mergedStr = mergedStr + ", " + item;
+						}
+					}
+					
+					// Update canonical Deal with correct Contact_Name and merged Product Interests
+					canonUpdateMap = Map();
+					contLookup = Map();
+					contLookup.put("id", contactId.toString());
+					canonUpdateMap.put("Contact_Name", contLookup);
+					if(mergedStr != "")
+					{
+						canonUpdateMap.put("Product_Interest_Staging", mergedStr);
+					}
+					zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), canonUpdateMap);
+					info "Updated canonical Deal with merged product interests and contact ID.";
+					
+					// Make duplicate Deal harmless: mark as Lost/Closed, rename, and clear Deal_Key
+					dupUpdateMap = Map();
+					dupUpdateMap.put("State", "Lost");
+					dupUpdateMap.put("Status", "Closed");
+					dupUpdateMap.put("Reason_For_Loss", "Duplicate / Test Record");
+					dupUpdateMap.put("Deal_Key", ""); // Clear Key to prevent future collision
+					
+					dupName = "";
+					if(duplicateDeal != null)
+					{
+						dupName = ifnull(duplicateDeal.get("Deal_Name"), "").toString().trim();
+					}
+					if(dupName == "")
+					{
+						dupName = accountName + " - active";
+					}
+					if(!dupName.contains("Duplicate"))
+					{
+						dupUpdateMap.put("Deal_Name", dupName + " (Duplicate)");
+					}
+					
+					zoho.crm.updateRecord("Deals", duplicateDealId.toLong(), dupUpdateMap);
+					info "Marked duplicate Deal " + duplicateDealId + " as Lost/Closed Duplicate.";
+					
 					// Attach a debug note on the canonical Deal about the duplicate
 					noteMap = Map();
 					noteMap.put("Parent_Id", finalDealId.toLong());
 					noteMap.put("$se_module", "Deals");
-					noteMap.put("Note_Title", "Duplicate Deal Detected");
-					noteMap.put("Note_Content", "Concurrency race detected: duplicate Deal " + duplicateDealId + " was created but canonical Deal " + finalDealId + " is preferred. Please clean up the duplicate Deal.");
+					noteMap.put("Note_Title", "Duplicate Deal Silenced");
+					noteMap.put("Note_Content", "Concurrency race detected: duplicate Deal " + duplicateDealId + " was created but canonical Deal " + finalDealId + " is preferred. The duplicate Deal has been silenced (marked Lost/Closed, Deal_Key cleared, and renamed).");
 					zoho.crm.createRecord("Notes", noteMap);
 				}
 			}

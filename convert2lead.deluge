@@ -1,7 +1,7 @@
-string automation.convert_mql_lead_to_sql(String lead_id)
+string automation.convertLead2(String lead_id)
 {
 // ======================================================
-// convert_mql_lead_to_sql
+// convertLead2
 //
 // Trigger:
 // - Lead created
@@ -48,7 +48,7 @@ if(rawId == "" || rawId == "null")
 }
 
 leadId = rawId.toLong();
-info "convert_mql_lead_to_sql started for Lead ID:";
+info "convertLead2 started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
 if(leadRecord == null)
@@ -794,7 +794,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 // ======================================================
 // FINAL RESULT
 // ======================================================
-resultMessage = "convert_mql_lead_to_sql completed. Contact: " + finalContactId + " Account: " + finalAccountId;
+resultMessage = "convertLead2 completed. Contact: " + finalContactId + " Account: " + finalAccountId;
 info resultMessage;
 return resultMessage;
 }

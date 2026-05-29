@@ -55,13 +55,6 @@ dealId = rawId.toLong();
 info "normalizeDealCommercialState started for Deal ID:";
 info dealId;
 
-// Database indexing delay to guarantee Zoho's search indexes have caught up
-delayMap = Map();
-delayResp = invokeurl
-[
-	url: "https://httpbin.org/delay/4"
-	type: POST
-];
 dealRecord = zoho.crm.getRecordById("Deals",dealId);
 if(dealRecord == null)
 {

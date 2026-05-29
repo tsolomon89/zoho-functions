@@ -40,13 +40,6 @@ accountId = rawId.toLong();
 info "rollupAccountCommercialState started for Account ID:";
 info accountId;
 
-// Database indexing delay to guarantee Zoho's search indexes have caught up
-delayMap = Map();
-delayResp = invokeurl
-[
-	url: "https://httpbin.org/delay/4"
-	type: POST
-];
 accountRecord = zoho.crm.getRecordById("Accounts",accountId);
 if(accountRecord == null)
 {
