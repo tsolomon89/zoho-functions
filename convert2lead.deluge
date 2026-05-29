@@ -422,6 +422,10 @@ if(isBadLeadKey == true)
 {
 	leadPreMap.put("Account_Key",derivedAccountKey);
 }
+if(phone != "")
+{
+	leadPreMap.put("Phone", "");
+}
 if(leadPreMap.size() > 0)
 {
 	triggerMap = Map();
@@ -686,9 +690,21 @@ if(canonicalAccountId == "" && derivedAccountKey != "" && derivedAccountKey != "
 		info createResp;
 		
 		createdId = "";
-		if(createResp != null && createResp.get("id") != null)
+		if(createResp != null)
 		{
-			createdId = createResp.get("id").toString();
+			if(createResp.get("id") != null)
+			{
+				createdId = createResp.get("id").toString();
+			}
+			else if(createResp.get("code") == "DUPLICATE_DATA" && createResp.get("details") != null)
+			{
+				detailsMap = createResp.get("details");
+				if(detailsMap.get("id") != null)
+				{
+					createdId = detailsMap.get("id").toString();
+					info "Concurrency race win: Caught duplicate Account_Name constraint on create. Canonical Account ID parsed: " + createdId;
+				}
+			}
 		}
 		
 		// 4th step concurrency duplicate race check: search Account_Key again
@@ -882,6 +898,34 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		}
 	}
 }
+
+// ======================================================
+// ENFORCE ACCOUNT PHONE MAPPING (POST-CONVERSION REPAIR)
+// Enforces that Account.Phone is strictly Lead Company_Phone, never Lead Phone.
+// ======================================================
+if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
+{
+	accountUpdateMap = Map();
+	finalAccountIdLong = finalAccountId.toString().trim().toLong();
+	currentAccount = zoho.crm.getRecordById("Accounts", finalAccountIdLong);
+	if(currentAccount != null)
+	{
+		targetAccountPhone = companyPhone;
+		currentAccountPhone = ifnull(currentAccount.get("Phone"), "").toString().trim();
+		if(currentAccountPhone != targetAccountPhone)
+		{
+			accountUpdateMap.put("Phone", targetAccountPhone);
+		}
+		if(accountUpdateMap.size() > 0)
+		{
+			triggerMap = Map();
+			triggerMap.put("trigger", List());
+			updateAccountResponse = zoho.crm.updateRecord("Accounts", finalAccountIdLong, accountUpdateMap, triggerMap);
+			info "Account phone corrected post-conversion: " + updateAccountResponse.toString();
+		}
+	}
+}
+
 
 
 // ======================================================

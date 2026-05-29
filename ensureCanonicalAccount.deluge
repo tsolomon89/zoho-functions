@@ -218,9 +218,21 @@ info "Create Account response:";
 info createResp;
 
 createdId = "";
-if(createResp != null && createResp.get("id") != null)
+if(createResp != null)
 {
-	createdId = createResp.get("id").toString();
+	if(createResp.get("id") != null)
+	{
+		createdId = createResp.get("id").toString();
+	}
+	else if(createResp.get("code") == "DUPLICATE_DATA" && createResp.get("details") != null)
+	{
+		detailsMap = createResp.get("details");
+		if(detailsMap.get("id") != null)
+		{
+			createdId = detailsMap.get("id").toString();
+			info "Concurrency race win: Caught duplicate Account_Name constraint on create. Canonical Account ID parsed: " + createdId;
+		}
+	}
 }
 
 // 4th step concurrency duplicate race check: search Account_Key again

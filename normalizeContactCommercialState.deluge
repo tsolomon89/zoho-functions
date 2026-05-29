@@ -444,8 +444,9 @@ if(candidateDeals.size() == 0 && accountName != "")
 	}
 }
 
-// Filter to find non-lost/open active Deal to reuse
-activeDeals = List();
+// Filter to find non-lost/open active Deal to reuse, or fallback to Lost Deals
+openDeals = List();
+lostDeals = List();
 for each cand in candidateDeals
 {
 	candId = ifnull(cand.get("id"), "").toString().trim();
@@ -457,10 +458,25 @@ for each cand in candidateDeals
 			stateVal = ifnull(fullCand.get("State"), "Open").toString().trim();
 			if(stateVal != "Lost")
 			{
-				activeDeals.add(fullCand);
+				openDeals.add(fullCand);
+			}
+			else
+			{
+				lostDeals.add(fullCand);
 			}
 		}
 	}
+}
+
+activeDeals = List();
+if(openDeals.size() > 0)
+{
+	activeDeals = openDeals;
+}
+else if(lostDeals.size() > 0)
+{
+	activeDeals = lostDeals;
+	info "No active Open Deals found. Reusing furthest Lost Deal fallback.";
 }
 
 finalDealId = "";
