@@ -160,6 +160,10 @@ void automation.processContact(string contact_id)
 		{
 			dealId = dRes.get("id").toString();
 		}
+		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
+		{
+			dealId = dRes.get("details").get("id").toString();
+		}
 	}
 
 	// 5. Gather Open Contacts & Product Merge

@@ -167,6 +167,10 @@ void automation.processAccount(string account_id)
 		{
 			canonicalDealId = dRes.get("id").toString();
 		}
+		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
+		{
+			canonicalDealId = dRes.get("details").get("id").toString();
+		}
 	}
 
 	// 5. Calculate Deal Amount & Roll Canonical Deal

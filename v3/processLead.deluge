@@ -245,6 +245,10 @@ void automation.processLead(string lead_id)
 		{
 			dealId = dRes.get("id").toString();
 		}
+		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
+		{
+			dealId = dRes.get("details").get("id").toString();
+		}
 	}
 
 	// 8. Gather Open Contacts & Product Interest Rollup
