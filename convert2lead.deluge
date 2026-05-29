@@ -470,7 +470,23 @@ info existingContactId;
 // ENFORCE CANONICAL ACCOUNT RESOLUTION / CREATION (INLINED)
 // ======================================================
 canonicalAccountId = "";
-if(derivedAccountKey != "" && derivedAccountKey != "null")
+
+// 0. If existing Contact has a linked Account, claim it immediately (parity with baseline)
+if(existingContactId != "")
+{
+	fullContact = zoho.crm.getRecordById("Contacts", existingContactId.toLong());
+	if(fullContact != null)
+	{
+		linkedAccount = fullContact.get("Account_Name");
+		if(linkedAccount != null && linkedAccount.toString().contains("id"))
+		{
+			canonicalAccountId = ifnull(linkedAccount.get("id"), "").toString().trim();
+			info "Baseline parity: claimed Account ID from existing Contact: " + canonicalAccountId;
+		}
+	}
+}
+
+if(canonicalAccountId == "" && derivedAccountKey != "" && derivedAccountKey != "null")
 {
 	candidateAccounts = List();
 	candidateAccountIds = List();
