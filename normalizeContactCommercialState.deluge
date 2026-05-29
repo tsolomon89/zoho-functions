@@ -409,7 +409,7 @@ candidateDeals = List();
 if(accountId != "" && accountId != "null")
 {
 	idDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + accountId + ")");
-	if(idDeals != null && idDeals.toString().startsWith("[") && idDeals.size() > 0)
+	if(idDeals != null && idDeals.size() > 0)
 	{
 		for each d in idDeals
 		{
@@ -420,7 +420,7 @@ if(accountId != "" && accountId != "null")
 
 // Gather candidate Deals from related records
 accountDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
-if(accountDeals != null && accountDeals.toString().startsWith("[") && accountDeals.size() > 0)
+if(accountDeals != null && accountDeals.size() > 0)
 {
 	for each d in accountDeals
 	{
@@ -430,7 +430,7 @@ if(accountDeals != null && accountDeals.toString().startsWith("[") && accountDea
 
 // Gather candidate Deals from legacy Potentials related records
 legacyDeals = zoho.crm.getRelatedRecords("Potentials", "Accounts", accountIdLong);
-if(legacyDeals != null && legacyDeals.toString().startsWith("[") && legacyDeals.size() > 0)
+if(legacyDeals != null && legacyDeals.size() > 0)
 {
 	for each d in legacyDeals
 	{
@@ -443,7 +443,7 @@ safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(safeAccountName != "")
 {
 	fbSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
-	if(fbSearch != null && fbSearch.toString().startsWith("[") && fbSearch.size() > 0)
+	if(fbSearch != null && fbSearch.size() > 0)
 	{
 		for each d in fbSearch
 		{
