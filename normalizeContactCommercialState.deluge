@@ -131,19 +131,19 @@ contactCalls = zoho.crm.getRelatedRecords("Calls","Contacts",contactId);
 contactEvents = zoho.crm.getRelatedRecords("Events","Contacts",contactId);
 contactTasks = zoho.crm.getRelatedRecords("Tasks","Contacts",contactId);
 contactNotes = zoho.crm.getRelatedRecords("Notes","Contacts",contactId);
-if(contactCalls != null && contactCalls.size() > 0)
+if(contactCalls != null && contactCalls.size() > 0 && !contactCalls.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(contactEvents != null && contactEvents.size() > 0)
+if(contactEvents != null && contactEvents.size() > 0 && !contactEvents.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(contactTasks != null && contactTasks.size() > 0)
+if(contactTasks != null && contactTasks.size() > 0 && !contactTasks.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(contactNotes != null && contactNotes.size() > 0)
+if(contactNotes != null && contactNotes.size() > 0 && !contactNotes.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
@@ -413,7 +413,7 @@ candidateDeals = List();
 if(accountId != "" && accountId != "null")
 {
 	idDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + accountId + ")");
-	if(idDeals != null && idDeals.size() > 0)
+	if(idDeals != null && idDeals.size() > 0 && !idDeals.toString().startsWith("{"))
 	{
 		for each d in idDeals
 		{
@@ -424,7 +424,7 @@ if(accountId != "" && accountId != "null")
 
 // Gather candidate Deals from related records
 accountDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
-if(accountDeals != null && accountDeals.size() > 0)
+if(accountDeals != null && accountDeals.size() > 0 && !accountDeals.toString().startsWith("{"))
 {
 	for each d in accountDeals
 	{
@@ -434,7 +434,7 @@ if(accountDeals != null && accountDeals.size() > 0)
 
 // Gather candidate Deals from legacy Potentials related records
 legacyDeals = zoho.crm.getRelatedRecords("Potentials", "Accounts", accountIdLong);
-if(legacyDeals != null && legacyDeals.size() > 0)
+if(legacyDeals != null && legacyDeals.size() > 0 && !legacyDeals.toString().startsWith("{"))
 {
 	for each d in legacyDeals
 	{
@@ -447,7 +447,7 @@ safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
 if(safeAccountName != "")
 {
 	fbSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
-	if(fbSearch != null && fbSearch.size() > 0)
+	if(fbSearch != null && fbSearch.size() > 0 && !fbSearch.toString().startsWith("{"))
 	{
 		for each d in fbSearch
 		{
@@ -633,7 +633,7 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 info "Account Contacts retrieved for partition rollup:";
 info accountContacts;
 
-if(accountContacts != null && accountContacts.size() > 0)
+if(accountContacts != null && accountContacts.size() > 0 && !accountContacts.toString().startsWith("{"))
 {
 	for each accountContact in accountContacts
 	{

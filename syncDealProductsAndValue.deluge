@@ -62,7 +62,7 @@ if(dealStaging != "")
 }
 // Read related Products list if readable/accessible
 relatedProducts = zoho.crm.getRelatedRecords("Products","Deals",dealId);
-if(relatedProducts != null && relatedProducts.size() > 0)
+if(relatedProducts != null && relatedProducts.size() > 0 && !relatedProducts.toString().startsWith("{"))
 {
 	for each  relProd in relatedProducts
 	{
@@ -91,7 +91,7 @@ for each  prodName in productNamesList
 	if(safeProdName != "")
 	{
 		prodSearch = zoho.crm.searchRecords("Products","(Product_Name:equals:" + safeProdName + ")");
-		if(prodSearch != null && prodSearch.size() > 0)
+		if(prodSearch != null && prodSearch.size() > 0 && !prodSearch.toString().startsWith("{"))
 		{
 			firstProd = prodSearch.get(0);
 			if(firstProd != null)

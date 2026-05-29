@@ -210,19 +210,19 @@ dealCalls = zoho.crm.getRelatedRecords("Calls","Deals",dealId);
 dealEvents = zoho.crm.getRelatedRecords("Events","Deals",dealId);
 dealTasks = zoho.crm.getRelatedRecords("Tasks","Deals",dealId);
 dealNotes = zoho.crm.getRelatedRecords("Notes","Deals",dealId);
-if(dealCalls != null && dealCalls.size() > 0)
+if(dealCalls != null && dealCalls.size() > 0 && !dealCalls.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(dealEvents != null && dealEvents.size() > 0)
+if(dealEvents != null && dealEvents.size() > 0 && !dealEvents.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(dealTasks != null && dealTasks.size() > 0)
+if(dealTasks != null && dealTasks.size() > 0 && !dealTasks.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
-if(dealNotes != null && dealNotes.size() > 0)
+if(dealNotes != null && dealNotes.size() > 0 && !dealNotes.toString().startsWith("{"))
 {
 	manualActivityExists = true;
 }
@@ -427,7 +427,7 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 	info "Account Contacts retrieved for Deal partition rollup:";
 	info accountContacts;
 	
-	if(accountContacts != null && accountContacts.size() > 0)
+	if(accountContacts != null && accountContacts.size() > 0 && !accountContacts.toString().startsWith("{"))
 	{
 		for each accountContact in accountContacts
 		{

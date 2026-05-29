@@ -110,8 +110,8 @@ accountName = ifnull(accountRecord.get("Account_Name"),"");
 accountDeals = zoho.crm.getRelatedRecords("Deals","Accounts",accountId);
 info "Related Deals via getRelatedRecords:";
 info accountDeals;
-// Fallback to searchRecords if getRelatedRecords returns nothing
-if(accountDeals == null || accountDeals.size() == 0)
+// Fallback to searchRecords if getRelatedRecords returns nothing or errors out
+if(accountDeals == null || accountDeals.size() == 0 || accountDeals.toString().startsWith("{"))
 {
 	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
 	if(safeAccountName != "")
@@ -124,7 +124,7 @@ if(accountDeals == null || accountDeals.size() == 0)
 // ======================================================
 // IF NO DEALS, SET SAFE DEFAULTS
 // ======================================================
-if(accountDeals == null || accountDeals.size() == 0)
+if(accountDeals == null || accountDeals.size() == 0 || accountDeals.toString().startsWith("{"))
 {
 	accountNoDealsUpdateMap = Map();
 	currentAccountState = ifnull(accountRecord.get(FIELD_STATE),"");

@@ -478,7 +478,7 @@ if(existingAccountId == "" && derivedAccountKey != "")
 {
 	// A. Search by Name matching derivedAccountKey
 	accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + derivedAccountKey + ")");
-	if(accSearch != null && accSearch.size() > 0)
+	if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 	{
 		for each acc in accSearch
 		{
@@ -494,7 +494,7 @@ if(existingAccountId == "" && derivedAccountKey != "")
 	if(existingAccountId == "")
 	{
 		accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + derivedAccountKey + ")");
-		if(accSearch != null && accSearch.size() > 0)
+		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 		{
 			for each acc in accSearch
 			{
@@ -517,7 +517,7 @@ if(existingAccountId == "" && leadAccountKey != "")
 	{
 		// A. Search by Name matching Lead.Account_Key
 		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeLeadAccountKey + ")");
-		if(accSearch != null && accSearch.size() > 0)
+		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 		{
 			for each acc in accSearch
 			{
@@ -533,7 +533,7 @@ if(existingAccountId == "" && leadAccountKey != "")
 		if(existingAccountId == "")
 		{
 			accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + safeLeadAccountKey + ")");
-			if(accSearch != null && accSearch.size() > 0)
+			if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 			{
 				for each acc in accSearch
 				{
@@ -556,7 +556,7 @@ if(existingAccountId == "" && safeCompanyQuery != "")
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeCompanyQuery + ")");
 	info "Account search by company name:";
 	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
 	{
 		existingAccountRecord = accountSearch.get(0);
 		existingAccountId = existingAccountRecord.get("id").toString();
@@ -570,7 +570,7 @@ if(existingAccountId == "" && safeDomainQuery != "")
 	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + safeDomainQuery + ")");
 	info "Account search by website:";
 	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
 	{
 		existingAccountRecord = accountSearch.get(0);
 		existingAccountId = existingAccountRecord.get("id").toString();
@@ -583,7 +583,7 @@ if(existingAccountId == "" && safeDomainQuery != "")
 	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeDomainQuery + ")");
 	info "Account search by domain as name:";
 	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0)
+	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
 	{
 		existingAccountRecord = accountSearch.get(0);
 		existingAccountId = existingAccountRecord.get("id").toString();
