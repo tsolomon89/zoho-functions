@@ -55,6 +55,14 @@ if(rawId == "" || rawId == "null")
 contactId = rawId.toLong();
 info "normalizeContactCommercialState started for Contact ID:";
 info contactId;
+
+// Introduce a 4-second database indexing delay to guarantee Zoho's search indexes have caught up
+delayMap = Map();
+delayResp = invokeurl
+[
+	url: "https://httpbin.org/delay/4"
+	type: POST
+];
 contactRecord = zoho.crm.getRecordById("Contacts",contactId);
 if(contactRecord == null)
 {
@@ -97,6 +105,204 @@ if(accountLookup != null)
 	if(accountLookup.get("name") != null)
 	{
 		accountName = accountLookup.get("name").toString();
+	}
+}
+
+// ======================================================
+// SELF-HEALING CANONICAL ACCOUNT CHECK
+// If this Contact is attached to an Account, verify if another older canonical Account
+// already exists with the same Account_Key. If so, reattach this Contact to the canonical
+// Account and delete the duplicate Account to cure any concurrent ingestion races.
+// ======================================================
+if(accountId != "" && accountId != "null")
+{
+	accountIdLong = accountId.toLong();
+	accountRecord = zoho.crm.getRecordById("Accounts", accountIdLong);
+	if(accountRecord != null)
+	{
+		accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+		if(accountKey.isNumber() && accountKey.length() >= 15)
+		{
+			accountKey = "";
+		}
+		accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
+		
+		cleanCompany = accountName.toLowerCase().trim();
+		cleanCompany = cleanCompany.replaceAll("[^a-z0-9]", " ").replaceAll("  ", " ").trim();
+		cleanCompany = " " + cleanCompany + " ";
+		cleanCompany = cleanCompany.replaceAll(" ltd "," ").replaceAll(" limited "," ").replaceAll(" inc "," ").replaceAll(" incorporated "," ").replaceAll(" llc "," ").replaceAll(" plc "," ").replaceAll(" corp "," ").replaceAll(" gmbh "," ");
+		cleanCompany = cleanCompany.replaceAll(" com "," ").replaceAll(" app "," ").replaceAll(" net "," ").replaceAll(" org "," ").replaceAll(" co "," ").replaceAll(" io "," ").trim();
+		derivedAccountKey = cleanCompany.replaceAll(" ", "");
+		
+		if(derivedAccountKey != "")
+		{
+			candidateAccounts = List();
+			candidateAccountIds = List();
+			
+			safeCompany = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
+			safeCleanCompany = cleanCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+			safeAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+			
+			// A. Search by Name = safeCompany
+			if(safeCompany != "")
+			{
+				accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompany + ")");
+				if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+				{
+					for each acc in accSearch
+					{
+						accId = ifnull(acc.get("id"), "").toString().trim();
+						if(accId != "" && !candidateAccountIds.contains(accId))
+						{
+							candidateAccounts.add(acc);
+							candidateAccountIds.add(accId);
+						}
+					}
+				}
+			}
+			
+			// B. Search by Name = safeCleanCompany
+			if(safeCleanCompany != "" && safeCleanCompany != safeCompany)
+			{
+				accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCleanCompany + ")");
+				if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+				{
+					for each acc in accSearch
+					{
+						accId = ifnull(acc.get("id"), "").toString().trim();
+						if(accId != "" && !candidateAccountIds.contains(accId))
+						{
+							candidateAccounts.add(acc);
+							candidateAccountIds.add(accId);
+						}
+					}
+				}
+			}
+			
+			// C. Search by Name starts_with = safeCleanCompany (Highly-inclusive suffix matching)
+			if(safeCleanCompany != "" && safeCleanCompany.length() >= 3)
+			{
+				accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:starts_with:" + safeCleanCompany + ")");
+				if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+				{
+					for each acc in accSearch
+					{
+						accId = ifnull(acc.get("id"), "").toString().trim();
+						if(accId != "" && !candidateAccountIds.contains(accId))
+						{
+							candidateAccounts.add(acc);
+							candidateAccountIds.add(accId);
+						}
+					}
+				}
+			}
+			
+			// D. Search by Name = safeAccountKey
+			if(safeAccountKey != "" && safeAccountKey != safeCompany && safeAccountKey != safeCleanCompany)
+			{
+				accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeAccountKey + ")");
+				if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+				{
+					for each acc in accSearch
+					{
+						accId = ifnull(acc.get("id"), "").toString().trim();
+						if(accId != "" && !candidateAccountIds.contains(accId))
+						{
+							candidateAccounts.add(acc);
+							candidateAccountIds.add(accId);
+						}
+					}
+				}
+			}
+			
+			// Find the minimum/oldest ID Account among candidates matching in-memory
+			canonicalAccountId = "";
+			minAccountIdLong = 999999999999999999;
+			for each acc in candidateAccounts
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "")
+				{
+					// Direct, raw name comparison (KISS)
+					accNameClean = ifnull(acc.get("Account_Name"), "").toString().trim().toLowerCase();
+					leadCompanyClean = accountName.toLowerCase().trim();
+					
+					if(accNameClean == leadCompanyClean && accNameClean != "")
+					{
+						accIdLong = accId.toLong();
+						if(accIdLong < minAccountIdLong)
+						{
+							minAccountIdLong = accIdLong;
+							canonicalAccountId = accId;
+						}
+					}
+				}
+			}
+			
+			if(canonicalAccountId != "" && canonicalAccountId != accountId)
+			{
+				info "Self-Healing Canonical Account Check: reattaching Contact " + contactId + " to canonical Account " + canonicalAccountId + " instead of duplicate " + accountId;
+				duplicateAccountId = accountId;
+				accountId = canonicalAccountId;
+				accountIdLong = accountId.toLong();
+				
+				// Reattach Contact to canonical Account
+				contactLookupUpdateMap = Map();
+				accountLookup = Map();
+				accountLookup.put("id", accountId);
+				contactLookupUpdateMap.put("Account_Name", accountLookup);
+				updateContactAccResp = zoho.crm.updateRecord("Contacts", contactId, contactLookupUpdateMap);
+				info "Reattached Contact to canonical Account response:";
+				info updateContactAccResp;
+				
+				// Reattach related Deals (both Deals and legacy Potentials) to canonical Account before deletion
+				dupDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", duplicateAccountId.toLong());
+				if(dupDeals != null && dupDeals.size() > 0 && !dupDeals.toString().startsWith("{"))
+				{
+					for each dl in dupDeals
+					{
+						dlId = ifnull(dl.get("id"), "").toString().trim();
+						if(dlId != "" && dlId != "null")
+						{
+							dealUpdateMap = Map();
+							accountLookupMap = Map();
+							accountLookupMap.put("id", accountId);
+							dealUpdateMap.put("Account_Name", accountLookupMap);
+							zoho.crm.updateRecord("Deals", dlId.toLong(), dealUpdateMap);
+							info "Reattached Deal " + dlId + " to canonical Account " + accountId;
+						}
+					}
+				}
+				dupPotentials = zoho.crm.getRelatedRecords("Potentials", "Accounts", duplicateAccountId.toLong());
+				if(dupPotentials != null && dupPotentials.size() > 0 && !dupPotentials.toString().startsWith("{"))
+				{
+					for each dl in dupPotentials
+					{
+						dlId = ifnull(dl.get("id"), "").toString().trim();
+						if(dlId != "" && dlId != "null")
+						{
+							dealUpdateMap = Map();
+							accountLookupMap = Map();
+							accountLookupMap.put("id", accountId);
+							dealUpdateMap.put("Account_Name", accountLookupMap);
+							zoho.crm.updateRecord("Deals", dlId.toLong(), dealUpdateMap);
+							info "Reattached Legacy Deal/Potential " + dlId + " to canonical Account " + accountId;
+						}
+					}
+				}
+				
+				// Delete the empty duplicate Account immediately to keep CRM perfectly clean
+				if(duplicateAccountId != "" && duplicateAccountId != "null")
+				{
+					info "Deleting duplicate Account: " + duplicateAccountId;
+					delMap = Map();
+					delMap.put("module", "Accounts");
+					delMap.put("id", duplicateAccountId);
+					delAccResp = zoho.crm.invokeConnector("crm.delete", delMap);
+					info delAccResp;
+				}
+			}
+		}
 	}
 }
 info "Contact Stage:";
@@ -353,50 +559,14 @@ if(accountRecord != null)
 	{
 		accountKey = "";
 	}
-	accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
 	accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
 	
-	derivedDomain = "";
-	if(accountWebsite != "")
-	{
-		rawUrl = accountWebsite;
-		normalizedDomain = rawUrl.toLowerCase().trim();
-		normalizedDomain = normalizedDomain.replaceAll("https://","");
-		normalizedDomain = normalizedDomain.replaceAll("http://","");
-		normalizedDomain = normalizedDomain.replaceAll("www.","");
-		if(normalizedDomain.contains("/"))
-		{
-			parts = normalizedDomain.toList("/");
-			normalizedDomain = parts.get(0);
-		}
-		derivedDomain = normalizedDomain.trim();
-	}
-	if(derivedDomain == "" && accountName.contains(".") && !accountName.contains(" "))
-	{
-		rawUrl = accountName.toLowerCase().trim();
-		normalizedDomain = rawUrl.toLowerCase().trim();
-		normalizedDomain = normalizedDomain.replaceAll("https://","");
-		normalizedDomain = normalizedDomain.replaceAll("http://","");
-		normalizedDomain = normalizedDomain.replaceAll("www.","");
-		if(normalizedDomain.contains("/"))
-		{
-			parts = normalizedDomain.toList("/");
-			normalizedDomain = parts.get(0);
-		}
-		derivedDomain = normalizedDomain.trim();
-	}
-	
-	derivedAccountKey = accountKey;
-	if(derivedAccountKey == "")
-	{
-		derivedAccountKey = derivedDomain;
-	}
-	if(derivedAccountKey == "")
-	{
-		derivedAccountKey = accountName;
-	}
-	derivedAccountKey = derivedAccountKey.toLowerCase().trim();
-	derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
+	cleanCompany = accountName.toLowerCase().trim();
+	cleanCompany = cleanCompany.replaceAll("[^a-z0-9]", " ").replaceAll("  ", " ").trim();
+	cleanCompany = " " + cleanCompany + " ";
+	cleanCompany = cleanCompany.replaceAll(" ltd "," ").replaceAll(" limited "," ").replaceAll(" inc "," ").replaceAll(" incorporated "," ").replaceAll(" llc "," ").replaceAll(" plc "," ").replaceAll(" corp "," ").replaceAll(" gmbh "," ");
+	cleanCompany = cleanCompany.replaceAll(" com "," ").replaceAll(" app "," ").replaceAll(" net "," ").replaceAll(" org "," ").replaceAll(" co "," ").replaceAll(" io "," ").trim();
+	derivedAccountKey = cleanCompany.replaceAll(" ", "");
 }
 dealKey = derivedAccountKey + "::active";
 dealKey = dealKey.toLowerCase().trim();
@@ -546,28 +716,53 @@ if(finalDealId == "")
 	{
 		finalDealId = createDealResp.get("id").toString();
 		
-		// Post-creation canonical Deal check to prevent duplicate Deals under concurrency races
+		// Post-creation canonical Deal check to prevent duplicate Deals under concurrency races.
+		// If another older canonical Deal already exists with the same Deal_Key, prefer the existing
+		// canonical Deal, reassociate child values, and immediately delete the duplicate Deal.
 		canonicalDealId = "";
 		if(dealKey != "")
 		{
-			dealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-			if(dealSearch != null && dealSearch.size() > 0 && !dealSearch.toString().startsWith("{"))
+			cDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
+			minDealIdLong = 999999999999999999;
+			for each d in cDeals
 			{
-				for each d in dealSearch
+				dId = ifnull(d.get("id"), "").toString().trim();
+				if(dId != "" && dId != "null")
 				{
-					dId = ifnull(d.get("id"), "").toString().trim();
-					if(dId != "" && dId != "null" && dId != finalDealId)
+					dRecord = zoho.crm.getRecordById("Deals", dId.toLong());
+					if(dRecord != null)
 					{
-						canonicalDealId = dId;
-						info "Post-Creation Canonical Deal Check: Found existing canonical Deal " + canonicalDealId + " instead of newly created duplicate " + finalDealId;
-						break;
+						dKey = ifnull(dRecord.get("Deal_Key"), "").toString().trim().toLowerCase();
+						if(dKey == dealKey)
+						{
+							dIdLong = dId.toLong();
+							if(dIdLong < minDealIdLong)
+							{
+								minDealIdLong = dIdLong;
+								canonicalDealId = dId;
+							}
+						}
 					}
 				}
 			}
-		}
-		if(canonicalDealId != "")
-		{
-			finalDealId = canonicalDealId;
+			
+			if(canonicalDealId != "" && canonicalDealId != finalDealId)
+			{
+				info "Post-Creation Canonical Deal Check: Found existing canonical Deal " + canonicalDealId + " instead of newly created duplicate " + finalDealId;
+				duplicateDealId = finalDealId;
+				finalDealId = canonicalDealId;
+				
+				// Delete the duplicate Deal immediately to keep CRM perfectly clean
+				if(duplicateDealId != "" && duplicateDealId != "null")
+				{
+					info "Deleting duplicate Deal: " + duplicateDealId;
+					delMap = Map();
+					delMap.put("module", "Deals");
+					delMap.put("id", duplicateDealId);
+					delDealResp = zoho.crm.invokeConnector("crm.delete", delMap);
+					info delDealResp;
+				}
+			}
 		}
 	}
 }

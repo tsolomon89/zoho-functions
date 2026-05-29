@@ -1,7 +1,7 @@
-string automation.convertLead2(String lead_id)
+string automation.convert_mql_lead_to_sql(String lead_id)
 {
 // ======================================================
-// convertLead2
+// convert_mql_lead_to_sql
 //
 // Trigger:
 // - Lead created
@@ -15,7 +15,7 @@ string automation.convertLead2(String lead_id)
 // - Hand off to normalizeContactCommercialState.
 //
 // Do NOT manually pre-create Accounts.
-// Do NOT create Deals here. convertLead2 no longer lets convertLead create Deals. Deal creation is owned by normalizeContactCommercialState.
+// Do NOT create Deals here. Deal creation is owned by normalizeContactCommercialState.
 //
 // All ID handling follows baseline patterns:
 // - No replaceAll("zcrm_","") on IDs
@@ -52,7 +52,7 @@ if(rawId == "" || rawId == "null")
 }
 
 leadId = rawId.toLong();
-info "convertLead2 started for Lead ID:";
+info "convert_mql_lead_to_sql started for Lead ID:";
 info leadId;
 leadRecord = zoho.crm.getRecordById("Leads",leadId);
 info "Lead record:";
@@ -107,6 +107,7 @@ info leadProductInterestStr;
 derivedCompany = companyName.trim();
 derivedWebsite = website.trim();
 derivedDomain = "";
+rawDomain = "";
 companyLooksLikeDomain = false;
 if(derivedCompany.contains(".") && !derivedCompany.contains(" "))
 {
@@ -124,6 +125,12 @@ if(derivedWebsite != "")
 		parts = normalizedDomain.toList("/");
 		normalizedDomain = parts.get(0);
 	}
+	rawDomain = normalizedDomain.trim();
+	if(normalizedDomain.contains("."))
+	{
+		parts = normalizedDomain.toList(".");
+		normalizedDomain = parts.get(0);
+	}
 	derivedDomain = normalizedDomain.trim();
 }
 if(companyLooksLikeDomain == true && derivedWebsite == "")
@@ -139,6 +146,12 @@ if(companyLooksLikeDomain == true && derivedWebsite == "")
 		parts = normalizedDomain.toList("/");
 		normalizedDomain = parts.get(0);
 	}
+	rawDomain = normalizedDomain.trim();
+	if(normalizedDomain.contains("."))
+	{
+		parts = normalizedDomain.toList(".");
+		normalizedDomain = parts.get(0);
+	}
 	derivedDomain = normalizedDomain.trim();
 }
 if(derivedCompany == "" && derivedWebsite != "")
@@ -151,6 +164,11 @@ if(derivedCompany == "" && derivedWebsite == "" && email != "")
 	{
 		emailParts = email.toList("@");
 		emailDomain = emailParts.get(1).toLowerCase().trim();
+		rawDomain = emailDomain;
+		if(emailDomain.contains("."))
+		{
+			emailDomain = emailDomain.toList(".").get(0);
+		}
 		derivedDomain = emailDomain;
 		derivedCompany = emailDomain;
 		derivedWebsite = emailDomain;
@@ -161,15 +179,14 @@ if(derivedCompany == "")
 	derivedCompany = "Unknown Account - " + leadId.toString();
 }
 // ======================================================
-// DERIVE ACCOUNT KEY
+// DERIVE ACCOUNT KEY (Company Name uniqueness)
 // ======================================================
-derivedAccountKey = derivedDomain;
-if(derivedAccountKey == "")
-{
-	derivedAccountKey = derivedCompany;
-}
-derivedAccountKey = derivedAccountKey.toLowerCase().trim();
-derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
+cleanCompany = derivedCompany.toLowerCase().trim();
+cleanCompany = cleanCompany.replaceAll("[^a-z0-9]", " ").replaceAll("  ", " ").trim();
+cleanCompany = " " + cleanCompany + " ";
+cleanCompany = cleanCompany.replaceAll(" ltd "," ").replaceAll(" limited "," ").replaceAll(" inc "," ").replaceAll(" incorporated "," ").replaceAll(" llc "," ").replaceAll(" plc "," ").replaceAll(" corp "," ").replaceAll(" corporation "," ").replaceAll(" gmbh "," ");
+cleanCompany = cleanCompany.replaceAll(" com "," ").replaceAll(" app "," ").replaceAll(" net "," ").replaceAll(" org "," ").replaceAll(" co "," ").replaceAll(" io "," ").trim();
+derivedAccountKey = cleanCompany.replaceAll(" ", "");
 // ======================================================
 // DERIVE PRODUCT KEY & DEAL KEY
 // ======================================================
@@ -442,151 +459,110 @@ if(existingContactId != "")
 info "Account from Contact lookup:";
 info existingAccountId;
 
-// 2. Direct Account_Key search using derivedAccountKey
-if(existingAccountId == "" && derivedAccountKey != "")
+// 2. Pre-Conversion highly-inclusive Account lookup (strictly on normalized Company Name)
+if(existingAccountId == "")
 {
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
-	info "Account search by derived Account_Key:";
-	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+	candidateAccounts = List();
+	candidateAccountIds = List();
+	
+	safeCompany = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	safeCleanCompany = cleanCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	safeAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	
+	// A. Search by Name = safeCompany
+	if(safeCompany != "")
 	{
-		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
-	}
-}
-
-// 3. Direct Account_Key search using Lead.Account_Key, if present
-leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
-if(existingAccountId == "" && leadAccountKey != "")
-{
-	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeLeadAccountKey != "")
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
-		info "Account search by Lead Account_Key:";
-		info accountSearch;
-		if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
-
-// 4. Fallback in-memory check: Search by Account_Key = derivedAccountKey
-if(existingAccountId == "" && derivedAccountKey != "")
-{
-	// A. Search by Name matching derivedAccountKey
-	accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + derivedAccountKey + ")");
-	if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
-	{
-		for each acc in accSearch
-		{
-			aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
-			if(aKey == derivedAccountKey)
-			{
-				existingAccountId = acc.get("id").toString();
-				existingAccountRecord = acc;
-			}
-		}
-	}
-	// B. Search by Website matching derivedAccountKey
-	if(existingAccountId == "")
-	{
-		accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + derivedAccountKey + ")");
+		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompany + ")");
 		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 		{
 			for each acc in accSearch
 			{
-				aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
-				if(aKey == derivedAccountKey)
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
 				{
-					existingAccountId = acc.get("id").toString();
-					existingAccountRecord = acc;
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
 				}
 			}
 		}
 	}
-}
-
-// 5. Fallback in-memory check: Search by Account_Key = Lead.Account_Key (if present)
-if(existingAccountId == "" && leadAccountKey != "")
-{
-	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeLeadAccountKey != "")
+	
+	// B. Search by Name = safeCleanCompany
+	if(safeCleanCompany != "" && safeCleanCompany != safeCompany)
 	{
-		// A. Search by Name matching Lead.Account_Key
-		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeLeadAccountKey + ")");
+		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCleanCompany + ")");
 		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
 		{
 			for each acc in accSearch
 			{
-				aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
-				if(aKey == safeLeadAccountKey)
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
 				{
-					existingAccountId = acc.get("id").toString();
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// C. Search by Name starts_with = safeCleanCompany (Highly-inclusive suffix matching)
+	if(safeCleanCompany != "" && safeCleanCompany.length() >= 3)
+	{
+		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:starts_with:" + safeCleanCompany + ")");
+		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+		{
+			for each acc in accSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// D. Search by Name = safeAccountKey
+	if(safeAccountKey != "" && safeAccountKey != safeCompany && safeAccountKey != safeCleanCompany)
+	{
+		accSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeAccountKey + ")");
+		if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
+		{
+			for each acc in accSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// E. Pick the oldest canonical Account matching the exact name in-memory
+	minAccountIdLong = 999999999999999999;
+	for each acc in candidateAccounts
+	{
+		accId = ifnull(acc.get("id"), "").toString().trim();
+		if(accId != "")
+		{
+			// Direct, raw name comparison (KISS)
+			accNameClean = ifnull(acc.get("Account_Name"), "").toString().trim().toLowerCase();
+			leadCompanyClean = derivedCompany.toLowerCase().trim();
+			
+			if(accNameClean == leadCompanyClean && accNameClean != "")
+			{
+				accIdLong = accId.toLong();
+				if(accIdLong < minAccountIdLong)
+				{
+					minAccountIdLong = accIdLong;
+					existingAccountId = accId;
 					existingAccountRecord = acc;
 				}
 			}
 		}
-		// B. Search by Website matching Lead.Account_Key
-		if(existingAccountId == "")
-		{
-			accSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + safeLeadAccountKey + ")");
-			if(accSearch != null && accSearch.size() > 0 && !accSearch.toString().startsWith("{"))
-			{
-				for each acc in accSearch
-				{
-					aKey = ifnull(acc.get("Account_Key"),"").toString().trim();
-					if(aKey == safeLeadAccountKey)
-					{
-						existingAccountId = acc.get("id").toString();
-						existingAccountRecord = acc;
-					}
-				}
-			}
-		}
-	}
-}
-
-// 4. Lookup by normalized Company Name (baseline pattern)
-safeCompanyQuery = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
-if(existingAccountId == "" && safeCompanyQuery != "")
-{
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeCompanyQuery + ")");
-	info "Account search by company name:";
-	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
-	{
-		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
-	}
-}
-
-// 5. Lookup by Website (normalized domain)
-safeDomainQuery = derivedDomain.replaceAll("[\\(\\)\\:\\,]", "").trim();
-if(existingAccountId == "" && safeDomainQuery != "")
-{
-	accountSearch = zoho.crm.searchRecords("Accounts","(Website:equals:" + safeDomainQuery + ")");
-	info "Account search by website:";
-	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
-	{
-		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
-	}
-}
-
-// 6. Lookup Account Name equals normalized domain
-if(existingAccountId == "" && safeDomainQuery != "")
-{
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + safeDomainQuery + ")");
-	info "Account search by domain as name:";
-	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
-	{
-		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
 	}
 }
 info "Existing Account ID:";
@@ -659,33 +635,120 @@ if(conversionResponse.get("Accounts") != null)
 }
 
 // ======================================================
-// POST-CONVERSION CANONICAL ACCOUNT CHECK (Fix 4)
+// POST-CONVERSION CANONICAL ACCOUNT CHECK
 // Prevents duplicate Accounts created concurrently during bulk imports.
-// If another Account already exists with the same Account_Key, prefer the existing
-// canonical Account and reattach the Contact to it.
+// If another older Account already exists with the same Account_Key, prefer the existing
+// canonical Account, reattach the Contact to it, and delete the duplicate Account.
 // ======================================================
 canonicalAccountId = "";
 if(finalAccountId != "" && finalAccountId != "null" && derivedAccountKey != "")
 {
-	canonicalSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + derivedAccountKey + ")");
-	if(canonicalSearch != null && canonicalSearch.size() > 0 && !canonicalSearch.toString().startsWith("{"))
+	candidateAccounts = List();
+	candidateAccountIds = List();
+	
+	safeCompany = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	safeCleanCompany = cleanCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	safeAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	
+	// A. Search by Name = safeCompany
+	if(safeCompany != "")
 	{
-		for each acc in canonicalSearch
+		cSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompany + ")");
+		if(cSearch != null && cSearch.size() > 0 && !cSearch.toString().startsWith("{"))
 		{
-			accId = ifnull(acc.get("id"), "").toString().trim();
-			if(accId != "" && accId != "null" && accId != finalAccountId)
+			for each acc in cSearch
 			{
-				canonicalAccountId = accId;
-				info "Post-Conversion Canonical Check: Found existing canonical Account " + canonicalAccountId + " instead of newly created duplicate " + finalAccountId;
-				break;
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// B. Search by Name = safeCleanCompany
+	if(safeCleanCompany != "" && safeCleanCompany != safeCompany)
+	{
+		cSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCleanCompany + ")");
+		if(cSearch != null && cSearch.size() > 0 && !cSearch.toString().startsWith("{"))
+		{
+			for each acc in cSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// C. Search by Name starts_with = safeCleanCompany (Highly-inclusive suffix matching)
+	if(safeCleanCompany != "" && safeCleanCompany.length() >= 3)
+	{
+		cSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:starts_with:" + safeCleanCompany + ")");
+		if(cSearch != null && cSearch.size() > 0 && !cSearch.toString().startsWith("{"))
+		{
+			for each acc in cSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// D. Search by Name = safeAccountKey
+	if(safeAccountKey != "" && safeAccountKey != safeCompany && safeAccountKey != safeCleanCompany)
+	{
+		cSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeAccountKey + ")");
+		if(cSearch != null && cSearch.size() > 0 && !cSearch.toString().startsWith("{"))
+		{
+			for each acc in cSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	minAccountIdLong = 999999999999999999;
+	for each acc in candidateAccounts
+	{
+		accId = ifnull(acc.get("id"), "").toString().trim();
+		if(accId != "")
+		{
+			// Direct, raw name comparison (KISS)
+			accNameClean = ifnull(acc.get("Account_Name"), "").toString().trim().toLowerCase();
+			leadCompanyClean = derivedCompany.toLowerCase().trim();
+			
+			if(accNameClean == leadCompanyClean && accNameClean != "")
+			{
+				accIdLong = accId.toLong();
+				if(accIdLong < minAccountIdLong)
+				{
+					minAccountIdLong = accIdLong;
+					canonicalAccountId = accId;
+				}
 			}
 		}
 	}
 }
 
-if(canonicalAccountId != "")
+if(canonicalAccountId != "" && canonicalAccountId != finalAccountId)
 {
 	info "Duplicate Account race detected! Reattaching Contact to canonical Account: " + canonicalAccountId;
+	duplicateAccountId = finalAccountId;
 	finalAccountId = canonicalAccountId;
 	
 	// Update Contact's Account lookup to point to the canonical Account
@@ -698,6 +761,53 @@ if(canonicalAccountId != "")
 		updateContactAccResp = zoho.crm.updateRecord("Contacts", finalContactId.toLong(), contactLookupUpdateMap);
 		info "Reattached Contact to canonical Account response:";
 		info updateContactAccResp;
+	}
+	
+	// Reattach related Deals (both Deals and legacy Potentials) to canonical Account before deletion
+	dupDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", duplicateAccountId.toLong());
+	if(dupDeals != null && dupDeals.size() > 0 && !dupDeals.toString().startsWith("{"))
+	{
+		for each dl in dupDeals
+		{
+			dlId = ifnull(dl.get("id"), "").toString().trim();
+			if(dlId != "" && dlId != "null")
+			{
+				dealUpdateMap = Map();
+				accountLookupMap = Map();
+				accountLookupMap.put("id", finalAccountId);
+				dealUpdateMap.put("Account_Name", accountLookupMap);
+				zoho.crm.updateRecord("Deals", dlId.toLong(), dealUpdateMap);
+				info "Reattached Deal " + dlId + " to canonical Account " + finalAccountId;
+			}
+		}
+	}
+	dupPotentials = zoho.crm.getRelatedRecords("Potentials", "Accounts", duplicateAccountId.toLong());
+	if(dupPotentials != null && dupPotentials.size() > 0 && !dupPotentials.toString().startsWith("{"))
+	{
+		for each dl in dupPotentials
+		{
+			dlId = ifnull(dl.get("id"), "").toString().trim();
+			if(dlId != "" && dlId != "null")
+			{
+				dealUpdateMap = Map();
+				accountLookupMap = Map();
+				accountLookupMap.put("id", finalAccountId);
+				dealUpdateMap.put("Account_Name", accountLookupMap);
+				zoho.crm.updateRecord("Deals", dlId.toLong(), dealUpdateMap);
+				info "Reattached Legacy Deal/Potential " + dlId + " to canonical Account " + finalAccountId;
+			}
+		}
+	}
+	
+	// Delete the empty duplicate Account immediately to keep CRM perfectly clean
+	if(duplicateAccountId != "" && duplicateAccountId != "null")
+	{
+		info "Deleting duplicate Account: " + duplicateAccountId;
+		delMap = Map();
+		delMap.put("module", "Accounts");
+		delMap.put("id", duplicateAccountId);
+		delAccResp = zoho.crm.invokeConnector("crm.delete", delMap);
+		info delAccResp;
 	}
 }
 
@@ -932,7 +1042,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 // ======================================================
 // FINAL RESULT
 // ======================================================
-resultMessage = "convertLead2 completed. Contact: " + finalContactId + " Account: " + finalAccountId;
+resultMessage = "convert_mql_lead_to_sql completed. Contact: " + finalContactId + " Account: " + finalAccountId;
 info resultMessage;
 return resultMessage;
 }
