@@ -9,8 +9,9 @@ void automation.processLead(string lead_id)
 	{
 		return;
 	}
+	cleanId = lead_id.replaceAll("zcrm_", "").trim();
 
-	leadRecord = zoho.crm.getRecordById("Leads", lead_id.toLong());
+	leadRecord = zoho.crm.getRecordById("Leads", cleanId.toLong());
 	if(leadRecord.get("id") == null)
 	{
 		info "Lead not found.";
@@ -55,7 +56,7 @@ void automation.processLead(string lead_id)
 	}
 	else
 	{
-		accountKey = "unknown::" + lead_id;
+		accountKey = "unknown::" + cleanId;
 	}
 	accountKey = accountKey.left(200);
 
@@ -176,7 +177,7 @@ void automation.processLead(string lead_id)
 	convertMap.put("Accounts", accountId);
 	if(contactId != "") { convertMap.put("Contacts", contactId); }
 	
-	convertRes = zoho.crm.convertLead(lead_id.toLong(), convertMap);
+	convertRes = zoho.crm.convertLead(cleanId.toLong(), convertMap);
 	info "Convert Response: " + convertRes;
 
 	newContactId = contactId;

@@ -1,8 +1,9 @@
 void automation.processAccount(string account_id)
 {
 	if(account_id == null || account_id == "") { return; }
+	cleanId = account_id.replaceAll("zcrm_", "").trim();
 
-	accountRecord = zoho.crm.getRecordById("Accounts", account_id.toLong());
+	accountRecord = zoho.crm.getRecordById("Accounts", cleanId.toLong());
 	if(accountRecord.get("id") == null) { return; }
 
 	// 1. Ensure Account_Key
@@ -29,17 +30,17 @@ void automation.processAccount(string account_id)
 		}
 		else
 		{
-			accountKey = "unknown::" + account_id;
+			accountKey = "unknown::" + cleanId;
 		}
 		accountKey = accountKey.left(200);
 		
-		zoho.crm.updateRecord("Accounts", account_id.toLong(), {"Account_Key": accountKey});
+		zoho.crm.updateRecord("Accounts", cleanId.toLong(), {"Account_Key": accountKey});
 	}
 
 	dealKey = accountKey + "::active";
 
 	// 2. Gather Open Contacts
-	relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", account_id.toLong());
+	relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", cleanId.toLong());
 	highestStageRank = 0;
 	bestStage = "Marketing Consent";
 	bestOpp = "MQL";
@@ -94,7 +95,7 @@ void automation.processAccount(string account_id)
 	}
 
 	// 3. Silence Duplicate Deals & Ensure Identity Canonical
-	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", account_id.toLong());
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
 	canonicalDealId = "";
 	minId = 999999999999999999;
 	activeDeals = List();
@@ -149,7 +150,7 @@ void automation.processAccount(string account_id)
 		
 		dealMap = Map();
 		dealMap.put("Deal_Name", dealName);
-		dealMap.put("Account_Name", account_id);
+		dealMap.put("Account_Name", cleanId);
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
@@ -244,7 +245,7 @@ void automation.processAccount(string account_id)
 	}
 
 	// 6. Rollup Account Status
-	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", account_id.toLong());
+	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
 	anyDealOpen = false;
 	anyDealWorking = false;
 	for each fd in finalDeals
@@ -260,7 +261,7 @@ void automation.processAccount(string account_id)
 	}
 
 	accUpd = Map();
-	accRecRefresh = zoho.crm.getRecordById("Accounts", account_id.toLong());
+	accRecRefresh = zoho.crm.getRecordById("Accounts", cleanId.toLong());
 	currState = ifnull(accRecRefresh.get("State"), "");
 	currStatus = ifnull(accRecRefresh.get("Status"), "");
 
@@ -277,6 +278,6 @@ void automation.processAccount(string account_id)
 	}
 	if(accUpd.size() > 0)
 	{
-		zoho.crm.updateRecord("Accounts", account_id.toLong(), accUpd);
+		zoho.crm.updateRecord("Accounts", cleanId.toLong(), accUpd);
 	}
 }

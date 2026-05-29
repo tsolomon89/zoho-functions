@@ -1,8 +1,9 @@
 void automation.processContact(string contact_id)
 {
 	if(contact_id == null || contact_id == "") { return; }
+	cleanId = contact_id.replaceAll("zcrm_", "").trim();
 
-	contactRecord = zoho.crm.getRecordById("Contacts", contact_id.toLong());
+	contactRecord = zoho.crm.getRecordById("Contacts", cleanId.toLong());
 	if(contactRecord.get("id") == null) { return; }
 
 	// 1. Read Contact
@@ -125,7 +126,7 @@ void automation.processContact(string contact_id)
 
 	if(updConInit.size() > 0)
 	{
-		zoho.crm.updateRecord("Contacts", contact_id.toLong(), updConInit);
+		zoho.crm.updateRecord("Contacts", cleanId.toLong(), updConInit);
 	}
 
 	// 4. Ensure Active Deal
@@ -149,7 +150,7 @@ void automation.processContact(string contact_id)
 		dealMap.put("Stage", "Marketing Consent");
 		dealMap.put("Opportunity", "MQL");
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-		dealMap.put("Contact_Name", contact_id);
+		dealMap.put("Contact_Name", cleanId);
 		
 		dRes = zoho.crm.createRecord("Deals", dealMap);
 		if(dRes.get("id") != null)

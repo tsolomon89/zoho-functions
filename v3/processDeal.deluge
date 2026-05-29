@@ -1,8 +1,9 @@
 void automation.processDeal(string deal_id)
 {
 	if(deal_id == null || deal_id == "") { return; }
+	cleanId = deal_id.replaceAll("zcrm_", "").trim();
 
-	dealRecord = zoho.crm.getRecordById("Deals", deal_id.toLong());
+	dealRecord = zoho.crm.getRecordById("Deals", cleanId.toLong());
 	if(dealRecord.get("id") == null) { return; }
 
 	// 1. Check for Duplicate Silencing Exit
