@@ -427,37 +427,7 @@ if(existingContactId != "")
 }
 info "Account from Contact lookup:";
 info existingAccountId;
-
-// 2. Direct Account_Key = derivedAccountKey (API searchRecords with safety guarding)
-if(existingAccountId == "" && derivedAccountKey != "")
-{
-	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
-	info "Account search by derived Account_Key:";
-	info accountSearch;
-	if(accountSearch != null && accountSearch.size() > 0)
-	{
-		existingAccountRecord = accountSearch.get(0);
-		existingAccountId = existingAccountRecord.get("id").toString();
-	}
-}
-
-// 3. Direct Account_Key = Lead.Account_Key (if present)
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
-if(existingAccountId == "" && leadAccountKey != "")
-{
-	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeLeadAccountKey != "")
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
-		info "Account search by Lead Account_Key:";
-		info accountSearch;
-		if(accountSearch != null && accountSearch.size() > 0)
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
 
 // 4. Fallback in-memory check: Search by Account_Key = derivedAccountKey
 if(existingAccountId == "" && derivedAccountKey != "")
