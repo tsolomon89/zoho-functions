@@ -53,7 +53,7 @@ info accountRecord;
 accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
 accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
 accountName = ifnull(accountRecord.get("Account_Name"),"");
-if(accountKey == "")
+if(accountKey == "" || (accountKey.isNumber() && accountKey.length() >= 15))
 {
 	derivedDomain = "";
 	if(accountWebsite != "")

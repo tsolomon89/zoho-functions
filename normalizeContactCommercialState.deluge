@@ -349,6 +349,10 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 if(accountRecord != null)
 {
 	accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+	if(accountKey.isNumber() && accountKey.length() >= 15)
+	{
+		accountKey = "";
+	}
 	accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
 	accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
 	
@@ -541,6 +545,30 @@ if(finalDealId == "")
 	if(createDealResp != null && createDealResp.get("id") != null)
 	{
 		finalDealId = createDealResp.get("id").toString();
+		
+		// Post-creation canonical Deal check to prevent duplicate Deals under concurrency races
+		canonicalDealId = "";
+		if(dealKey != "")
+		{
+			dealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+			if(dealSearch != null && dealSearch.size() > 0 && !dealSearch.toString().startsWith("{"))
+			{
+				for each d in dealSearch
+				{
+					dId = ifnull(d.get("id"), "").toString().trim();
+					if(dId != "" && dId != "null" && dId != finalDealId)
+					{
+						canonicalDealId = dId;
+						info "Post-Creation Canonical Deal Check: Found existing canonical Deal " + canonicalDealId + " instead of newly created duplicate " + finalDealId;
+						break;
+					}
+				}
+			}
+		}
+		if(canonicalDealId != "")
+		{
+			finalDealId = canonicalDealId;
+		}
 	}
 }
 

@@ -145,6 +145,10 @@ if(accountId != "")
 	if(accountRecord != null)
 	{
 		accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+		if(accountKey.isNumber() && accountKey.length() >= 15)
+		{
+			accountKey = "";
+		}
 		accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
 		accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
 		

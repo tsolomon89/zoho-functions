@@ -445,20 +445,33 @@ if(existingAccountId == "" && derivedAccountKey != "")
 	}
 }
 
-// 3. Direct Account_Key search using Lead.Account_Key, if present
+// 3. Direct Account_Key search or direct ID lookup using Lead.Account_Key, if present
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
 if(existingAccountId == "" && leadAccountKey != "")
 {
-	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeLeadAccountKey != "")
+	if(leadAccountKey.isNumber() && leadAccountKey.length() >= 15)
 	{
-		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
-		info "Account search by Lead Account_Key:";
-		info accountSearch;
-		if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+		accRecord = zoho.crm.getRecordById("Accounts", leadAccountKey.toLong());
+		if(accRecord != null && accRecord.get("id") != null)
 		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
+			existingAccountId = leadAccountKey;
+			existingAccountRecord = accRecord;
+			info "Account found directly by Account ID in Lead Account_Key: " + existingAccountId;
+		}
+	}
+	else
+	{
+		safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+		if(safeLeadAccountKey != "")
+		{
+			accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
+			info "Account search by Lead Account_Key:";
+			info accountSearch;
+			if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+			{
+				existingAccountRecord = accountSearch.get(0);
+				existingAccountId = existingAccountRecord.get("id").toString();
+			}
 		}
 	}
 }
