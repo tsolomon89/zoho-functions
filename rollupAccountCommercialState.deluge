@@ -87,7 +87,9 @@ if(accountDeals == null || accountDeals.size() == 0 || accountDeals.toString().s
 	}
 	if(accountNoDealsUpdateMap.size() > 0)
 	{
-		updateNoDealsResponse = zoho.crm.updateRecord("Accounts",accountId,accountNoDealsUpdateMap);
+		triggerMap = Map();
+		triggerMap.put("trigger", List());
+		updateNoDealsResponse = zoho.crm.updateRecord("Accounts",accountId,accountNoDealsUpdateMap,triggerMap);
 		info "Account updated with no-deal defaults:";
 		info updateNoDealsResponse;
 	}
@@ -156,7 +158,9 @@ if(currentStatus != accountRollupStatus)
 }
 if(accountUpdateMap.size() > 0)
 {
-	updateAccountResponse = zoho.crm.updateRecord("Accounts",accountId,accountUpdateMap);
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+	updateAccountResponse = zoho.crm.updateRecord("Accounts",accountId,accountUpdateMap,triggerMap);
 	info "Account rollup update response:";
 	info updateAccountResponse;
 }

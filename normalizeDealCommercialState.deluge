@@ -14,6 +14,9 @@ string automation.normalizeDealCommercialState(String deal_id)
 // - Prevent backward stage rank regressions from associated Contacts.
 // - Call syncDealProductsAndValue & rollupAccountCommercialState.
 // - Do not delete or create any Accounts/Deals here to prevent loops.
+//
+// MANDATORY ZOHO CRM SETTING:
+// - Deals.Deal_Key should be configured as UNIQUE (Do not allow duplicate values).
 // ======================================================
 // ======================================================
 // CONFIG
@@ -62,6 +65,21 @@ if(dealRecord == null)
 }
 info "Deal record fetched:";
 info dealRecord;
+
+// ======================================================
+// EARLY EXIT FOR SILENCED DUPLICATES
+// ======================================================
+dealName = ifnull(dealRecord.get("Deal_Name"),"").toString().trim();
+dealKey = ifnull(dealRecord.get("Deal_Key"),"").toString().trim();
+reasonForLoss = ifnull(dealRecord.get("Reason_For_Loss"),"").toString().trim();
+dealState = ifnull(dealRecord.get("State"),"").toString().trim();
+dealStatus = ifnull(dealRecord.get("Status"),"").toString().trim();
+
+if(reasonForLoss == "Duplicate / Test Record" || dealName.contains("(Duplicate)") || (dealState == "Lost" && dealStatus == "Closed" && dealKey == ""))
+{
+	info "Duplicate Deal ignored: " + dealId;
+	return "Duplicate Deal ignored.";
+}
 // ======================================================
 // READ DEAL VALUES
 // ======================================================
@@ -669,7 +687,9 @@ if(aggregatedPIStr != "")
 	dealUpdateMap.put("Product_Interest_Staging", aggregatedPIStr);
 }
 
-updateDealResponse = zoho.crm.updateRecord("Deals", dealId, dealUpdateMap);
+triggerMap = Map();
+triggerMap.put("trigger", List());
+updateDealResponse = zoho.crm.updateRecord("Deals", dealId, dealUpdateMap, triggerMap);
 info "Deal normalized update response:";
 info updateDealResponse;
 

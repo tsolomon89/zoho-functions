@@ -15,6 +15,9 @@ string automation.normalizeContactCommercialState(String contact_id)
 // - Set Deal.Contact_Name to furthest viable Contact.
 // - Rollup Contact Stage to Deal Stage ONLY if it rolls forward (no backward regression).
 // - Hand off to syncDealProductsAndValue & rollupAccountCommercialState.
+//
+// MANDATORY ZOHO CRM SETTING:
+// - Deals.Deal_Key should be configured as UNIQUE (Do not allow duplicate values).
 // ======================================================
 // ======================================================
 // CONFIG
@@ -294,7 +297,9 @@ if(derivedStatus != contactStatus)
 }
 if(contactUpdateMap.size() > 0)
 {
-	updateContactResponse = zoho.crm.updateRecord("Contacts",contactId,contactUpdateMap);
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+	updateContactResponse = zoho.crm.updateRecord("Contacts",contactId,contactUpdateMap,triggerMap);
 	info "Contact normalized:";
 	info updateContactResponse;
 }
@@ -463,6 +468,7 @@ if(activeDeals.size() > 0)
 {
 	// Pick canonical deterministically: oldest / lowest numeric ID
 	minDealId = 999999999999999999;
+	canonicalDeal = null;
 	for each actD in activeDeals
 	{
 		actIdStr = ifnull(actD.get("id"), "").toString().trim();
@@ -473,10 +479,93 @@ if(activeDeals.size() > 0)
 			{
 				minDealId = actIdLong;
 				finalDealId = actIdStr;
+				canonicalDeal = actD;
 			}
 		}
 	}
 	info "Reusing existing active Deal ID: " + finalDealId;
+	
+	if(activeDeals.size() > 1)
+	{
+		info "Multiple active Deals found! Silencing duplicates...";
+		
+		// Gather and merge Product Interests from all active Deals
+		mergedList = List();
+		mergedLow = List();
+		
+		for each actD in activeDeals
+		{
+			prodStaging = ifnull(actD.get("Product_Interest_Staging"), "").toString().trim();
+			if(prodStaging != "")
+			{
+				parts = prodStaging.replaceAll(";", ",").toList(",");
+				for each p in parts
+				{
+					t = p.trim();
+					if(t != "" && !mergedLow.contains(t.toLowerCase()))
+					{
+						mergedList.add(t);
+						mergedLow.add(t.toLowerCase());
+					}
+				}
+			}
+		}
+		
+		mergedStr = "";
+		for each item in mergedList
+		{
+			if(mergedStr == "")
+			{
+				mergedStr = item;
+			}
+			else
+			{
+				mergedStr = mergedStr + ", " + item;
+			}
+		}
+		
+		// Update canonical Deal with correct Contact_Name and merged Product Interests (using trigger suppression)
+		canonUpdateMap = Map();
+		contLookup = Map();
+		contLookup.put("id", contactId.toString());
+		canonUpdateMap.put("Contact_Name", contLookup);
+		if(mergedStr != "")
+		{
+			canonUpdateMap.put("Product_Interest_Staging", mergedStr);
+		}
+		
+		triggerMap = Map();
+		triggerMap.put("trigger", List());
+		zoho.crm.updateRecord("Deals", finalDealId.toLong(), canonUpdateMap, triggerMap);
+		info "Updated canonical Deal with merged product interests and contact ID.";
+		
+		// Silence all other active Deals
+		for each actD in activeDeals
+		{
+			dupId = ifnull(actD.get("id"), "").toString().trim();
+			if(dupId != "" && dupId != finalDealId)
+			{
+				dupUpdateMap = Map();
+				dupUpdateMap.put("State", "Lost");
+				dupUpdateMap.put("Status", "Closed");
+				dupUpdateMap.put("Reason_For_Loss", "Duplicate / Test Record");
+				dupUpdateMap.put("Deal_Key", ""); // Clear Key to prevent future collision
+				
+				dupName = ifnull(actD.get("Deal_Name"), "").toString().trim();
+				if(dupName == "")
+				{
+					dupName = accountName + " - active";
+				}
+				if(!dupName.contains("Duplicate"))
+				{
+					dupUpdateMap.put("Deal_Name", dupName + " (Duplicate)");
+				}
+				
+				zoho.crm.updateRecord("Deals", dupId.toLong(), dupUpdateMap, triggerMap);
+				info "Marked pre-existing duplicate Deal " + dupId + " as Lost/Closed Duplicate.";
+			}
+		}
+	}
 }
 
 if(finalDealId == "")
@@ -624,7 +713,9 @@ if(finalDealId == "")
 					{
 						canonUpdateMap.put("Product_Interest_Staging", mergedStr);
 					}
-					zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), canonUpdateMap);
+					triggerMap = Map();
+					triggerMap.put("trigger", List());
+					zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), canonUpdateMap, triggerMap);
 					info "Updated canonical Deal with merged product interests and contact ID.";
 					
 					// Make duplicate Deal harmless: mark as Lost/Closed, rename, and clear Deal_Key
@@ -648,7 +739,7 @@ if(finalDealId == "")
 						dupUpdateMap.put("Deal_Name", dupName + " (Duplicate)");
 					}
 					
-					zoho.crm.updateRecord("Deals", duplicateDealId.toLong(), dupUpdateMap);
+					zoho.crm.updateRecord("Deals", duplicateDealId.toLong(), dupUpdateMap, triggerMap);
 					info "Marked duplicate Deal " + duplicateDealId + " as Lost/Closed Duplicate.";
 					
 					// Attach a debug note on the canonical Deal about the duplicate
@@ -1016,7 +1107,9 @@ if(aggregatedPIStr != "")
 
 if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toString().trim() != "null")
 {
-	zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealRollupUpdateMap);
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+	zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealRollupUpdateMap, triggerMap);
 }
 
 // ======================================================
