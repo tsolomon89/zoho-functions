@@ -1,5 +1,13 @@
 void automation.processAccount(string account_id)
 {
+	// =========================================================================
+	// processAccount
+	// Idempotent standalone function to process an inbound or updated Account
+	//
+	// REQUIRED ZOHO CRM SETTING:
+	// - Accounts.Account_Key must be unique.
+	// - Deals.Deal_Key must be unique.
+	// =========================================================================
 	if(account_id == null || account_id == "") { return; }
 	cleanId = account_id.replaceAll("zcrm_", "").trim();
 
@@ -170,6 +178,22 @@ void automation.processAccount(string account_id)
 		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
 		{
 			canonicalDealId = dRes.get("details").get("id").toString();
+		}
+
+		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{"))
+		{
+			minDealId = 999999999999999999;
+			for each pd in postDealSearch
+			{
+				pdId = pd.get("id").toString();
+				pdLong = pdId.toLong();
+				if(pdLong < minDealId)
+				{
+					minDealId = pdLong;
+					canonicalDealId = pdId;
+				}
+			}
 		}
 	}
 

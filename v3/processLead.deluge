@@ -3,6 +3,10 @@ void automation.processLead(string lead_id)
 	// =========================================================================
 	// processLead
 	// Idempotent standalone function to process and convert an inbound Lead
+	//
+	// REQUIRED ZOHO CRM SETTING:
+	// - Accounts.Account_Key must be unique.
+	// - Deals.Deal_Key must be unique.
 	// =========================================================================
 
 	if(lead_id == null || lead_id == "")
@@ -211,6 +215,38 @@ void automation.processLead(string lead_id)
 	{
 		updCon.put("Account_Name", accountId);
 	}
+	
+	// Write Lead Stage to Contact
+	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
+	if(leadStage == "")
+	{
+		leadStage = "Marketing Consent";
+	}
+	
+	currentContactStage = ifnull(contactRecord.get("Stage"), "").toString().trim();
+	if(currentContactStage == "")
+	{
+		updCon.put("Stage", leadStage);
+	}
+	else
+	{
+		currentRank = ifnull(stageRanks.get(currentContactStage), 1);
+		leadRank = ifnull(stageRanks.get(leadStage), 1);
+		if(leadRank > currentRank)
+		{
+			updCon.put("Stage", leadStage);
+		}
+	}
+	
+	if(ifnull(contactRecord.get("State"), "") == "")
+	{
+		updCon.put("State", "Open");
+	}
+	if(ifnull(contactRecord.get("Status"), "") == "")
+	{
+		updCon.put("Status", "New");
+	}
+
 	if(updCon.size() > 0)
 	{
 		zoho.crm.updateRecord("Contacts", newContactId.toLong(), updCon);
@@ -234,8 +270,20 @@ void automation.processLead(string lead_id)
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
-		dealMap.put("Stage_1", "Marketing Consent");
-		dealMap.put("Stage", "MQL");
+		
+		initialStage = leadStage;
+		if(initialStage == "")
+		{
+			initialStage = "Marketing Consent";
+		}
+		initialOpp = "MQL";
+		initialRank = ifnull(stageRanks.get(initialStage), 1);
+		if(initialRank >= 6) { initialOpp = "RTP"; }
+		else if(initialRank == 5) { initialOpp = "FTP"; }
+		else if(initialRank >= 2) { initialOpp = "SQL"; }
+		
+		dealMap.put("Stage_1", initialStage);
+		dealMap.put("Stage", initialOpp);
 		dealMap.put("Product_Interest_Staging", productInterest);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", newContactId);
@@ -248,6 +296,22 @@ void automation.processLead(string lead_id)
 		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
 		{
 			dealId = dRes.get("details").get("id").toString();
+		}
+
+		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{"))
+		{
+			minDealId = 999999999999999999;
+			for each pd in postDealSearch
+			{
+				pdId = pd.get("id").toString();
+				pdLong = pdId.toLong();
+				if(pdLong < minDealId)
+				{
+					minDealId = pdLong;
+					dealId = pdId;
+				}
+			}
 		}
 	}
 

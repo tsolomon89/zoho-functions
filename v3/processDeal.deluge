@@ -1,5 +1,13 @@
 void automation.processDeal(string deal_id)
 {
+	// =========================================================================
+	// processDeal
+	// Idempotent standalone function to process an inbound or updated Deal
+	//
+	// REQUIRED ZOHO CRM SETTING:
+	// - Accounts.Account_Key must be unique.
+	// - Deals.Deal_Key must be unique.
+	// =========================================================================
 	if(deal_id == null || deal_id == "") { return; }
 	cleanId = deal_id.replaceAll("zcrm_", "").trim();
 
