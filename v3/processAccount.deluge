@@ -157,8 +157,8 @@ void automation.processAccount(string account_id)
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
-		dealMap.put("Stage", bestStage);
-		dealMap.put("Opportunity", bestOpp);
+		dealMap.put("Stage_1", bestStage);
+		dealMap.put("Stage", bestOpp);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", firstContactId);
 		
@@ -231,8 +231,8 @@ void automation.processAccount(string account_id)
 			if(anyContactOpen && dealReasonForLoss == "")
 			{
 				if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-				if(ifnull(targetDeal.get("Stage"), "") != bestStage) { dUpd.put("Stage", bestStage); }
-				if(ifnull(targetDeal.get("Opportunity"), "") != bestOpp) { dUpd.put("Opportunity", bestOpp); }
+				if(ifnull(targetDeal.get("Stage_1"), "") != bestStage) { dUpd.put("Stage_1", bestStage); }
+				if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
 			}
 			else
 			{

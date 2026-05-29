@@ -234,8 +234,8 @@ void automation.processLead(string lead_id)
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
-		dealMap.put("Stage", "Marketing Consent");
-		dealMap.put("Opportunity", "MQL");
+		dealMap.put("Stage_1", "Marketing Consent");
+		dealMap.put("Stage", "MQL");
 		dealMap.put("Product_Interest_Staging", productInterest);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", newContactId);
@@ -433,8 +433,8 @@ void automation.processLead(string lead_id)
 		else
 		{
 			if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-			if(ifnull(targetDeal.get("Stage"), "") != bestStage) { dUpd.put("Stage", bestStage); }
-			if(ifnull(targetDeal.get("Opportunity"), "") != bestOpp) { dUpd.put("Opportunity", bestOpp); }
+			if(ifnull(targetDeal.get("Stage_1"), "") != bestStage) { dUpd.put("Stage_1", bestStage); }
+			if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
 		}
 		
 		if(dUpd.size() > 0)

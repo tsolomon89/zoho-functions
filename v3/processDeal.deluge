@@ -201,8 +201,8 @@ void automation.processDeal(string deal_id)
 		if(anyContactOpen && dealReasonForLoss == "")
 		{
 			if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-			if(ifnull(targetDeal.get("Stage"), "") != bestStage) { dUpd.put("Stage", bestStage); }
-			if(ifnull(targetDeal.get("Opportunity"), "") != bestOpp) { dUpd.put("Opportunity", bestOpp); }
+			if(ifnull(targetDeal.get("Stage_1"), "") != bestStage) { dUpd.put("Stage_1", bestStage); }
+			if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
 		}
 		else
 		{
