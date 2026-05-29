@@ -467,10 +467,240 @@ info "Existing Contact ID found:";
 info existingContactId;
 
 // ======================================================
-// ENFORCE CANONICAL ACCOUNT RESOLUTION / CREATION
-// Calls ensureCanonicalAccount to synchronously find/create the canonical Account
+// ENFORCE CANONICAL ACCOUNT RESOLUTION / CREATION (INLINED)
 // ======================================================
-canonicalAccountId = automation.ensureCanonicalAccount(derivedAccountKey, derivedCompany, derivedWebsite, industry, companyPhone);
+canonicalAccountId = "";
+if(derivedAccountKey != "" && derivedAccountKey != "null")
+{
+	candidateAccounts = List();
+	candidateAccountIds = List();
+	
+	// 1. Search Accounts by Account_Key directly
+	safeKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeKey != "")
+	{
+		search = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + safeKey + ")");
+		if(search != null && search.size() > 0 && !search.toString().startsWith("{"))
+		{
+			for each acc in search
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// 2. Fallback Search by Website = website
+	if(derivedWebsite != "" && candidateAccounts.size() == 0)
+	{
+		safeWebsite = derivedWebsite.replaceAll("[\\(\\)\\:\\,]", "").trim();
+		if(safeWebsite != "")
+		{
+			search = zoho.crm.searchRecords("Accounts", "(Website:equals:" + safeWebsite + ")");
+			if(search != null && search.size() > 0 && !search.toString().startsWith("{"))
+			{
+				for each acc in search
+				{
+					accId = ifnull(acc.get("id"), "").toString().trim();
+					if(accId != "" && !candidateAccountIds.contains(accId))
+					{
+						candidateAccounts.add(acc);
+						candidateAccountIds.add(accId);
+					}
+				}
+			}
+		}
+	}
+	
+	// 3. Fallback Search by Website = normalized domain (which is safeKey if website domain was extracted)
+	if(safeKey != "" && safeKey.contains(".") && candidateAccounts.size() == 0)
+	{
+		search = zoho.crm.searchRecords("Accounts", "(Website:equals:" + safeKey + ")");
+		if(search != null && search.size() > 0 && !search.toString().startsWith("{"))
+		{
+			for each acc in search
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	// 4. Fallback Search by Account_Name = company_name
+	if(derivedCompany != "" && candidateAccounts.size() == 0)
+	{
+		safeCompanyName = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
+		if(safeCompanyName != "")
+		{
+			search = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompanyName + ")");
+			if(search != null && search.size() > 0 && !search.toString().startsWith("{"))
+			{
+				for each acc in search
+				{
+					accId = ifnull(acc.get("id"), "").toString().trim();
+					if(accId != "" && !candidateAccountIds.contains(accId))
+					{
+						candidateAccounts.add(acc);
+						candidateAccountIds.add(accId);
+					}
+				}
+			}
+		}
+	}
+	
+	// 5. Fallback Search by Account_Name = normalized company name / domain (safeKey fallback)
+	if(safeKey != "" && candidateAccounts.size() == 0)
+	{
+		search = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeKey + ")");
+		if(search != null && search.size() > 0 && !search.toString().startsWith("{"))
+		{
+			for each acc in search
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "" && !candidateAccountIds.contains(accId))
+				{
+					candidateAccounts.add(acc);
+					candidateAccountIds.add(accId);
+				}
+			}
+		}
+	}
+	
+	existingAccount = null;
+	if(candidateAccounts.size() > 0)
+	{
+		// Choose canonical deterministically: lowest numeric ID / oldest wins
+		minAccountIdLong = 999999999999999999;
+		for each acc in candidateAccounts
+		{
+			accId = ifnull(acc.get("id"), "").toString().trim();
+			if(accId != "")
+			{
+				accIdLong = accId.toLong();
+				if(accIdLong < minAccountIdLong)
+				{
+					minAccountIdLong = accIdLong;
+					canonicalAccountId = accId;
+					existingAccount = acc;
+				}
+			}
+		}
+	}
+	
+	// Claim the existing Account if found
+	if(canonicalAccountId != "")
+	{
+		info "Claiming existing canonical Account ID: " + canonicalAccountId;
+		
+		// Lightly fill missing fields and set key if blank/wrong
+		updateMap = Map();
+		existingKey = ifnull(existingAccount.get("Account_Key"), "").toString().trim();
+		if(existingKey != safeKey)
+		{
+			updateMap.put("Account_Key", safeKey);
+		}
+		if(ifnull(existingAccount.get("Account_Name"), "") == "" && derivedCompany != "")
+		{
+			updateMap.put("Account_Name", derivedCompany);
+		}
+		if(ifnull(existingAccount.get("Website"), "") == "" && derivedWebsite != "")
+		{
+			updateMap.put("Website", derivedWebsite);
+		}
+		if(ifnull(existingAccount.get("Industry"), "") == "" && industry != "")
+		{
+			updateMap.put("Industry", industry);
+		}
+		if(ifnull(existingAccount.get("Phone"), "") == "" && companyPhone != "")
+		{
+			updateMap.put("Phone", companyPhone);
+		}
+		
+		if(updateMap.size() > 0)
+		{
+			// Suppress triggers where supported
+			triggerMap = Map();
+			triggerMap.put("trigger", List());
+			zoho.crm.updateRecord("Accounts", canonicalAccountId.toLong(), updateMap, triggerMap);
+			info "Lightly enriched canonical Account: " + canonicalAccountId;
+		}
+	}
+	else
+	{
+		// ======================================================
+		// CREATE NEW ACCOUNT
+		// Only runs if all search and claim fallbacks failed
+		// ======================================================
+		createMap = Map();
+		createMap.put("Account_Key", safeKey);
+		
+		dName = derivedCompany;
+		if(dName == "")
+		{
+			dName = safeKey;
+		}
+		createMap.put("Account_Name", dName);
+		
+		if(derivedWebsite != "")
+		{
+			createMap.put("Website", derivedWebsite);
+		}
+		if(industry != "")
+		{
+			createMap.put("Industry", industry);
+		}
+		if(companyPhone != "")
+		{
+			createMap.put("Phone", companyPhone);
+		}
+		
+		info "Creating new Account with Account_Key:";
+		info createMap;
+		
+		createResp = zoho.crm.createRecord("Accounts", createMap);
+		info "Create Account response:";
+		info createResp;
+		
+		createdId = "";
+		if(createResp != null && createResp.get("id") != null)
+		{
+			createdId = createResp.get("id").toString();
+		}
+		
+		// 4th step concurrency duplicate race check: search Account_Key again
+		postSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + safeKey + ")");
+		if(postSearch != null && postSearch.size() > 0 && !postSearch.toString().startsWith("{"))
+		{
+			minAccountIdLong = 999999999999999999;
+			for each acc in postSearch
+			{
+				accId = ifnull(acc.get("id"), "").toString().trim();
+				if(accId != "")
+				{
+					accIdLong = accId.toLong();
+					if(accIdLong < minAccountIdLong)
+					{
+						minAccountIdLong = accIdLong;
+						canonicalAccountId = accId;
+					}
+				}
+			}
+		}
+		
+		if(canonicalAccountId == "")
+		{
+			canonicalAccountId = createdId;
+		}
+	}
+}
 info "Canonical Account ID resolved synchronously before conversion: " + canonicalAccountId;
 
 // ======================================================
