@@ -1,0 +1,142 @@
+string automation.ensureCanonicalAccount(String account_key, String company_name, String website, String industry, String company_phone)
+{
+// ======================================================
+// ensureCanonicalAccount
+//
+// Purpose:
+// - Account-owned helper to resolve/create canonical Account before conversion.
+// - Search Accounts by Account_Key first.
+// - If found, return Account ID and lightly fill missing fields.
+// - If not found, create Account with Account_Key already set.
+// - If duplicate race occurs, search Account_Key again and return canonical Account ID.
+// - Never write Zoho record IDs into Account_Key.
+// ======================================================
+
+if(account_key == "" || account_key == "null")
+{
+	return "";
+}
+
+// 1. Search Accounts by Account_Key first
+safeKey = account_key.replaceAll("[\\(\\)\\:\\,]", "").trim();
+accountSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + safeKey + ")");
+
+canonicalAccountId = "";
+existingAccount = null;
+
+if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+{
+	// Pick oldest canonical Account matching the key deterministically
+	minAccountIdLong = 999999999999999999;
+	for each acc in accountSearch
+	{
+		accId = ifnull(acc.get("id"), "").toString().trim();
+		if(accId != "")
+		{
+			accIdLong = accId.toLong();
+			if(accIdLong < minAccountIdLong)
+			{
+				minAccountIdLong = accIdLong;
+				canonicalAccountId = accId;
+				existingAccount = acc;
+			}
+		}
+	}
+}
+
+if(canonicalAccountId != "")
+{
+	info "Found existing canonical Account ID: " + canonicalAccountId;
+	
+	// Lightly fill missing fields if empty
+	updateMap = Map();
+	if(ifnull(existingAccount.get("Account_Name"), "") == "" && company_name != "")
+	{
+		updateMap.put("Account_Name", company_name);
+	}
+	if(ifnull(existingAccount.get("Website"), "") == "" && website != "")
+	{
+		updateMap.put("Website", website);
+	}
+	if(ifnull(existingAccount.get("Industry"), "") == "" && industry != "")
+	{
+		updateMap.put("Industry", industry);
+	}
+	if(ifnull(existingAccount.get("Phone"), "") == "" && company_phone != "")
+	{
+		updateMap.put("Phone", company_phone);
+	}
+	
+	if(updateMap.size() > 0)
+	{
+		zoho.crm.updateRecord("Accounts", canonicalAccountId.toLong(), updateMap);
+		info "Lightly enriched canonical Account " + canonicalAccountId;
+	}
+	
+	return canonicalAccountId;
+}
+
+// 2. If not found, create/upsert Account with Account_Key already set
+createMap = Map();
+createMap.put("Account_Key", safeKey);
+
+dName = company_name;
+if(dName == "")
+{
+	dName = safeKey;
+}
+createMap.put("Account_Name", dName);
+
+if(website != "")
+{
+	createMap.put("Website", website);
+}
+if(industry != "")
+{
+	createMap.put("Industry", industry);
+}
+if(company_phone != "")
+{
+	createMap.put("Phone", company_phone);
+}
+
+info "Creating new Account with Account_Key:";
+info createMap;
+
+createResp = zoho.crm.createRecord("Accounts", createMap);
+info "Create Account response:";
+info createResp;
+
+createdId = "";
+if(createResp != null && createResp.get("id") != null)
+{
+	createdId = createResp.get("id").toString();
+}
+
+// 3. Post-creation concurrency check: search Account_Key again to handle ingestion races
+postSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + safeKey + ")");
+if(postSearch != null && postSearch.size() > 0 && !postSearch.toString().startsWith("{"))
+{
+	minAccountIdLong = 999999999999999999;
+	for each acc in postSearch
+	{
+		accId = ifnull(acc.get("id"), "").toString().trim();
+		if(accId != "")
+		{
+			accIdLong = accId.toLong();
+			if(accIdLong < minAccountIdLong)
+			{
+				minAccountIdLong = accIdLong;
+				canonicalAccountId = accId;
+			}
+		}
+	}
+}
+
+if(canonicalAccountId == "")
+{
+	canonicalAccountId = createdId;
+}
+
+return canonicalAccountId;
+}

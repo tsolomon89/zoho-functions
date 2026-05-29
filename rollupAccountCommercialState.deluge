@@ -49,31 +49,6 @@ info "Account record fetched:";
 info accountRecord;
 
 // ======================================================
-// ENSURE ACCOUNT KEY IS PRESENT AND NORMALIZED
-// ======================================================
-accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
-accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
-accountName = ifnull(accountRecord.get("Account_Name"),"");
-
-cleanCompany = accountName.toLowerCase().trim();
-cleanCompany = cleanCompany.replaceAll("[^a-z0-9]", " ").replaceAll("  ", " ").trim();
-cleanCompany = " " + cleanCompany + " ";
-cleanCompany = cleanCompany.replaceAll(" ltd "," ").replaceAll(" limited "," ").replaceAll(" inc "," ").replaceAll(" incorporated "," ").replaceAll(" llc "," ").replaceAll(" plc "," ").replaceAll(" corp "," ").replaceAll(" gmbh "," ");
-cleanCompany = cleanCompany.replaceAll(" com "," ").replaceAll(" app "," ").replaceAll(" net "," ").replaceAll(" org "," ").replaceAll(" co "," ").replaceAll(" io "," ").trim();
-derivedAccountKey = cleanCompany.replaceAll(" ", "");
-
-// Ensure Account Key on the current Account is correct/normalized
-if(accountKey != derivedAccountKey && derivedAccountKey != "")
-{
-	accountKey = derivedAccountKey;
-	accUpdateMap = Map();
-	accUpdateMap.put("Account_Key", accountKey);
-	updateAccKeyResp = zoho.crm.updateRecord("Accounts", accountId, accUpdateMap);
-	info "Normalized and updated Account_Key on Account:";
-	info updateAccKeyResp;
-}
-
-// ======================================================
 // FETCH RELATED DEALS
 // Primary: use Account relationship via getRelatedRecords
 // Fallback: search by Account_Name if related records fails

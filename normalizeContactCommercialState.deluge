@@ -370,19 +370,6 @@ if(accountRecord != null)
 	{
 		derivedAccountKey = accountKey;
 	}
-	
-	// Repair Account.Account_Key if blank or numeric-ID-like
-	accountKeyVal = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
-	isBadAccountKey = false;
-	if(accountKeyVal == "") { isBadAccountKey = true; }
-	else if(accountKeyVal.isNumber() && accountKeyVal.length() >= 15) { isBadAccountKey = true; }
-	if(isBadAccountKey == true && derivedAccountKey != "")
-	{
-		accKeyUpdateMap = Map();
-		accKeyUpdateMap.put("Account_Key", derivedAccountKey);
-		zoho.crm.updateRecord("Accounts", accountIdLong, accKeyUpdateMap);
-		info "Repaired Account Account_Key: " + derivedAccountKey;
-	}
 }
 dealKey = derivedAccountKey + "::active";
 dealKey = dealKey.toLowerCase().trim();

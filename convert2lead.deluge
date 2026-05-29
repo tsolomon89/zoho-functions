@@ -451,82 +451,11 @@ info "Existing Contact ID found:";
 info existingContactId;
 
 // ======================================================
-// FIND EXISTING ACCOUNT
-// Search by Account_Key directly first, fallback after
+// ENFORCE CANONICAL ACCOUNT RESOLUTION / CREATION
+// Calls ensureCanonicalAccount to synchronously find/create the canonical Account
 // ======================================================
-existingAccountId = "";
-existingAccountRecord = Map();
-
-// 1. Search Account directly by Account_Key first
-if(derivedAccountKey != "")
-{
-	safeAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeAccountKey != "")
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + safeAccountKey + ")");
-		if(accountSearch != null && accountSearch.size() > 0)
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
-
-// 2. Fallback search by Website/domain
-if(existingAccountId == "")
-{
-	if(derivedAccountKey != "" && derivedAccountKey.contains("."))
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts", "(Website:equals:" + derivedAccountKey + ")");
-		if(accountSearch != null && accountSearch.size() > 0)
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
-
-// 3. Fallback search by Account_Name = Company
-if(existingAccountId == "")
-{
-	safeCompany = companyName.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeCompany != "")
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompany + ")");
-		if(accountSearch != null && accountSearch.size() > 0)
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
-
-// 4. Fallback search by Account_Name = derivedCompany
-if(existingAccountId == "")
-{
-	safeDerivedCompany = derivedCompany.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeDerivedCompany != "" && safeDerivedCompany != companyName)
-	{
-		accountSearch = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeDerivedCompany + ")");
-		if(accountSearch != null && accountSearch.size() > 0)
-		{
-			existingAccountRecord = accountSearch.get(0);
-			existingAccountId = existingAccountRecord.get("id").toString();
-		}
-	}
-}
-
-// 5. Fallback check existing Contact's Account
-if(existingAccountId == "" && existingContactId != "")
-{
-	linkedAccount = existingContactRecord.get("Account_Name");
-	if(linkedAccount != null)
-	{
-		existingAccountId = linkedAccount.get("id").toString();
-	}
-}
-info "Existing Account ID found:";
-info existingAccountId;
+canonicalAccountId = automation.ensureCanonicalAccount(derivedAccountKey, derivedCompany, derivedWebsite, industry, companyPhone);
+info "Canonical Account ID resolved synchronously before conversion: " + canonicalAccountId;
 
 // ======================================================
 // BUILD CONVERSION MAP
@@ -534,9 +463,9 @@ info existingAccountId;
 // ======================================================
 conversionMap = Map();
 conversionMap.put("overwrite",false);
-if(existingAccountId != "")
+if(canonicalAccountId != "")
 {
-	conversionMap.put("Accounts",existingAccountId);
+	conversionMap.put("Accounts",canonicalAccountId);
 }
 if(existingContactId != "")
 {
@@ -582,7 +511,7 @@ if(hasCodeOrMessage == true && hasContacts == false && hasAccounts == false)
 // RESOLVE FINAL IDS
 // ======================================================
 finalContactId = existingContactId;
-finalAccountId = existingAccountId;
+finalAccountId = canonicalAccountId;
 if(conversionResponse.get("Contacts") != null)
 {
 	finalContactId = conversionResponse.get("Contacts").toString();
@@ -693,82 +622,6 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 }
 
 // ======================================================
-// ENRICH ACCOUNT
-// ======================================================
-if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
-{
-	accountUpdateMap = Map();
-	finalAccountIdLong = finalAccountId.toString().trim().toLong();
-	currentAccount = zoho.crm.getRecordById("Accounts",finalAccountIdLong);
-	if(currentAccount != null)
-	{
-		if(ifnull(currentAccount.get("Account_Name"),"") == "" && derivedCompany != "")
-		{
-			accountUpdateMap.put("Account_Name",derivedCompany);
-		}
-		if(ifnull(currentAccount.get("Website"),"") == "" && derivedWebsite != "")
-		{
-			accountUpdateMap.put("Website",derivedWebsite);
-		}
-		if(ifnull(currentAccount.get("Industry"),"") == "" && industry != "")
-		{
-			accountUpdateMap.put("Industry",industry);
-		}
-		if(ifnull(currentAccount.get("Company_Linkedin"),"") == "" && leadRecord.get("Company_Linkedin") != null && leadRecord.get("Company_Linkedin").toString() != "")
-		{
-			accountUpdateMap.put("Company_Linkedin",leadRecord.get("Company_Linkedin"));
-		}
-		if(ifnull(currentAccount.get("Annual_Revenue"),"") == "" && leadRecord.get("Annual_Revenue") != null && leadRecord.get("Annual_Revenue").toString() != "")
-		{
-			accountUpdateMap.put("Annual_Revenue",leadRecord.get("Annual_Revenue"));
-		}
-		if(ifnull(currentAccount.get("Employees"),"") == "" && leadRecord.get("No_of_Employees") != null && leadRecord.get("No_of_Employees").toString() != "")
-		{
-			accountUpdateMap.put("Employees",leadRecord.get("No_of_Employees"));
-		}
-		// Phone mapping: Lead.Company_Phone → Account.Phone
-		if(companyPhone != "")
-		{
-			accountUpdateMap.put("Phone",companyPhone);
-		}
-		else if(ifnull(currentAccount.get("Phone"),"").toString().trim() == phone.trim() && phone.trim() != "")
-		{
-			// Clear Account.Phone if it matches person phone and no Company_Phone
-			accountUpdateMap.put("Phone","");
-		}
-		if(ifnull(currentAccount.get("Fax"),"") == "" && leadRecord.get("Fax") != null && leadRecord.get("Fax").toString() != "")
-		{
-			accountUpdateMap.put("Fax",leadRecord.get("Fax"));
-		}
-		if(ifnull(currentAccount.get("Rating"),"") == "" && leadRecord.get("Rating") != null && leadRecord.get("Rating").toString() != "")
-		{
-			accountUpdateMap.put("Rating",leadRecord.get("Rating"));
-		}
-		// Write Account_Key if blank OR if it currently looks like a numeric Zoho ID
-		accountKeyVal = ifnull(currentAccount.get("Account_Key"),"").toString().trim();
-		isBadAccountKey = false;
-		if(accountKeyVal == "")
-		{
-			isBadAccountKey = true;
-		}
-		else if(accountKeyVal.isNumber() && accountKeyVal.length() >= 15)
-		{
-			isBadAccountKey = true;
-		}
-		if(isBadAccountKey == true)
-		{
-			accountUpdateMap.put("Account_Key",derivedAccountKey);
-		}
-		if(accountUpdateMap.size() > 0)
-		{
-			updateAccountResponse = zoho.crm.updateRecord("Accounts",finalAccountIdLong,accountUpdateMap);
-			info "Account updated/enriched:";
-			info updateAccountResponse;
-		}
-	}
-}
-
-// ======================================================
 // ADD DEBUG NOTE ON CONTACT OR ACCOUNT
 // ======================================================
 if(finalContactId != null && finalContactId.toString().trim() != "" && finalContactId.toString().trim() != "null")
@@ -782,7 +635,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 	noteContent = noteContent + "- Account_Key: " + derivedAccountKey + "\n";
 	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
 	noteContent = noteContent + "- Existing Contact ID: " + existingContactId + "\n";
-	noteContent = noteContent + "- Existing Account ID: " + existingAccountId + "\n";
+	noteContent = noteContent + "- Canonical Account ID: " + canonicalAccountId + "\n";
 	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
 	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
 	noteMap.put("Note_Content",noteContent);
