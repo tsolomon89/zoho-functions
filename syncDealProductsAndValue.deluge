@@ -4,16 +4,16 @@ string automation.syncDealProductsAndValue(String deal_id)
 // syncDealProductsAndValue
 //
 // Trigger:
-// - Called by normalizeContactCommercialState
-// - Called by normalizeDealCommercialState
+// - Helper function called by normalizers
 //
 // Purpose:
-// - Resolve product staging signals from Product_Interest_Staging.
-// - Fallback to standard Product_Interest name or related Products list.
-// - Search matching Products by name.
-// - Sum product Unit_Price values.
-// - Update Deal Amount.
-// - Never block or fail the normalizer if product resolution is incomplete.
+// - Read Deal.Product_Interest_Staging.
+// - Parse product names.
+// - Search Products by Product_Name.
+// - Sum Unit_Price.
+// - Update Deal.Amount.
+// - Do not fail if a Product is missing.
+// - Do not block the pipeline.
 // ======================================================
 // ======================================================
 // CONFIG
