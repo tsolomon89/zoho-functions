@@ -365,7 +365,17 @@ if(leadRecord.get("Last_Name") == null || leadRecord.get("Last_Name").toString()
 {
 	leadPreMap.put("Last_Name","Unknown");
 }
-if(ifnull(leadRecord.get("Account_Key"),"").toString().trim() == "")
+leadAccountKeyVal = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
+isBadLeadKey = false;
+if(leadAccountKeyVal == "")
+{
+	isBadLeadKey = true;
+}
+else if(leadAccountKeyVal.isNumber() && leadAccountKeyVal.length() >= 15)
+{
+	isBadLeadKey = true;
+}
+if(isBadLeadKey == true)
 {
 	leadPreMap.put("Account_Key",derivedAccountKey);
 }
@@ -843,8 +853,18 @@ if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAcco
 		{
 			accountUpdateMap.put("Rating",leadRecord.get("Rating"));
 		}
-		// Always write Account_Key if empty
-		if(ifnull(currentAccount.get("Account_Key"),"") == "")
+		// Write Account_Key if blank OR if it currently looks like a numeric Zoho ID
+		accountKeyVal = ifnull(currentAccount.get("Account_Key"),"").toString().trim();
+		isBadAccountKey = false;
+		if(accountKeyVal == "")
+		{
+			isBadAccountKey = true;
+		}
+		else if(accountKeyVal.isNumber() && accountKeyVal.length() >= 15)
+		{
+			isBadAccountKey = true;
+		}
+		if(isBadAccountKey == true)
 		{
 			accountUpdateMap.put("Account_Key",derivedAccountKey);
 		}
