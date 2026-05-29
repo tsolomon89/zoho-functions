@@ -404,12 +404,35 @@ existingDealRecord = null;
 finalDealId = "";
 migrationFallbackId = "";
 
-// Gather candidate Deals from related records
+// Gather candidate Deals from Account ID search (most robust and direct)
 candidateDeals = List();
+if(accountId != "" && accountId != "null")
+{
+	idDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + accountId + ")");
+	if(idDeals != null && idDeals.toString().startsWith("[") && idDeals.size() > 0)
+	{
+		for each d in idDeals
+		{
+			candidateDeals.add(d);
+		}
+	}
+}
+
+// Gather candidate Deals from related records
 accountDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
 if(accountDeals != null && accountDeals.toString().startsWith("[") && accountDeals.size() > 0)
 {
 	for each d in accountDeals
+	{
+		candidateDeals.add(d);
+	}
+}
+
+// Gather candidate Deals from legacy Potentials related records
+legacyDeals = zoho.crm.getRelatedRecords("Potentials", "Accounts", accountIdLong);
+if(legacyDeals != null && legacyDeals.toString().startsWith("[") && legacyDeals.size() > 0)
+{
+	for each d in legacyDeals
 	{
 		candidateDeals.add(d);
 	}
@@ -438,18 +461,22 @@ for each candDeal in candidateDeals
 	if(cDealId != "" && cDealId != "null" && !processedDealIds.contains(cDealId))
 	{
 		processedDealIds.add(cDealId);
-		cDealKey = ifnull(candDeal.get("Deal_Key"),"").toString().trim();
-		cDealState = ifnull(candDeal.get("State"),"").toString().trim();
-		
-		if(cDealKey == dealKey)
+		cDealIdLong = cDealId.toLong();
+		fullDeal = zoho.crm.getRecordById("Deals", cDealIdLong);
+		if(fullDeal != null)
 		{
-			exactMatchId = cDealId;
-		}
-		else if(cDealState != "Lost")
-		{
-			if(migrationFallbackId == "")
+			cDealKey = ifnull(fullDeal.get("Deal_Key"),"").toString().trim();
+			cDealState = ifnull(fullDeal.get("State"),"").toString().trim();
+			
+			if(cDealKey == dealKey)
 			{
-				migrationFallbackId = cDealId;
+				exactMatchId = cDealId;
+			}
+			else if(cDealState != "Lost")
+			{
+				if(migrationFallbackId == "")
+				{
+					migrationFallbackId = cDealId;
 			}
 		}
 	}

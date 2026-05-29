@@ -584,14 +584,32 @@ existingDealId = "";
 migrationFallbackDealId = "";
 candidateDealsList = List();
 
-// 1. Gather Deals from related Account records
+// 1. Gather Deals from related Account ID search (most robust and direct)
 if(existingAccountId != "" && existingAccountId != "null")
 {
+	idDeals = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + existingAccountId + ")");
+	if(idDeals != null && idDeals.toString().startsWith("[") && idDeals.size() > 0)
+	{
+		for each d in idDeals
+		{
+			candidateDealsList.add(d);
+		}
+	}
+	
 	existingAccountIdLong = existingAccountId.toLong();
 	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", existingAccountIdLong);
 	if(relDeals != null && relDeals.toString().startsWith("[") && relDeals.size() > 0)
 	{
 		for each d in relDeals
+		{
+			candidateDealsList.add(d);
+		}
+	}
+	
+	legacyDeals = zoho.crm.getRelatedRecords("Potentials", "Accounts", existingAccountIdLong);
+	if(legacyDeals != null && legacyDeals.toString().startsWith("[") && legacyDeals.size() > 0)
+	{
+		for each d in legacyDeals
 		{
 			candidateDealsList.add(d);
 		}
@@ -634,18 +652,23 @@ for each candDeal in candidateDealsList
 	if(cDealId != "" && cDealId != "null" && !processedDealIds.contains(cDealId))
 	{
 		processedDealIds.add(cDealId);
-		cDealKey = ifnull(candDeal.get("Deal_Key"),"").toString().trim();
-		cDealState = ifnull(candDeal.get("State"),"").toString().trim();
-		
-		if(cDealKey == dealKey)
+		cDealIdLong = cDealId.toLong();
+		fullDeal = zoho.crm.getRecordById("Deals", cDealIdLong);
+		if(fullDeal != null)
 		{
-			exactMatchDealId = cDealId;
-		}
-		else if(cDealState != "Lost")
-		{
-			if(migrationFallbackDealId == "")
+			cDealKey = ifnull(fullDeal.get("Deal_Key"),"").toString().trim();
+			cDealState = ifnull(fullDeal.get("State"),"").toString().trim();
+			
+			if(cDealKey == dealKey)
 			{
-				migrationFallbackDealId = cDealId;
+				exactMatchDealId = cDealId;
+			}
+			else if(cDealState != "Lost")
+			{
+				if(migrationFallbackDealId == "")
+				{
+					migrationFallbackDealId = cDealId;
+				}
 			}
 		}
 	}
@@ -847,18 +870,23 @@ if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 		if(dId != "" && dId != "null" && !fbProcessedIds.contains(dId))
 		{
 			fbProcessedIds.add(dId);
-			dKey = ifnull(dRec.get("Deal_Key"),"").toString().trim();
-			dState = ifnull(dRec.get("State"),"").toString().trim();
-			
-			if(dKey == dealKey)
+			dIdLong = dId.toLong();
+			fullDeal = zoho.crm.getRecordById("Deals", dIdLong);
+			if(fullDeal != null)
 			{
-				fbExactId = dId;
-			}
-			else if(dState != "Lost")
-			{
-				if(fbMigrationId == "")
+				dKey = ifnull(fullDeal.get("Deal_Key"),"").toString().trim();
+				dState = ifnull(fullDeal.get("State"),"").toString().trim();
+				
+				if(dKey == dealKey)
 				{
-					fbMigrationId = dId;
+					fbExactId = dId;
+				}
+				else if(dState != "Lost")
+				{
+					if(fbMigrationId == "")
+					{
+						fbMigrationId = dId;
+					}
 				}
 			}
 		}
