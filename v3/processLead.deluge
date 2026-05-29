@@ -23,8 +23,8 @@ void automation.processLead(string lead_id)
 	company = ifnull(leadRecord.get("Company"), "").toString().trim();
 	phone = ifnull(leadRecord.get("Phone"), "").toString().trim();
 	companyPhone = ifnull(leadRecord.get("Company_Phone"), "").toString().trim();
-	productInterest = ifnull(leadRecord.get("Product_Interest_Staging"), "").toString().trim();
-	leadStage = ifnull(leadRecord.get("Lead_Status"), "").toString().trim();
+	productInterest = ifnull(leadRecord.get("Product_Interest"), "").toString().trim();
+	leadStage = ifnull(leadRecord.get("Stage"), "").toString().trim();
 
 	// 2. Derive Account_Key and normalized domain
 	normalizedDomain = "";
@@ -163,11 +163,17 @@ void automation.processLead(string lead_id)
 	}
 
 	// 5. Convert Lead
+	if(accountId == null || accountId.toString().trim() == "" || accountId.toString().trim() == "null")
+	{
+		info "FAILED: Account resolution failed. Lead not converted.";
+		return;
+	}
+
 	convertMap = Map();
-	convertMap.put("overwrite", true);
+	convertMap.put("overwrite", false);
 	convertMap.put("notify_lead_owner", true);
 	convertMap.put("notify_new_entity_owner", true);
-	if(accountId != "") { convertMap.put("Accounts", accountId); }
+	convertMap.put("Accounts", accountId);
 	if(contactId != "") { convertMap.put("Contacts", contactId); }
 	
 	convertRes = zoho.crm.convertLead(lead_id.toLong(), convertMap);
@@ -215,7 +221,7 @@ void automation.processLead(string lead_id)
 	{
 		dealId = searchDeal.get(0).get("id").toString();
 	}
-	else if(accountId != "")
+	else
 	{
 		dealName = if(company != "", company, accountKey) + " Deal";
 		dealMap = Map();
@@ -237,169 +243,236 @@ void automation.processLead(string lead_id)
 		}
 	}
 
-	if(accountId != "")
+	// 8. Gather Open Contacts & Product Interest Rollup
+	relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
+	highestStageRank = 0;
+	bestStage = "Marketing Consent";
+	bestOpp = "MQL";
+	anyContactOpen = false;
+
+	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
+
+	aggregatedPIList = List();
+	lowercasePIList = List();
+	
+	// Add initial Lead product interest to merge list
+	if(productInterest != "")
 	{
-		// Gather Open Contacts for Rollup
-		relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", accountId.toLong());
-		highestStageRank = 0;
-		bestStage = "Marketing Consent";
-		bestOpp = "MQL";
-		anyContactOpen = false;
-
-		stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
-
-		for each c in relContacts
+		parts = productInterest.replaceAll(";", ",").toList(",");
+		for each part in parts
 		{
-			cState = ifnull(c.get("State"), "Open");
-			cStage = ifnull(c.get("Stage"), "Marketing Consent");
-			if(cState == "Open")
+			pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+			if(pTrim != "")
 			{
-				anyContactOpen = true;
-				rank = ifnull(stageRanks.get(cStage), 1);
-				if(rank > highestStageRank)
+				pLow = pTrim.toLowerCase();
+				if(!lowercasePIList.contains(pLow))
 				{
-					highestStageRank = rank;
-					bestStage = cStage;
-					if(rank >= 6) { bestOpp = "RTP"; }
-					else if(rank == 5) { bestOpp = "FTP"; }
-					else if(rank >= 2) { bestOpp = "SQL"; }
-					else { bestOpp = "MQL"; }
+					aggregatedPIList.add(pTrim);
+					lowercasePIList.add(pLow);
 				}
 			}
 		}
+	}
 
-		// Silence Duplicate Deals & Roll Deal
-		relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
-		canonicalDealId = "";
-		minId = 999999999999999999;
-		activeDeals = List();
-		productInterestStaging = productInterest;
-
-		for each d in relDeals
+	for each c in relContacts
+	{
+		cState = ifnull(c.get("State"), "Open");
+		cStage = ifnull(c.get("Stage"), "Marketing Consent");
+		cProd = ifnull(c.get("Product_Interest_Staging"), "").toString().trim();
+		
+		if(cProd != "")
 		{
-			dState = ifnull(d.get("State"), "Open");
-			if(dState == "Open")
+			cParts = cProd.replaceAll(";", ",").toList(",");
+			for each part in cParts
 			{
-				dIdLong = d.get("id").toLong();
-				activeDeals.add(d.get("id"));
-				if(dIdLong < minId)
+				pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+				if(pTrim != "")
 				{
-					minId = dIdLong;
-					canonicalDealId = d.get("id").toString();
-					productInterestStaging = ifnull(d.get("Product_Interest_Staging"), "").toString();
-				}
-			}
-		}
-
-		for each ad in activeDeals
-		{
-			adStr = ad.toString();
-			if(adStr != canonicalDealId)
-			{
-				origDeal = zoho.crm.getRecordById("Deals", adStr.toLong());
-				dupUpdate = Map();
-				if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
-				if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
-				if(ifnull(origDeal.get("Reason_For_Loss"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss", "Duplicate / Test Record"); }
-				if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
-				
-				origName = ifnull(origDeal.get("Deal_Name"), "");
-				if(!origName.endsWith("(Duplicate)"))
-				{
-					dupUpdate.put("Deal_Name", origName + " (Duplicate)");
-				}
-				if(dupUpdate.size() > 0)
-				{
-					zoho.crm.updateRecord("Deals", adStr.toLong(), dupUpdate);
-				}
-			}
-		}
-
-		// Calculate Deal Amount & Roll Canonical Deal
-		if(canonicalDealId != "")
-		{
-			totalAmount = 0.0;
-			if(productInterestStaging != "")
-			{
-				pList = productInterestStaging.toList(",");
-				for each p in pList
-				{
-					pName = p.trim();
-					if(pName != "")
+					pLow = pTrim.toLowerCase();
+					if(!lowercasePIList.contains(pLow))
 					{
-						sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + pName + ")");
-						if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
-						{
-							price = ifnull(sProd.get(0).get("Unit_Price"), "0").toDecimal();
-							totalAmount = totalAmount + price;
-						}
+						aggregatedPIList.add(pTrim);
+						lowercasePIList.add(pLow);
 					}
 				}
 			}
-
-			targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
-			dUpd = Map();
-			if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey) { dUpd.put("Deal_Key", dealKey); }
-			
-			// Compare doubles using toDecimal
-			currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
-			if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
-			
-			dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss"), "").toString();
-			if(!anyContactOpen || dealReasonForLoss != "")
-			{
-				if(ifnull(targetDeal.get("State"), "") != "Lost") { dUpd.put("State", "Lost"); }
-				if(ifnull(targetDeal.get("Status"), "") != "Closed") { dUpd.put("Status", "Closed"); }
-			}
-			else
-			{
-				if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-				if(ifnull(targetDeal.get("Stage"), "") != bestStage) { dUpd.put("Stage", bestStage); }
-				if(ifnull(targetDeal.get("Opportunity"), "") != bestOpp) { dUpd.put("Opportunity", bestOpp); }
-			}
-			if(dUpd.size() > 0)
-			{
-				zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
-			}
 		}
 
-		// Rollup Account
-		finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
-		anyDealOpen = false;
-		anyDealWorking = false;
-		for each fd in finalDeals
+		if(cState == "Open")
 		{
-			if(ifnull(fd.get("State"), "") == "Open")
+			anyContactOpen = true;
+			rank = ifnull(stageRanks.get(cStage), 1);
+			if(rank > highestStageRank)
 			{
-				anyDealOpen = true;
-				if(ifnull(fd.get("Status"), "") == "Working")
+				highestStageRank = rank;
+				bestStage = cStage;
+				if(rank >= 6) { bestOpp = "RTP"; }
+				else if(rank == 5) { bestOpp = "FTP"; }
+				else if(rank >= 2) { bestOpp = "SQL"; }
+				else { bestOpp = "MQL"; }
+			}
+		}
+	}
+
+	// Silence Duplicate Deals & Identity Canonical
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
+	canonicalDealId = "";
+	minId = 999999999999999999;
+	activeDeals = List();
+	
+	// Ensure we don't trigger anything for duplicates
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	for each d in relDeals
+	{
+		dState = ifnull(d.get("State"), "Open");
+		if(dState == "Open")
+		{
+			dIdLong = d.get("id").toLong();
+			activeDeals.add(d.get("id"));
+			if(dIdLong < minId)
+			{
+				minId = dIdLong;
+				canonicalDealId = d.get("id").toString();
+			}
+		}
+	}
+
+	for each ad in activeDeals
+	{
+		adStr = ad.toString();
+		if(adStr != canonicalDealId)
+		{
+			origDeal = zoho.crm.getRecordById("Deals", adStr.toLong());
+			dupUpdate = Map();
+			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
+			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
+			if(ifnull(origDeal.get("Reason_For_Loss"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss", "Duplicate / Test Record"); }
+			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
+			
+			origName = ifnull(origDeal.get("Deal_Name"), "");
+			if(!origName.endsWith("(Duplicate)"))
+			{
+				dupUpdate.put("Deal_Name", origName + " (Duplicate)");
+			}
+			if(dupUpdate.size() > 0)
+			{
+				zoho.crm.updateRecord("Deals", adStr.toLong(), dupUpdate, triggerMap);
+			}
+		}
+	}
+
+	// Calculate Deal Amount & Roll Canonical Deal
+	if(canonicalDealId != "")
+	{
+		targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+		dealProd = ifnull(targetDeal.get("Product_Interest_Staging"), "").toString().trim();
+		if(dealProd != "")
+		{
+			dParts = dealProd.replaceAll(";", ",").toList(",");
+			for each part in dParts
+			{
+				pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+				if(pTrim != "")
 				{
-					anyDealWorking = true;
+					pLow = pTrim.toLowerCase();
+					if(!lowercasePIList.contains(pLow))
+					{
+						aggregatedPIList.add(pTrim);
+						lowercasePIList.add(pLow);
+					}
 				}
 			}
 		}
 
-		accUpd = Map();
-		
-		// Refresh account record to check current state
-		accRec = zoho.crm.getRecordById("Accounts", accountId.toLong());
-		currState = ifnull(accRec.get("State"), "");
-		currStatus = ifnull(accRec.get("Status"), "");
-
-		if(anyDealOpen)
+		mergedProdStr = "";
+		for each item in aggregatedPIList
 		{
-			if(currState != "Open") { accUpd.put("State", "Open"); }
-			targetStatus = if(anyDealWorking, "Working", "New");
-			if(currStatus != targetStatus) { accUpd.put("Status", targetStatus); }
+			if(mergedProdStr == "") { mergedProdStr = item; }
+			else { mergedProdStr = mergedProdStr + ", " + item; }
+		}
+
+		totalAmount = 0.0;
+		if(mergedProdStr != "")
+		{
+			pList = mergedProdStr.toList(",");
+			for each p in pList
+			{
+				pName = p.trim();
+				if(pName != "")
+				{
+					sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + pName + ")");
+					if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
+					{
+						price = ifnull(sProd.get(0).get("Unit_Price"), "0").toDecimal();
+						totalAmount = totalAmount + price;
+					}
+				}
+			}
+		}
+
+		dUpd = Map();
+		if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey) { dUpd.put("Deal_Key", dealKey); }
+		if(ifnull(targetDeal.get("Product_Interest_Staging"), "") != mergedProdStr) { dUpd.put("Product_Interest_Staging", mergedProdStr); }
+		
+		// Compare doubles using toDecimal
+		currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
+		if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+		
+		dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss"), "").toString();
+		if(!anyContactOpen || dealReasonForLoss != "")
+		{
+			if(ifnull(targetDeal.get("State"), "") != "Lost") { dUpd.put("State", "Lost"); }
+			if(ifnull(targetDeal.get("Status"), "") != "Closed") { dUpd.put("Status", "Closed"); }
 		}
 		else
 		{
-			if(currState != "Lost") { accUpd.put("State", "Lost"); }
-			if(currStatus != "Closed") { accUpd.put("Status", "Closed"); }
+			if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
+			if(ifnull(targetDeal.get("Stage"), "") != bestStage) { dUpd.put("Stage", bestStage); }
+			if(ifnull(targetDeal.get("Opportunity"), "") != bestOpp) { dUpd.put("Opportunity", bestOpp); }
 		}
-		if(accUpd.size() > 0)
+		
+		if(dUpd.size() > 0)
 		{
-			zoho.crm.updateRecord("Accounts", accountId.toLong(), accUpd);
+			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
 		}
+	}
+
+	// Rollup Account
+	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
+	anyDealOpen = false;
+	anyDealWorking = false;
+	for each fd in finalDeals
+	{
+		if(ifnull(fd.get("State"), "") == "Open")
+		{
+			anyDealOpen = true;
+			if(ifnull(fd.get("Status"), "") == "Working")
+			{
+				anyDealWorking = true;
+			}
+		}
+	}
+
+	accUpd = Map();
+	accRec = zoho.crm.getRecordById("Accounts", accountId.toLong());
+	currState = ifnull(accRec.get("State"), "");
+	currStatus = ifnull(accRec.get("Status"), "");
+
+	if(anyDealOpen)
+	{
+		if(currState != "Open") { accUpd.put("State", "Open"); }
+		targetStatus = if(anyDealWorking, "Working", "New");
+		if(currStatus != targetStatus) { accUpd.put("Status", targetStatus); }
+	}
+	else
+	{
+		if(currState != "Lost") { accUpd.put("State", "Lost"); }
+		if(currStatus != "Closed") { accUpd.put("Status", "Closed"); }
+	}
+	if(accUpd.size() > 0)
+	{
+		zoho.crm.updateRecord("Accounts", accountId.toLong(), accUpd);
 	}
 }
