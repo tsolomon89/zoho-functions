@@ -63,7 +63,7 @@ if(accountDeals == null || accountDeals.size() == 0 || accountDeals.toString().s
 	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
 	if(safeAccountName != "")
 	{
-		accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:" + safeAccountName + ")");
+		accountDeals = zoho.crm.searchRecords("Deals","(Account_Name:equals:'" + safeAccountName + "')");
 		info "Related Deals fallback via searchRecords:";
 		info accountDeals;
 	}
