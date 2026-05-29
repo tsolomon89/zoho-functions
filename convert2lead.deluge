@@ -354,7 +354,7 @@ info "Target Stage:";
 info targetStage;
 // ======================================================
 // PRE-CONVERSION UPDATE
-// Ensures mandatory fields on Leads are not empty for Zoho
+// Ensures mandatory fields and Account_Key on Leads are not empty/correct
 // ======================================================
 leadPreMap = Map();
 if(leadRecord.get("Company") == null || leadRecord.get("Company").toString().trim() == "")
@@ -364,6 +364,10 @@ if(leadRecord.get("Company") == null || leadRecord.get("Company").toString().tri
 if(leadRecord.get("Last_Name") == null || leadRecord.get("Last_Name").toString().trim() == "")
 {
 	leadPreMap.put("Last_Name","Unknown");
+}
+if(ifnull(leadRecord.get("Account_Key"),"").toString().trim() == "")
+{
+	leadPreMap.put("Account_Key",derivedAccountKey);
 }
 if(leadPreMap.size() > 0)
 {
@@ -428,18 +432,34 @@ if(existingContactId != "")
 info "Account from Contact lookup:";
 info existingAccountId;
 
+// 2. Direct Account_Key search using derivedAccountKey
+if(existingAccountId == "" && derivedAccountKey != "")
+{
+	accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + derivedAccountKey + ")");
+	info "Account search by derived Account_Key:";
+	info accountSearch;
+	if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+	{
+		existingAccountRecord = accountSearch.get(0);
+		existingAccountId = existingAccountRecord.get("id").toString();
+	}
+}
+
+// 3. Direct Account_Key search using Lead.Account_Key, if present
 leadAccountKey = ifnull(leadRecord.get("Account_Key"),"").toString().trim();
 if(existingAccountId == "" && leadAccountKey != "")
 {
-	isAccountId = false;
-	if(leadAccountKey.isNumber() && leadAccountKey.length() >= 15)
+	safeLeadAccountKey = leadAccountKey.replaceAll("[\\(\\)\\:\\,]", "").trim();
+	if(safeLeadAccountKey != "")
 	{
-		isAccountId = true;
-	}
-	if(isAccountId == true)
-	{
-		existingAccountId = leadAccountKey;
-		info "Concurrent real-time deduplication: matched Account ID from Lead Account_Key: " + existingAccountId;
+		accountSearch = zoho.crm.searchRecords("Accounts","(Account_Key:equals:" + safeLeadAccountKey + ")");
+		info "Account search by Lead Account_Key:";
+		info accountSearch;
+		if(accountSearch != null && accountSearch.size() > 0 && !accountSearch.toString().startsWith("{"))
+		{
+			existingAccountRecord = accountSearch.get(0);
+			existingAccountId = existingAccountRecord.get("id").toString();
+		}
 	}
 }
 
@@ -769,6 +789,61 @@ if(conversionResponse.get("Accounts") != null)
 if(conversionResponse.get("Deals") != null)
 {
 	finalDealId = conversionResponse.get("Deals").toString();
+}
+
+// ======================================================
+// POST-CONVERSION CANONICAL ACCOUNT CHECK (Fix 4)
+// Prevents duplicate Accounts created concurrently during bulk imports.
+// If another Account already exists with the same Account_Key, prefer the existing
+// canonical Account and reattach the Contact and Deal to it.
+// ======================================================
+canonicalAccountId = "";
+if(finalAccountId != "" && finalAccountId != "null" && derivedAccountKey != "")
+{
+	canonicalSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + derivedAccountKey + ")");
+	if(canonicalSearch != null && canonicalSearch.size() > 0 && !canonicalSearch.toString().startsWith("{"))
+	{
+		for each acc in canonicalSearch
+		{
+			accId = ifnull(acc.get("id"), "").toString().trim();
+			if(accId != "" && accId != "null" && accId != finalAccountId)
+			{
+				canonicalAccountId = accId;
+				info "Post-Conversion Canonical Check: Found existing canonical Account " + canonicalAccountId + " instead of newly created duplicate " + finalAccountId;
+				break;
+			}
+		}
+	}
+}
+
+if(canonicalAccountId != "")
+{
+	info "Duplicate Account race detected! Reattaching Contact and Deal to canonical Account: " + canonicalAccountId;
+	finalAccountId = canonicalAccountId;
+	
+	// Update Contact's Account lookup to point to the canonical Account
+	if(finalContactId != "" && finalContactId != "null")
+	{
+		contactLookupUpdateMap = Map();
+		accountLookup = Map();
+		accountLookup.put("id", finalAccountId);
+		contactLookupUpdateMap.put("Account_Name", accountLookup);
+		updateContactAccResp = zoho.crm.updateRecord("Contacts", finalContactId.toLong(), contactLookupUpdateMap);
+		info "Reattached Contact to canonical Account response:";
+		info updateContactAccResp;
+	}
+	
+	// Update Deal's Account lookup to point to the canonical Account
+	if(finalDealId != "" && finalDealId != "null")
+	{
+		dealLookupUpdateMap = Map();
+		accountLookup = Map();
+		accountLookup.put("id", finalAccountId);
+		dealLookupUpdateMap.put("Account_Name", accountLookup);
+		updateDealAccResp = zoho.crm.updateRecord("Deals", finalDealId.toLong(), dealLookupUpdateMap);
+		info "Reattached Deal to canonical Account response:";
+		info updateDealAccResp;
+	}
 }
 
 // ======================================================
