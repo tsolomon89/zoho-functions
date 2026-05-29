@@ -65,6 +65,11 @@ void automation.processDeal(string deal_id)
 		}
 	}
 
+	if(canonicalDealId == "")
+	{
+		canonicalDealId = cleanId;
+	}
+
 	for each ad in activeDeals
 	{
 		adStr = ad.toString();

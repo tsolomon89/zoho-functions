@@ -238,6 +238,11 @@ void automation.processContact(string contact_id)
 		}
 	}
 
+	if(canonicalDealId == "" && dealId != "")
+	{
+		canonicalDealId = dealId;
+	}
+
 	for each ad in activeDeals
 	{
 		adStr = ad.toString();
