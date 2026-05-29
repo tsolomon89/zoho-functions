@@ -46,6 +46,61 @@ if(accountRecord == null)
 }
 info "Account record fetched:";
 info accountRecord;
+
+// ======================================================
+// ENSURE ACCOUNT KEY IS PRESENT AND NORMALIZED
+// ======================================================
+accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
+accountName = ifnull(accountRecord.get("Account_Name"),"");
+if(accountKey == "")
+{
+	derivedDomain = "";
+	if(accountWebsite != "")
+	{
+		rawUrl = accountWebsite;
+		normalizedDomain = rawUrl.toLowerCase().trim();
+		normalizedDomain = normalizedDomain.replaceAll("https://","");
+		normalizedDomain = normalizedDomain.replaceAll("http://","");
+		normalizedDomain = normalizedDomain.replaceAll("www.","");
+		if(normalizedDomain.contains("/"))
+		{
+			parts = normalizedDomain.toList("/");
+			normalizedDomain = parts.get(0);
+		}
+		derivedDomain = normalizedDomain.trim();
+	}
+	if(derivedDomain == "" && accountName.contains(".") && !accountName.contains(" "))
+	{
+		rawUrl = accountName.toLowerCase().trim();
+		normalizedDomain = rawUrl.toLowerCase().trim();
+		normalizedDomain = normalizedDomain.replaceAll("https://","");
+		normalizedDomain = normalizedDomain.replaceAll("http://","");
+		normalizedDomain = normalizedDomain.replaceAll("www.","");
+		if(normalizedDomain.contains("/"))
+		{
+			parts = normalizedDomain.toList("/");
+			normalizedDomain = parts.get(0);
+		}
+		derivedDomain = normalizedDomain.trim();
+	}
+	derivedAccountKey = derivedDomain;
+	if(derivedAccountKey == "")
+	{
+		derivedAccountKey = accountName;
+	}
+	derivedAccountKey = derivedAccountKey.toLowerCase().trim();
+	derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
+	if(derivedAccountKey != "")
+	{
+		accountKey = derivedAccountKey;
+		accUpdateMap = Map();
+		accUpdateMap.put("Account_Key", accountKey);
+		updateAccKeyResp = zoho.crm.updateRecord("Accounts", accountId, accUpdateMap);
+		info "Normalized and updated missing Account_Key on Account:";
+		info updateAccKeyResp;
+	}
+}
 // ======================================================
 // FETCH RELATED DEALS
 // Primary: use Account relationship via getRelatedRecords
