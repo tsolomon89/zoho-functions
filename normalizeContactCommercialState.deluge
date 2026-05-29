@@ -477,6 +477,7 @@ for each candDeal in candidateDeals
 				if(migrationFallbackId == "")
 				{
 					migrationFallbackId = cDealId;
+				}
 			}
 		}
 	}
