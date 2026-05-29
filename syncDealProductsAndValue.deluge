@@ -99,6 +99,16 @@ for each  prodName in productNamesList
 				price = ifnull(firstProd.get(PRODUCT_VALUE_FIELD),"0").toDecimal();
 				totalAmount = totalAmount + price;
 				resolvedCount = resolvedCount + 1;
+				
+				// Attempt to link matching Product to Deal
+				prodId = firstProd.get("id");
+				if(prodId != null)
+				{
+					linkMap = Map();
+					linkResp = zoho.crm.updateRelatedRecord("Products", prodId.toString().toLong(), "Deals", dealId, linkMap);
+					info "Associated product with Deal: " + prodName + " ID: " + prodId;
+					info linkResp;
+				}
 			}
 		}
 	}

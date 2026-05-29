@@ -134,6 +134,70 @@ info "Account ID:";
 info accountId;
 info "Current Primary Contact ID:";
 info currentPrimaryContactId;
+
+// Derive Account Key and Check Deal Key
+derivedAccountKey = "";
+dealKey = ifnull(dealRecord.get("Deal_Key"),"").toString().trim();
+if(accountId != "")
+{
+	accountIdLong = accountId.toLong();
+	accountRecord = zoho.crm.getRecordById("Accounts", accountIdLong);
+	if(accountRecord != null)
+	{
+		accountKey = ifnull(accountRecord.get("Account_Key"),"").toString().trim();
+		accountWebsite = ifnull(accountRecord.get("Website"),"").toString().trim();
+		accountName = ifnull(accountRecord.get("Account_Name"),"").toString().trim();
+		
+		derivedDomain = "";
+		if(accountWebsite != "")
+		{
+			rawUrl = accountWebsite;
+			normalizedDomain = rawUrl.toLowerCase().trim();
+			normalizedDomain = normalizedDomain.replaceAll("https://","");
+			normalizedDomain = normalizedDomain.replaceAll("http://","");
+			normalizedDomain = normalizedDomain.replaceAll("www.","");
+			if(normalizedDomain.contains("/"))
+			{
+				parts = normalizedDomain.toList("/");
+				normalizedDomain = parts.get(0);
+			}
+			derivedDomain = normalizedDomain.trim();
+		}
+		if(derivedDomain == "" && accountName.contains(".") && !accountName.contains(" "))
+		{
+			rawUrl = accountName.toLowerCase().trim();
+			normalizedDomain = rawUrl.toLowerCase().trim();
+			normalizedDomain = normalizedDomain.replaceAll("https://","");
+			normalizedDomain = normalizedDomain.replaceAll("http://","");
+			normalizedDomain = normalizedDomain.replaceAll("www.","");
+			if(normalizedDomain.contains("/"))
+			{
+				parts = normalizedDomain.toList("/");
+				normalizedDomain = parts.get(0);
+			}
+			derivedDomain = normalizedDomain.trim();
+		}
+		
+		derivedAccountKey = accountKey;
+		if(derivedAccountKey == "")
+		{
+			derivedAccountKey = derivedDomain;
+		}
+		if(derivedAccountKey == "")
+		{
+			derivedAccountKey = accountName;
+		}
+		derivedAccountKey = derivedAccountKey.toLowerCase().trim();
+		derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
+	}
+}
+
+if(dealKey == "" && derivedAccountKey != "")
+{
+	dealKey = derivedAccountKey + "::active";
+}
+info "Deal Key:";
+info dealKey;
 // ======================================================
 // MANUAL ACTIVITY CHECK
 // ======================================================
@@ -316,36 +380,25 @@ else if(targetStage == "Renewal")
 // ======================================================
 // COMPUTE CANONICAL DEAL KEY
 // ======================================================
-dealProductKey = "general";
+// Initialize Product Interest Staging Aggregation
+aggregatedPIList = List();
+lowercasePIList = List();
+
 if(dealProductInterestStaging != "")
 {
-	dCleanPI = dealProductInterestStaging.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-	dPiList = dCleanPI.toList(",");
-	dSortedList = List();
-	for each dItem in dPiList
+	dealPIParts = dealProductInterestStaging.replaceAll(";", ",").toList(",");
+	for each part in dealPIParts
 	{
-		dTrimmedItem = dItem.trim().replaceAll("  "," ");
-		if(dTrimmedItem != "")
+		pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+		if(pTrim != "")
 		{
-			dSortedList.add(dTrimmedItem);
+			pLow = pTrim.toLowerCase();
+			if(!lowercasePIList.contains(pLow))
+			{
+				aggregatedPIList.add(pTrim);
+				lowercasePIList.add(pLow);
+			}
 		}
-	}
-	dSortedList.sort();
-	dJoinedPI = "";
-	for each dItem in dSortedList
-	{
-		if(dJoinedPI == "")
-		{
-			dJoinedPI = dItem;
-		}
-		else
-		{
-			dJoinedPI = dJoinedPI + "+" + dItem;
-		}
-	}
-	if(dJoinedPI != "")
-	{
-		dealProductKey = dJoinedPI;
 	}
 }
 
@@ -397,77 +450,57 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 					cLastName = ifnull(candidateContact.get("Last_Name"), "");
 					cFullName = (cFirstName + " " + cLastName).trim();
 					
-					// Derive candidate's Product_Key
-					cProductKey = "general";
 					if(candidateProductInterest != "")
 					{
-						cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-						cPiList = cCleanPI.toList(",");
-						cSortedList = List();
-						for each cItem in cPiList
+						cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
+						for each part in cParts
 						{
-							cTrimmedItem = cItem.trim().replaceAll("  "," ");
-							if(cTrimmedItem != "")
+							pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+							if(pTrim != "")
 							{
-								cSortedList.add(cTrimmedItem);
+								pLow = pTrim.toLowerCase();
+								if(!lowercasePIList.contains(pLow))
+								{
+									aggregatedPIList.add(pTrim);
+									lowercasePIList.add(pLow);
+								}
 							}
-						}
-						cSortedList.sort();
-						cJoinedPI = "";
-						for each cItem in cSortedList
-						{
-							if(cJoinedPI == "")
-							{
-								cJoinedPI = cItem;
-							}
-							else
-							{
-								cJoinedPI = cJoinedPI + "+" + cItem;
-							}
-						}
-						if(cJoinedPI != "")
-						{
-							cProductKey = cJoinedPI;
 						}
 					}
 					
-					// Match strictly by exact product motion key
-					if(cProductKey == dealProductKey)
+					candidateRank = 0;
+					if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+					else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+					else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+					else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+					else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+					else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+					else if(candidateStage == "Onboarding") { candidateRank = 7; }
+					else if(candidateStage == "Renewal") { candidateRank = 8; }
+					
+					if(candidateState == VALUE_LOST)
 					{
-						candidateRank = 0;
-						if(candidateStage == "Marketing Consent") { candidateRank = 1; }
-						else if(candidateStage == "Demo Booking") { candidateRank = 2; }
-						else if(candidateStage == "Demo Booked") { candidateRank = 3; }
-						else if(candidateStage == "Demo Attended") { candidateRank = 4; }
-						else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
-						else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
-						else if(candidateStage == "Onboarding") { candidateRank = 7; }
-						else if(candidateStage == "Renewal") { candidateRank = 8; }
-						
-						if(candidateState == VALUE_LOST)
+						if(candidateRank > bestLostRank)
 						{
-							if(candidateRank > bestLostRank)
-							{
-								bestLostRank = candidateRank;
-								bestLostContactId = candidateContactId;
-								bestLostStage = candidateStage;
-								bestLostContactName = cFullName;
-							}
+							bestLostRank = candidateRank;
+							bestLostContactId = candidateContactId;
+							bestLostStage = candidateStage;
+							bestLostContactName = cFullName;
 						}
-						else
+					}
+					else
+					{
+						anyOpenContact = true;
+						if(candidateStatus == VALUE_WORKING)
 						{
-							anyOpenContact = true;
-							if(candidateStatus == VALUE_WORKING)
-							{
-								anyOpenWorking = true;
-							}
-							if(candidateRank > bestOpenRank)
-							{
-								bestOpenRank = candidateRank;
-								bestOpenContactId = candidateContactId;
-								bestOpenStage = candidateStage;
-								bestOpenContactName = cFullName;
-							}
+							anyOpenWorking = true;
+						}
+						if(candidateRank > bestOpenRank)
+						{
+							bestOpenRank = candidateRank;
+							bestOpenContactId = candidateContactId;
+							bestOpenStage = candidateStage;
+							bestOpenContactName = cFullName;
 						}
 					}
 				}
@@ -504,78 +537,73 @@ if(currentPrimaryContactId != "")
 			cLastName = ifnull(candidateContact.get("Last_Name"), "");
 			cFullName = (cFirstName + " " + cLastName).trim();
 			
-			cProductKey = "general";
 			if(candidateProductInterest != "")
 			{
-				cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-				cPiList = cCleanPI.toList(",");
-				cSortedList = List();
-				for each cItem in cPiList
+				cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
+				for each part in cParts
 				{
-					cTrimmedItem = cItem.trim().replaceAll("  "," ");
-					if(cTrimmedItem != "")
+					pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+					if(pTrim != "")
 					{
-						cSortedList.add(cTrimmedItem);
+						pLow = pTrim.toLowerCase();
+						if(!lowercasePIList.contains(pLow))
+						{
+							aggregatedPIList.add(pTrim);
+							lowercasePIList.add(pLow);
+						}
 					}
-				}
-				cSortedList.sort();
-				cJoinedPI = "";
-				for each cItem in cSortedList
-				{
-					if(cJoinedPI == "")
-					{
-						cJoinedPI = cItem;
-					}
-					else
-					{
-						cJoinedPI = cJoinedPI + "+" + cItem;
-					}
-				}
-				if(cJoinedPI != "")
-				{
-					cProductKey = cJoinedPI;
 				}
 			}
 			
-			if(cProductKey == dealProductKey)
+			candidateRank = 0;
+			if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+			else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+			else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+			else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+			else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+			else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+			else if(candidateStage == "Onboarding") { candidateRank = 7; }
+			else if(candidateStage == "Renewal") { candidateRank = 8; }
+			
+			if(candidateState == VALUE_LOST)
 			{
-				candidateRank = 0;
-				if(candidateStage == "Marketing Consent") { candidateRank = 1; }
-				else if(candidateStage == "Demo Booking") { candidateRank = 2; }
-				else if(candidateStage == "Demo Booked") { candidateRank = 3; }
-				else if(candidateStage == "Demo Attended") { candidateRank = 4; }
-				else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
-				else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
-				else if(candidateStage == "Onboarding") { candidateRank = 7; }
-				else if(candidateStage == "Renewal") { candidateRank = 8; }
-				
-				if(candidateState == VALUE_LOST)
+				if(candidateRank > bestLostRank)
 				{
-					if(candidateRank > bestLostRank)
-					{
-						bestLostRank = candidateRank;
-						bestLostContactId = currentPrimaryContactId;
-						bestLostStage = candidateStage;
-						bestLostContactName = cFullName;
-					}
+					bestLostRank = candidateRank;
+					bestLostContactId = currentPrimaryContactId;
+					bestLostStage = candidateStage;
+					bestLostContactName = cFullName;
 				}
-				else
+			}
+			else
+			{
+				anyOpenContact = true;
+				if(candidateStatus == VALUE_WORKING)
 				{
-					anyOpenContact = true;
-					if(candidateStatus == VALUE_WORKING)
-					{
-						anyOpenWorking = true;
-					}
-					if(candidateRank > bestOpenRank)
-					{
-						bestOpenRank = candidateRank;
-						bestOpenContactId = currentPrimaryContactId;
-						bestOpenStage = candidateStage;
-						bestOpenContactName = cFullName;
-					}
+					anyOpenWorking = true;
+				}
+				if(candidateRank > bestOpenRank)
+				{
+					bestOpenRank = candidateRank;
+					bestOpenContactId = currentPrimaryContactId;
+					bestOpenStage = candidateStage;
+					bestOpenContactName = cFullName;
 				}
 			}
 		}
+	}
+}
+
+aggregatedPIStr = "";
+for each item in aggregatedPIList
+{
+	if(aggregatedPIStr == "")
+	{
+		aggregatedPIStr = item;
+	}
+	else
+	{
+		aggregatedPIStr = aggregatedPIStr + ", " + item;
 	}
 }
 
@@ -678,6 +706,14 @@ dealUpdateMap.put(FIELD_DEAL_OPPORTUNITY, rollupOpportunity);
 dealUpdateMap.put(FIELD_DEAL_STAGE, rollupStage);
 dealUpdateMap.put(FIELD_STATE, rollupState);
 dealUpdateMap.put(FIELD_STATUS, rollupStatus);
+if(dealKey != "")
+{
+	dealUpdateMap.put("Deal_Key", dealKey);
+}
+if(aggregatedPIStr != "")
+{
+	dealUpdateMap.put("Product_Interest_Staging", aggregatedPIStr);
+}
 
 updateDealResponse = zoho.crm.updateRecord("Deals", dealId, dealUpdateMap);
 info "Deal normalized update response:";

@@ -394,7 +394,7 @@ if(accountRecord != null)
 	derivedAccountKey = derivedAccountKey.toLowerCase().trim();
 	derivedAccountKey = derivedAccountKey.replaceAll("[\\(\\)\\:\\,\\& ]", "");
 }
-dealKey = derivedAccountKey + "::" + productKey;
+dealKey = derivedAccountKey + "::active";
 dealKey = dealKey.toLowerCase().trim();
 
 // ======================================================
@@ -402,47 +402,67 @@ dealKey = dealKey.toLowerCase().trim();
 // ======================================================
 existingDealRecord = null;
 finalDealId = "";
+migrationFallbackId = "";
 
-// 1. Get Deals related to the Account
+// Gather candidate Deals from related records
+candidateDeals = List();
 accountDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountIdLong);
-info "normalizeContactCommercialState: related Deals for Account:";
-info accountDeals;
-
 if(accountDeals != null && accountDeals.toString().startsWith("[") && accountDeals.size() > 0)
 {
-	for each dealRec in accountDeals
+	for each d in accountDeals
 	{
-		dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
-		if(dKey == dealKey)
+		candidateDeals.add(d);
+	}
+}
+
+// Gather candidate Deals from Account Name search
+safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
+if(safeAccountName != "")
+{
+	fbSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
+	if(fbSearch != null && fbSearch.toString().startsWith("[") && fbSearch.size() > 0)
+	{
+		for each d in fbSearch
 		{
-			existingDealRecord = dealRec;
-			finalDealId = dealRec.get("id").toString();
+			candidateDeals.add(d);
 		}
 	}
 }
 
-// 2. Fallback: search by Account_Name if related records returns nothing
-if(finalDealId == "")
+processedDealIds = List();
+exactMatchId = "";
+
+for each candDeal in candidateDeals
 {
-	safeAccountName = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safeAccountName != "")
+	cDealId = ifnull(candDeal.get("id"),"").toString().trim();
+	if(cDealId != "" && cDealId != "null" && !processedDealIds.contains(cDealId))
 	{
-		fbSearch = zoho.crm.searchRecords("Deals", "(Account_Name:equals:" + safeAccountName + ")");
-		info "normalizeContactCommercialState: fallback Deal search by Account Name:";
-		info fbSearch;
-		if(fbSearch != null && fbSearch.toString().startsWith("[") && fbSearch.size() > 0)
+		processedDealIds.add(cDealId);
+		cDealKey = ifnull(candDeal.get("Deal_Key"),"").toString().trim();
+		cDealState = ifnull(candDeal.get("State"),"").toString().trim();
+		
+		if(cDealKey == dealKey)
 		{
-			for each dealRec in fbSearch
+			exactMatchId = cDealId;
+		}
+		else if(cDealState != "Lost")
+		{
+			if(migrationFallbackId == "")
 			{
-				dKey = ifnull(dealRec.get("Deal_Key"),"").toString().trim();
-				if(dKey == dealKey)
-				{
-					existingDealRecord = dealRec;
-					finalDealId = dealRec.get("id").toString();
-				}
+				migrationFallbackId = cDealId;
 			}
 		}
 	}
+}
+
+if(exactMatchId != "")
+{
+	finalDealId = exactMatchId;
+}
+else if(migrationFallbackId != "")
+{
+	finalDealId = migrationFallbackId;
+	info "normalizeContactCommercialState: matched fallback open Deal: " + finalDealId;
 }
 
 if(finalDealId == "")
@@ -460,37 +480,25 @@ if(existingDealRecord == null)
 dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
 dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
 
-// Derive Deal productKey to ensure exact partition matches
-dealProductKey = "general";
+// Initialize Product Interest Staging Aggregation
+aggregatedPIList = List();
+lowercasePIList = List();
+
 if(dealProductInterestStaging != "")
 {
-	dCleanPI = dealProductInterestStaging.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-	dPiList = dCleanPI.toList(",");
-	dSortedList = List();
-	for each dItem in dPiList
+	dealPIParts = dealProductInterestStaging.replaceAll(";", ",").toList(",");
+	for each part in dealPIParts
 	{
-		dTrimmedItem = dItem.trim().replaceAll("  "," ");
-		if(dTrimmedItem != "")
+		pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+		if(pTrim != "")
 		{
-			dSortedList.add(dTrimmedItem);
+			pLow = pTrim.toLowerCase();
+			if(!lowercasePIList.contains(pLow))
+			{
+				aggregatedPIList.add(pTrim);
+				lowercasePIList.add(pLow);
+			}
 		}
-	}
-	dSortedList.sort();
-	dJoinedPI = "";
-	for each dItem in dSortedList
-	{
-		if(dJoinedPI == "")
-		{
-			dJoinedPI = dItem;
-		}
-		else
-		{
-			dJoinedPI = dJoinedPI + "+" + dItem;
-		}
-	}
-	if(dJoinedPI != "")
-	{
-		dealProductKey = dJoinedPI;
 	}
 }
 
@@ -546,77 +554,57 @@ if(accountContacts != null && accountContacts.size() > 0)
 				cLastName = ifnull(candidateContact.get("Last_Name"), "");
 				cFullName = (cFirstName + " " + cLastName).trim();
 				
-				// Derive candidate's Product_Key
-				cProductKey = "general";
 				if(candidateProductInterest != "")
 				{
-					cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-					cPiList = cCleanPI.toList(",");
-					cSortedList = List();
-					for each cItem in cPiList
+					cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
+					for each part in cParts
 					{
-						cTrimmedItem = cItem.trim().replaceAll("  "," ");
-						if(cTrimmedItem != "")
+						pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+						if(pTrim != "")
 						{
-							cSortedList.add(cTrimmedItem);
+							pLow = pTrim.toLowerCase();
+							if(!lowercasePIList.contains(pLow))
+							{
+								aggregatedPIList.add(pTrim);
+								lowercasePIList.add(pLow);
+							}
 						}
-					}
-					cSortedList.sort();
-					cJoinedPI = "";
-					for each cItem in cSortedList
-					{
-						if(cJoinedPI == "")
-						{
-							cJoinedPI = cItem;
-						}
-						else
-						{
-							cJoinedPI = cJoinedPI + "+" + cItem;
-						}
-					}
-					if(cJoinedPI != "")
-					{
-						cProductKey = cJoinedPI;
 					}
 				}
 				
-				// Match strictly by exact product motion key
-				if(cProductKey == dealProductKey)
+				candidateRank = 0;
+				if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+				else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+				else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+				else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+				else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+				else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+				else if(candidateStage == "Onboarding") { candidateRank = 7; }
+				else if(candidateStage == "Renewal") { candidateRank = 8; }
+				
+				if(candidateState == VALUE_LOST)
 				{
-					candidateRank = 0;
-					if(candidateStage == "Marketing Consent") { candidateRank = 1; }
-					else if(candidateStage == "Demo Booking") { candidateRank = 2; }
-					else if(candidateStage == "Demo Booked") { candidateRank = 3; }
-					else if(candidateStage == "Demo Attended") { candidateRank = 4; }
-					else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
-					else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
-					else if(candidateStage == "Onboarding") { candidateRank = 7; }
-					else if(candidateStage == "Renewal") { candidateRank = 8; }
-					
-					if(candidateState == VALUE_LOST)
+					if(candidateRank > bestLostRank)
 					{
-						if(candidateRank > bestLostRank)
-						{
-							bestLostRank = candidateRank;
-							bestLostContactId = candidateContactId;
-							bestLostStage = candidateStage;
-							bestLostContactName = cFullName;
-						}
+						bestLostRank = candidateRank;
+						bestLostContactId = candidateContactId;
+						bestLostStage = candidateStage;
+						bestLostContactName = cFullName;
 					}
-					else
+				}
+				else
+				{
+					anyOpenContact = true;
+					if(candidateStatus == VALUE_WORKING)
 					{
-						anyOpenContact = true;
-						if(candidateStatus == VALUE_WORKING)
-						{
-							anyOpenWorking = true;
-						}
-						if(candidateRank > bestOpenRank)
-						{
-							bestOpenRank = candidateRank;
-							bestOpenContactId = candidateContactId;
-							bestOpenStage = candidateStage;
-							bestOpenContactName = cFullName;
-						}
+						anyOpenWorking = true;
+					}
+					if(candidateRank > bestOpenRank)
+					{
+						bestOpenRank = candidateRank;
+						bestOpenContactId = candidateContactId;
+						bestOpenStage = candidateStage;
+						bestOpenContactName = cFullName;
 					}
 				}
 			}
@@ -635,76 +623,71 @@ if(!processedContactIds.contains(contactId.toString()))
 	cLastName = ifnull(contactRecord.get("Last_Name"), "");
 	cFullName = (cFirstName + " " + cLastName).trim();
 	
-	cProductKey = "general";
 	if(candidateProductInterest != "")
 	{
-		cCleanPI = candidateProductInterest.toLowerCase().replaceAll(";"," , ").replaceAll("\"","").replaceAll("'","").trim();
-		cPiList = cCleanPI.toList(",");
-		cSortedList = List();
-		for each cItem in cPiList
+		cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
+		for each part in cParts
 		{
-			cTrimmedItem = cItem.trim().replaceAll("  "," ");
-			if(cTrimmedItem != "")
+			pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+			if(pTrim != "")
 			{
-				cSortedList.add(cTrimmedItem);
+				pLow = pTrim.toLowerCase();
+				if(!lowercasePIList.contains(pLow))
+				{
+					aggregatedPIList.add(pTrim);
+					lowercasePIList.add(pLow);
+				}
 			}
-		}
-		cSortedList.sort();
-		cJoinedPI = "";
-		for each cItem in cSortedList
-		{
-			if(cJoinedPI == "")
-			{
-				cJoinedPI = cItem;
-			}
-			else
-			{
-				cJoinedPI = cJoinedPI + "+" + cItem;
-			}
-		}
-		if(cJoinedPI != "")
-		{
-			cProductKey = cJoinedPI;
 		}
 	}
 	
-	if(cProductKey == dealProductKey)
+	candidateRank = 0;
+	if(candidateStage == "Marketing Consent") { candidateRank = 1; }
+	else if(candidateStage == "Demo Booking") { candidateRank = 2; }
+	else if(candidateStage == "Demo Booked") { candidateRank = 3; }
+	else if(candidateStage == "Demo Attended") { candidateRank = 4; }
+	else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
+	else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
+	else if(candidateStage == "Onboarding") { candidateRank = 7; }
+	else if(candidateStage == "Renewal") { candidateRank = 8; }
+	
+	if(candidateState == VALUE_LOST)
 	{
-		candidateRank = 0;
-		if(candidateStage == "Marketing Consent") { candidateRank = 1; }
-		else if(candidateStage == "Demo Booking") { candidateRank = 2; }
-		else if(candidateStage == "Demo Booked") { candidateRank = 3; }
-		else if(candidateStage == "Demo Attended") { candidateRank = 4; }
-		else if(candidateStage == "Commercials Sent") { candidateRank = 5; }
-		else if(candidateStage == "Commercials Signed") { candidateRank = 6; }
-		else if(candidateStage == "Onboarding") { candidateRank = 7; }
-		else if(candidateStage == "Renewal") { candidateRank = 8; }
-		
-		if(candidateState == VALUE_LOST)
+		if(candidateRank > bestLostRank)
 		{
-			if(candidateRank > bestLostRank)
-			{
-				bestLostRank = candidateRank;
-				bestLostContactId = contactId.toString();
-				bestLostStage = candidateStage;
-				bestLostContactName = cFullName;
-			}
+			bestLostRank = candidateRank;
+			bestLostContactId = contactId.toString();
+			bestLostStage = candidateStage;
+			bestLostContactName = cFullName;
 		}
-		else
+	}
+	else
+	{
+		anyOpenContact = true;
+		if(candidateStatus == VALUE_WORKING)
 		{
-			anyOpenContact = true;
-			if(candidateStatus == VALUE_WORKING)
-			{
-				anyOpenWorking = true;
-			}
-			if(candidateRank > bestOpenRank)
-			{
-				bestOpenRank = candidateRank;
-				bestOpenContactId = contactId.toString();
-				bestOpenStage = candidateStage;
-				bestOpenContactName = cFullName;
-			}
+			anyOpenWorking = true;
 		}
+		if(candidateRank > bestOpenRank)
+		{
+			bestOpenRank = candidateRank;
+			bestOpenContactId = contactId.toString();
+			bestOpenStage = candidateStage;
+			bestOpenContactName = cFullName;
+		}
+	}
+}
+
+aggregatedPIStr = "";
+for each item in aggregatedPIList
+{
+	if(aggregatedPIStr == "")
+	{
+		aggregatedPIStr = item;
+	}
+	else
+	{
+		aggregatedPIStr = aggregatedPIStr + ", " + item;
 	}
 }
 
@@ -801,6 +784,14 @@ if(shouldUpdateStage == true)
 }
 dealRollupUpdateMap.put(FIELD_STATE, rollupState);
 dealRollupUpdateMap.put(FIELD_STATUS, rollupStatus);
+if(dealKey != "")
+{
+	dealRollupUpdateMap.put("Deal_Key", dealKey);
+}
+if(aggregatedPIStr != "")
+{
+	dealRollupUpdateMap.put("Product_Interest_Staging", aggregatedPIStr);
+}
 
 updateDealRollupResponse = Map();
 if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toString().trim() != "null")

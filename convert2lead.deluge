@@ -205,7 +205,7 @@ if(leadProductInterestStr != "")
 		productKey = joinedPI;
 	}
 }
-dealKey = derivedAccountKey + "::" + productKey;
+dealKey = derivedAccountKey + "::active";
 dealKey = dealKey.toLowerCase().trim();
 info "Account_Key:";
 info derivedAccountKey;
@@ -635,12 +635,13 @@ for each candDeal in candidateDealsList
 	{
 		processedDealIds.add(cDealId);
 		cDealKey = ifnull(candDeal.get("Deal_Key"),"").toString().trim();
+		cDealState = ifnull(candDeal.get("State"),"").toString().trim();
 		
 		if(cDealKey == dealKey)
 		{
 			exactMatchDealId = cDealId;
 		}
-		else if(cDealKey == "")
+		else if(cDealState != "Lost")
 		{
 			if(migrationFallbackDealId == "")
 			{
@@ -847,12 +848,13 @@ if(finalDealId == "" && finalContactId != "" && finalAccountId != "")
 		{
 			fbProcessedIds.add(dId);
 			dKey = ifnull(dRec.get("Deal_Key"),"").toString().trim();
+			dState = ifnull(dRec.get("State"),"").toString().trim();
 			
 			if(dKey == dealKey)
 			{
 				fbExactId = dId;
 			}
-			else if(dKey == "")
+			else if(dState != "Lost")
 			{
 				if(fbMigrationId == "")
 				{
@@ -1048,9 +1050,68 @@ if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toS
 	{
 		dealUpdateMap.put("Lead_Source",leadSource);
 	}
+	existingDealPI = "";
+	existingDealRec = zoho.crm.getRecordById("Deals", finalDealId.toLong());
+	if(existingDealRec != null)
+	{
+		existingDealPI = ifnull(existingDealRec.get("Product_Interest_Staging"), "").toString().trim();
+	}
+	
+	mergedPIList = List();
+	lowercasePIList = List();
+	
+	if(existingDealPI != "")
+	{
+		exParts = existingDealPI.replaceAll(";", ",").toList(",");
+		for each part in exParts
+		{
+			pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+			if(pTrim != "")
+			{
+				pLow = pTrim.toLowerCase();
+				if(!lowercasePIList.contains(pLow))
+				{
+					mergedPIList.add(pTrim);
+					lowercasePIList.add(pLow);
+				}
+			}
+		}
+	}
+	
 	if(leadProductInterestStr != "")
 	{
-		dealUpdateMap.put("Product_Interest_Staging",leadProductInterestStr);
+		leadParts = leadProductInterestStr.replaceAll(";", ",").toList(",");
+		for each part in leadParts
+		{
+			pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
+			if(pTrim != "")
+			{
+				pLow = pTrim.toLowerCase();
+				if(!lowercasePIList.contains(pLow))
+				{
+					mergedPIList.add(pTrim);
+					lowercasePIList.add(pLow);
+				}
+			}
+		}
+	}
+	
+	mergedPIStr = "";
+	for each item in mergedPIList
+	{
+		if(mergedPIStr == "")
+		{
+			mergedPIStr = item;
+		}
+		else
+		{
+			mergedPIStr = mergedPIStr + ", " + item;
+		}
+	}
+	
+	if(mergedPIStr != "")
+	{
+		dealUpdateMap.put("Product_Interest_Staging", mergedPIStr);
 	}
 	if(leadLostReasons != "")
 	{
