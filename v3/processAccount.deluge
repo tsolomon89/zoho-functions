@@ -17,7 +17,10 @@ void automation.processAccount(string account_id)
 		if(website != "")
 		{
 			normalizedDomain = website.toLowerCase().replaceAll("https://", "").replaceAll("http://", "").replaceAll("www.", "");
-			if(normalizedDomain.endsWith("/")) { normalizedDomain = normalizedDomain.substring(0, normalizedDomain.length() - 1); }
+			if(normalizedDomain.contains("/"))
+			{
+				normalizedDomain = normalizedDomain.toList("/").get(0);
+			}
 		}
 
 		if(normalizedDomain != "")
@@ -32,7 +35,7 @@ void automation.processAccount(string account_id)
 		{
 			accountKey = "unknown::" + cleanId;
 		}
-		accountKey = accountKey.left(200);
+		if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
 		
 		zoho.crm.updateRecord("Accounts", cleanId.toLong(), {"Account_Key": accountKey});
 	}

@@ -33,7 +33,10 @@ void automation.processLead(string lead_id)
 	{
 		normalizedDomain = website.toLowerCase();
 		normalizedDomain = normalizedDomain.replaceAll("https://", "").replaceAll("http://", "").replaceAll("www.", "");
-		if(normalizedDomain.endsWith("/")) { normalizedDomain = normalizedDomain.substring(0, normalizedDomain.length() - 1); }
+		if(normalizedDomain.contains("/"))
+		{
+			normalizedDomain = normalizedDomain.toList("/").get(0);
+		}
 	}
 	else if(email != "" && email.contains("@"))
 	{
@@ -58,7 +61,7 @@ void automation.processLead(string lead_id)
 	{
 		accountKey = "unknown::" + cleanId;
 	}
-	accountKey = accountKey.left(200);
+	if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
 
 	// 3. Inline Account Search / Creation
 	accountId = "";

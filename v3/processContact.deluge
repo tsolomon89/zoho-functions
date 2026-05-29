@@ -38,7 +38,10 @@ void automation.processContact(string contact_id)
 			if(website != "")
 			{
 				normalizedDomain = website.toLowerCase().replaceAll("https://", "").replaceAll("http://", "").replaceAll("www.", "");
-				if(normalizedDomain.endsWith("/")) { normalizedDomain = normalizedDomain.substring(0, normalizedDomain.length() - 1); }
+				if(normalizedDomain.contains("/"))
+				{
+					normalizedDomain = normalizedDomain.toList("/").get(0);
+				}
 			}
 			else if(email != "" && email.contains("@"))
 			{
@@ -59,7 +62,7 @@ void automation.processContact(string contact_id)
 			{
 				accountKey = "unknown::" + contact_id;
 			}
-			accountKey = accountKey.left(200);
+			if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
 			
 			zoho.crm.updateRecord("Accounts", accountId.toLong(), {"Account_Key": accountKey});
 		}
@@ -87,7 +90,7 @@ void automation.processContact(string contact_id)
 		{
 			accountKey = "unknown::" + contact_id;
 		}
-		accountKey = accountKey.left(200);
+		if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
 
 		searchAcc = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + accountKey + ")");
 		if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{"))
