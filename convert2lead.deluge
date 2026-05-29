@@ -239,7 +239,21 @@ if(derivedAccountKey == "")
 
 if(derivedAccountKey == "")
 {
-	derivedAccountKey = "unknown";
+	emailLocalPart = "";
+	if(email.contains("@"))
+	{
+		emailParts = email.toList("@");
+		emailLocalPart = emailParts.get(0).toLowerCase().trim().replaceAll("[^a-z0-9]", "");
+	}
+	
+	if(emailLocalPart != "")
+	{
+		derivedAccountKey = "unknown::" + emailLocalPart + "::" + leadId.toString();
+	}
+	else
+	{
+		derivedAccountKey = "unknown::" + leadId.toString();
+	}
 }
 
 info "Derived Account_Key:";
@@ -410,7 +424,9 @@ if(isBadLeadKey == true)
 }
 if(leadPreMap.size() > 0)
 {
-	updateLeadResp = zoho.crm.updateRecord("Leads",leadId,leadPreMap);
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+	updateLeadResp = zoho.crm.updateRecord("Leads",leadId,leadPreMap,triggerMap);
 	info "Lead pre-conversion repair update response:";
 	info updateLeadResp;
 }
@@ -614,35 +630,15 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		}
 		if(contactUpdateMap.size() > 0)
 		{
-			updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactIdLong,contactUpdateMap);
+			triggerMap = Map();
+			triggerMap.put("trigger", List());
+			updateContactResponse = zoho.crm.updateRecord("Contacts",finalContactIdLong,contactUpdateMap,triggerMap);
 			info "Contact updated/enriched:";
 			info updateContactResponse;
 		}
 	}
 }
 
-// ======================================================
-// ADD DEBUG NOTE ON CONTACT OR ACCOUNT
-// ======================================================
-if(finalContactId != null && finalContactId.toString().trim() != "" && finalContactId.toString().trim() != "null")
-{
-	noteMap = Map();
-	noteMap.put("Parent_Id",finalContactIdLong);
-	noteMap.put("$se_module","Contacts");
-	noteMap.put("Note_Title","Lead Conversion Debug Log");
-	noteContent = "Lead Conversion debug results:\n\n";
-	noteContent = noteContent + "- Lead ID: " + leadId.toString() + "\n";
-	noteContent = noteContent + "- Account_Key: " + derivedAccountKey + "\n";
-	noteContent = noteContent + "- Conversion Response: " + ifnull(conversionResponse,"").toString() + "\n";
-	noteContent = noteContent + "- Existing Contact ID: " + existingContactId + "\n";
-	noteContent = noteContent + "- Canonical Account ID: " + canonicalAccountId + "\n";
-	noteContent = noteContent + "- Final Contact ID: " + finalContactId + "\n";
-	noteContent = noteContent + "- Final Account ID: " + finalAccountId + "\n";
-	noteMap.put("Note_Content",noteContent);
-	createNoteResponse = zoho.crm.createRecord("Notes",noteMap);
-	info "Debug Note created on Contact:";
-	info createNoteResponse;
-}
 
 // ======================================================
 // FINAL RESULT
