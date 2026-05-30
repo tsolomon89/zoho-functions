@@ -284,8 +284,8 @@ void automation.processLead(string lead_id)
 		else if(initialRank == 5) { initialOpp = "FTP"; }
 		else if(initialRank >= 2) { initialOpp = "SQL"; }
 		
-		dealMap.put("Stage_1", initialStage);
-		dealMap.put("Stage", initialOpp);
+		dealMap.put("Stage", initialStage);
+		dealMap.put("Opportunity", initialOpp);
 		dealMap.put("Product_Interest_Staging", productInterest);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", newContactId);

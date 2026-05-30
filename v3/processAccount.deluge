@@ -168,8 +168,8 @@ void automation.processAccount(string account_id)
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
-		dealMap.put("Stage_1", bestStage);
-		dealMap.put("Stage", bestOpp);
+		dealMap.put("Stage", bestStage);
+		dealMap.put("Opportunity", bestOpp);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", firstContactId);
 		

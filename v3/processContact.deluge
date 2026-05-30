@@ -214,8 +214,8 @@ void automation.processContact(string contact_id)
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
 		
-		dealMap.put("Stage_1", bestStage);
-		dealMap.put("Stage", bestOpp);
+		dealMap.put("Stage", bestStage);
+		dealMap.put("Opportunity", bestOpp);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", cleanId);
 		
