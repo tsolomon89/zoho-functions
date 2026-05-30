@@ -1,4 +1,4 @@
-string automation.ensureCanonicalAccount(String account_key, String company_name, String website, String industry, String company_phone)
+string automation.ensureCanonicalAccount(String account_key, String company_name, String website, String industry, String account_phone)
 {
 // ======================================================
 // ensureCanonicalAccount
@@ -166,9 +166,9 @@ if(canonicalAccountId != "")
 	{
 		updateMap.put("Industry", industry);
 	}
-	if(ifnull(existingAccount.get("Phone"), "") == "" && company_phone != "")
+	if(ifnull(existingAccount.get("Phone"), "") == "" && account_phone != "")
 	{
-		updateMap.put("Phone", company_phone);
+		updateMap.put("Phone", account_phone);
 	}
 	
 	if(updateMap.size() > 0)
@@ -205,9 +205,9 @@ if(industry != "")
 {
 	createMap.put("Industry", industry);
 }
-if(company_phone != "")
+if(account_phone != "")
 {
-	createMap.put("Phone", company_phone);
+	createMap.put("Phone", account_phone);
 }
 
 info "Creating new Account with Account_Key:";

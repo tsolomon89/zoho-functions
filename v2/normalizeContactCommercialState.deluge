@@ -777,7 +777,14 @@ dealRollupUpdateMap.put(FIELD_STATE, rollupState);
 dealRollupUpdateMap.put(FIELD_STATUS, rollupStatus);
 if(dealKey != "")
 {
-	dealRollupUpdateMap.put("Deal_Key", dealKey);
+	if(rollupState == VALUE_LOST)
+	{
+		dealRollupUpdateMap.put("Deal_Key", dealKey.replaceAll("::active", "::lost::" + finalDealId));
+	}
+	else
+	{
+		dealRollupUpdateMap.put("Deal_Key", dealKey);
+	}
 }
 if(aggregatedPIStr != "")
 {

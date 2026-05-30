@@ -29,7 +29,6 @@ void automation.processLead(string lead_id)
 	email = ifnull(leadRecord.get("Email"), "").toString().trim();
 	company = ifnull(leadRecord.get("Company"), "").toString().trim();
 	phone = ifnull(leadRecord.get("Phone"), "").toString().trim();
-	companyPhone = ifnull(leadRecord.get("Company_Phone"), "").toString().trim();
 	productInterest = ifnull(leadRecord.get("Product_Interest"), "").toString().trim();
 	leadStage = ifnull(leadRecord.get("Stage"), "").toString().trim();
 
@@ -107,7 +106,7 @@ void automation.processLead(string lead_id)
 		createAccMap.put("Account_Key", accountKey);
 		createAccMap.put("Account_Name", if(company != "", company, accountKey));
 		if(website != "") { createAccMap.put("Website", website); }
-		if(companyPhone != "") { createAccMap.put("Phone", companyPhone); }
+		if(phone != "") { createAccMap.put("Phone", phone); }
 		
 		accCreateRes = zoho.crm.createRecord("Accounts", createAccMap);
 		if(accCreateRes.get("id") != null)
@@ -141,9 +140,9 @@ void automation.processLead(string lead_id)
 		{
 			updAcc.put("Account_Key", accountKey);
 		}
-		if(companyPhone != "" && ifnull(accountRecord.get("Phone"), "") != companyPhone)
+		if(phone != "" && ifnull(accountRecord.get("Phone"), "") != phone)
 		{
-			updAcc.put("Phone", companyPhone);
+			updAcc.put("Phone", phone);
 		}
 		if(updAcc.size() > 0)
 		{
@@ -163,14 +162,7 @@ void automation.processLead(string lead_id)
 			contactId = searchCon.get(0).get("id").toString();
 		}
 	}
-	if(contactId == "" && phone != "")
-	{
-		searchCon = zoho.crm.searchRecords("Contacts", "(Phone:equals:" + phone + ")");
-		if(searchCon != null && searchCon.size() > 0 && !searchCon.toString().startsWith("{"))
-		{
-			contactId = searchCon.get(0).get("id").toString();
-		}
-	}
+
 
 	// 5. Convert Lead
 	if(accountId == null || accountId.toString().trim() == "" || accountId.toString().trim() == "null")
@@ -181,8 +173,8 @@ void automation.processLead(string lead_id)
 
 	convertMap = Map();
 	convertMap.put("overwrite", false);
-	convertMap.put("notify_lead_owner", true);
-	convertMap.put("notify_new_entity_owner", true);
+	convertMap.put("notify_lead_owner", false);
+	convertMap.put("notify_new_entity_owner", false);
 	convertMap.put("Accounts", accountId);
 	if(contactId != "") { convertMap.put("Contacts", contactId); }
 	
@@ -204,10 +196,7 @@ void automation.processLead(string lead_id)
 	// 6. Enrich Contact (Idempotent)
 	contactRecord = zoho.crm.getRecordById("Contacts", newContactId.toLong());
 	updCon = Map();
-	if(phone != "" && ifnull(contactRecord.get("Phone"), "") != phone)
-	{
-		updCon.put("Phone", phone);
-	}
+
 	if(productInterest != "" && ifnull(contactRecord.get("Product_Interest_Staging"), "") != productInterest)
 	{
 		updCon.put("Product_Interest_Staging", productInterest);

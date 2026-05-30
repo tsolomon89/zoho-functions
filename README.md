@@ -69,7 +69,7 @@ The automation is divided into 5 modular Deluge custom functions.
         *   Account matching normalized domain as Account Name.
         *   Fallback name: `Unknown Account - {Lead ID}`.
 *   **Data Integrity Mapping**:
-    *   **Phone Mapping**: Lead `Phone` maps strictly to `Contact.Phone` only (**never** Account `Phone`). Lead `Company Phone` maps strictly to `Account.Phone`.
+    *   **Phone Mapping**: Lead's default `Phone` field (labeled 'Company Phone') maps strictly to `Account.Phone`.
     *   **Website Domain Normalization**: Standardizes website/company URLs to lowercase and strips protocols (`http://`, `https://`), subdomains (`www.`), trailing slashes, and paths after the slash.
     *   **Product Interest Staging**: Treats Lead product interest as staging plain-text names, writing the list to `Product_Interest_Staging` on converted Contacts and Deals instead of standard linked/join lookup fields.
     *   **Deal Matching & Reusability**: Reuses an existing Deal under the Account matching the same product staging signal, or the furthest `Open` Deal, or the furthest `Lost` Deal, fallback to creating a new one if none matches.
@@ -111,7 +111,27 @@ The automation is divided into 5 modular Deluge custom functions.
 
 ---
 
-## 4. Loop Prevention & Best Practices
+## 4. Workflow Rules & Triggers
+
+The automation logic is triggered by Zoho CRM Workflow Rules. All rules are configured to fire on **Create or Edit (Update)** for **All Records**.
+
+### v3 Workflows (Module-Based)
+*   **Lead**: Triggers `processLead.deluge`
+*   **Contact**: Triggers `processContact.deluge`
+*   **Account**: Triggers `processAccount.deluge`
+*   **Deal**: Triggers `processDeal.deluge`
+
+### v2 Workflows (Function-Based)
+*   **Convert to Lead**: Triggers `convert2lead.deluge`
+*   **normalizeContactCommercialState**: Triggers `normalizeContactCommercialState.deluge`
+*   **normalizeDealCommercialState**: Triggers `normalizeDealCommercialState.deluge`
+*   **rollupAccountCommercialState**: Triggers `rollupAccountCommercialState.deluge`
+*   **syncDealProductsAndValue**: Triggers `syncDealProductsAndValue.deluge`
+*(Note: The standard "Big Deal Rule" workflow is not associated with this custom v2 automation suite).*
+
+---
+
+## 5. Loop Prevention & Best Practices
 
 To prevent cascading execution loops, workflows must only trigger on **source fields** and never on fields populated by the custom functions themselves.
 

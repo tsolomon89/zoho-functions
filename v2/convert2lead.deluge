@@ -11,7 +11,7 @@ string automation.convertLead2(String lead_id)
 // - Workflow-owned: convertLead2 owns Lead -> Account/Contact only
 // - Zero-Block Always-Convert Policy
 // - Derive normalized Account_Key from Website/domain/company/email
-// - Search Contact by Email, then Phone
+// - Search Contact by Email
 // - Search Account directly by Account_Key first
 // - Fallback Account search by Account_Name / Website / domain only after Account_Key search
 // - Pass Accounts ID & Contacts ID into conversionMap if found
@@ -32,8 +32,8 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_LOST_REASONS = "Lost_Reasons";
-FIELD_DEAL_OPPORTUNITY = "Stage";
-FIELD_DEAL_STAGE = "Stage_1";
+FIELD_DEAL_OPPORTUNITY = "Opportunity";
+FIELD_DEAL_STAGE = "Stage";
 VALUE_OPEN = "Open";
 VALUE_LOST = "Lost";
 VALUE_NEW = "New";
@@ -67,7 +67,6 @@ website = ifnull(leadRecord.get("Website"),"");
 industry = ifnull(leadRecord.get("Industry"),"");
 email = ifnull(leadRecord.get("Email"),"");
 phone = ifnull(leadRecord.get("Phone"),"");
-companyPhone = ifnull(leadRecord.get("Company_Phone"),"");
 leadSource = ifnull(leadRecord.get("Lead_Source"),"");
 leadStage = ifnull(leadRecord.get(FIELD_STAGE),"");
 leadStatus = ifnull(leadRecord.get(FIELD_STATUS),"");
@@ -424,9 +423,9 @@ if(isBadLeadKey == true)
 {
 	leadPreMap.put("Account_Key",derivedAccountKey);
 }
-if(phone != "")
+if(phone != "" && (leadRecord.get("Phone") == null || leadRecord.get("Phone") == ""))
 {
-	leadPreMap.put("Phone", "");
+	leadPreMap.put("Phone", phone);
 }
 if(leadPreMap.size() > 0)
 {
@@ -439,7 +438,7 @@ if(leadPreMap.size() > 0)
 
 // ======================================================
 // FIND EXISTING CONTACT
-// Search by Email, then Phone
+// Search by Email
 // ======================================================
 existingContactId = "";
 existingContactRecord = Map();
@@ -456,18 +455,6 @@ if(email != "")
 		}
 	}
 }
-if(existingContactId == "" && phone != "")
-{
-	safePhone = phone.replaceAll("[\\(\\)\\:\\,]", "").trim();
-	if(safePhone != "")
-	{
-		contactSearch = zoho.crm.searchRecords("Contacts","(Phone:equals:" + safePhone + ")");
-		if(contactSearch != null && contactSearch.size() > 0)
-		{
-			existingContactRecord = contactSearch.get(0);
-			existingContactId = existingContactRecord.get("id").toString();
-		}
-	}
 }
 info "Existing Contact ID found:";
 info existingContactId;
@@ -494,7 +481,7 @@ if(existingContactId != "")
 
 if(canonicalAccountId == "" && derivedAccountKey != "" && derivedAccountKey != "null")
 {
-	canonicalAccountId = automation.ensureCanonicalAccount(derivedAccountKey, derivedCompany, derivedWebsite, industry, companyPhone);
+	canonicalAccountId = automation.ensureCanonicalAccount(derivedAccountKey, derivedCompany, derivedWebsite, industry, phone);
 }
 info "Canonical Account ID resolved: " + canonicalAccountId;
 
@@ -1107,10 +1094,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		{
 			contactUpdateMap.put("Email", email);
 		}
-		if(ifnull(currentContact.get("Phone"), "") == "" && phone != "")
-		{
-			contactUpdateMap.put("Phone", phone);
-		}
+
 		if(ifnull(currentContact.get("Mobile"), "") == "" && leadRecord.get("Mobile") != null && leadRecord.get("Mobile").toString() != "")
 		{
 			contactUpdateMap.put("Mobile", leadRecord.get("Mobile"));
@@ -1161,7 +1145,7 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 
 // ======================================================
 // ENFORCE ACCOUNT PHONE MAPPING (POST-CONVERSION REPAIR)
-// Enforces that Account.Phone is strictly Lead Company_Phone, never Lead Phone.
+// Enforces that Account.Phone matches the Lead's default Phone field.
 // ======================================================
 if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAccountId.toString().trim() != "null")
 {
@@ -1170,7 +1154,7 @@ if(finalAccountId != null && finalAccountId.toString().trim() != "" && finalAcco
 	currentAccount = zoho.crm.getRecordById("Accounts", finalAccountIdLong);
 	if(currentAccount != null)
 	{
-		targetAccountPhone = companyPhone;
+		targetAccountPhone = phone;
 		currentAccountPhone = ifnull(currentAccount.get("Phone"), "").toString().trim();
 		if(currentAccountPhone != targetAccountPhone)
 		{

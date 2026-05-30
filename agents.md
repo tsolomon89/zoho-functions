@@ -23,7 +23,7 @@ The Lead object is not the durable source of truth. **Contacts, Accounts, Deals,
 ### Main Failures Corrected
 
 1.  **Duplicate Accounts**: Preventing duplicates by implementing a strict Account lookup priority tree using Contact lookup, `Account_Key`, normalized Company Name, and normalized Website domains.
-2.  **Phone Mapping**: Lead `Phone` maps strictly to `Contact.Phone` only (**never** Account `Phone`). Lead `Company Phone` maps strictly to `Account.Phone`.
+2.  **Phone Mapping**: Lead's default `Phone` field (labeled 'Company Phone') maps strictly to `Account.Phone`.
 3.  **Missing Deals**: Reusing or creating a Deal during conversion, matching by account plus product staging signal, furthest Open Deal, or furthest Lost Deal fallback.
 4.  **Conversion Gates**: Conversion happens first (Zero-Block Always-Convert). Validation and data quality only determine where the converted Contact / Deal lands in the ontology.
 5.  **Product Interest Staging**: Correcting Lead multi-select staging values as plain text, mapping them to the staging field `Product_Interest_Staging` on Contacts and Deals, and resolving them against Products to sum Unit Prices for `Deal.Amount` calculations.
@@ -74,3 +74,23 @@ The following files constitute the automated workflow pipeline:
 3.  [normalizeDealCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/normalizeDealCommercialState.deluge): Deal-level normalization.
 4.  [syncDealProductsAndValue.deluge](file:///c:/Development/Projects/zoho-functions/syncDealProductsAndValue.deluge): Product lookup and Deal Amount summation.
 5.  [rollupAccountCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/rollupAccountCommercialState.deluge): Account-level aggregate state and status.
+
+---
+
+## Workflow Rules & Triggers
+
+The automation logic is triggered by Zoho CRM Workflow Rules. All rules are configured to fire on **Create or Edit (Update)** for **All Records**.
+
+### v3 Workflows (Module-Based)
+*   **Lead**: Triggers `processLead.deluge`
+*   **Contact**: Triggers `processContact.deluge`
+*   **Account**: Triggers `processAccount.deluge`
+*   **Deal**: Triggers `processDeal.deluge`
+
+### v2 Workflows (Function-Based)
+*   **Convert to Lead**: Triggers `convert2lead.deluge`
+*   **normalizeContactCommercialState**: Triggers `normalizeContactCommercialState.deluge`
+*   **normalizeDealCommercialState**: Triggers `normalizeDealCommercialState.deluge`
+*   **rollupAccountCommercialState**: Triggers `rollupAccountCommercialState.deluge`
+*   **syncDealProductsAndValue**: Triggers `syncDealProductsAndValue.deluge`
+*(Note: The standard "Big Deal Rule" workflow is not associated with this custom v2 automation suite).*
