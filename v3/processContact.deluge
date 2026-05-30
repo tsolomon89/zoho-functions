@@ -552,14 +552,17 @@ void automation.processContact(string contact_id)
 	productCatalog = Map();
 	allProds = zoho.crm.searchRecords("Products", "(Product_Active:equals:true)");
 	info "searchRecords('Products', Product_Active=true) raw response: " + allProds;
-	if(allProds != null && allProds.size() > 0 && !allProds.toString().startsWith("{"))
+	if(allProds != null && allProds.size() > 0)
 	{
 		for each p in allProds
 		{
-			pNameRaw = ifnull(p.get("Product_Name"), "").toString().trim().replaceAll("  ", " ");
-			if(pNameRaw != "")
+			if(p != null && p.get("Product_Name") != null)
 			{
-				productCatalog.put(pNameRaw.toLowerCase(), p);
+				pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
+				if(pNameRaw != "")
+				{
+					productCatalog.put(pNameRaw.toLowerCase(), p);
+				}
 			}
 		}
 	}
@@ -592,9 +595,13 @@ void automation.processContact(string contact_id)
 			{
 				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
 				info "Catalog miss for '" + safeName + "', fallback searchRecords resp=" + sProd;
-				if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
+				if(sProd != null && sProd.size() > 0)
 				{
-					prod = sProd.get(0);
+					sProdFirst = sProd.get(0);
+					if(sProdFirst != null && sProdFirst.get("Product_Name") != null)
+					{
+						prod = sProdFirst;
+					}
 				}
 			}
 			if(prod != null)
