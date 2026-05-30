@@ -461,6 +461,10 @@ void automation.processAccount(string account_id)
 						newPD.put("product", newProdLookup);
 						newPD.put("quantity", 1);
 						newPD.put("list_price", price);
+					newPD.put("Discount", 0);
+					newPD.put("Tax", 0);
+					newPD.put("total", price);
+					newPD.put("net_total", price);
 						mergedPDList.add(newPD);
 						seenProdIds.add(prodId);
 						prodAddedCount = prodAddedCount + 1;
