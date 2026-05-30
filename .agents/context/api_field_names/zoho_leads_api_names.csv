@@ -14,6 +14,7 @@ Company,Company,Single Line,
 Company Linkedin,Company_Linkedin,Single Line,Yes
 Company Phone,Phone,Phone,
 Connected To,Connected_To__s,MultiModuleLookup,
+Contact Role,Contact_Role1,Pick List,Yes
 Converted Account,Converted_Account,Lookup,
 Converted Contact,Converted_Contact,Lookup,
 Converted Deal,Converted_Deal,Lookup,

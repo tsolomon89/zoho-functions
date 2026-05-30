@@ -7,6 +7,7 @@ Connected To,Connected_To__s,MultiModuleLookup,
 Contact Image,Record_Image,Record Image,
 Contact Owner,Owner,Lookup,
 Created By,Created_By,Single Line,
+Contact Role,Contact_Role1,Pick List,Yes
 Date of Birth,Date_of_Birth,Date,
 Days Visited,Days_Visited,Number,
 Department,Department,Single Line,

@@ -292,9 +292,12 @@ The canonical Deal must include all relevant Account Contacts in `Contact_Roles`
 Rules:
 
 - Add each relevant Account Contact to the canonical Deal.
-- Default role = `Decision Maker`.
-- Do not overwrite a manually changed role.
+- Role is derived from the Contact's `Job_Title` field using the Jurnii Personas mapping (`resolveContactRole`).
+- When a Job Title maps to multiple roles, the most senior role wins: `Decision Maker` > `End User` > `Influencer`.
+- If `Job_Title` is blank or has no match in the mapping, fallback role = `Decision Maker`.
+- Do not overwrite a manually changed role (skip contacts that already have a role assigned).
 - The furthest viable open Contact should also be the Deal primary Contact.
+- During Lead conversion, the Lead's `Job_Title` is propagated to the Contact if the Contact's `Job_Title` is blank.
 
 ---
 
