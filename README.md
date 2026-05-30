@@ -10,19 +10,21 @@ The diagram below illustrates how intake leads are processed, converted, and nor
 
 ```mermaid
 graph TD
-    A[Lead Created/Updated] --> B(v3/processLead.deluge)
-    B -->|Convert| C[Contact]
-    B -->|Convert| D[Account]
-    B -->|Convert| G[Deal]
+    A[Lead Created/Updated] -->|Intake Stage| B(convert2lead.deluge)
+    B -->|Convert & Deduplicate| C[Contact]
+    B -->|Convert & Deduplicate| D[Account]
+    B -->|Convert & Staging Deal| E[Deal]
     
-    C -->|Trigger| E(v3/processContact.deluge)
-    D -->|Trigger| F(v3/processAccount.deluge)
+    C -->|Trigger Normalizer| F(normalizeContactCommercialState.deluge)
+    E -->|Trigger Normalizer| G(normalizeDealCommercialState.deluge)
     
-    E -->|Rollup or Create| G
-    F -->|Rollup or Create| G
+    F -->|Link Products & Price Sum| H(syncDealProductsAndValue.deluge)
+    G -->|Link Products & Price Sum| H
     
-    G -->|Trigger| H(v3/processDeal.deluge)
-    H -->|Deduplicate & Sum Products| G
+    H -->|Sum prices to Deal.Amount| I[Deals Products List]
+    F -->|Rollup Parent State| J(rollupAccountCommercialState.deluge)
+    G -->|Rollup Parent State| J
+    J -->|Aggregate State / Status| D
 ```
 
 ---
@@ -52,30 +54,60 @@ $$\text{Marketing Consent} \to \text{Demo Booking} \to \text{Demo Booked} \to \t
 
 ## 3. Deluge Script Directory & Deep Dive
 
-The automation has been strictly refactored into the **v3** architecture, consisting of 4 isolated, idempotent functions. Each function is explicitly tied to one entity's workflow and fully reconciles CRM state around that triggering object without calling the other functions.
+The automation is divided into 5 modular Deluge custom functions.
 
-### 1. `v3/processLead.deluge`
+### 1. Intake Processor: `convert2lead.deluge`
 *   **Trigger**: Lead Created or Updated.
-*   **Purpose**: Validates the Lead, safely converts it, enriches the Contact, and orchestrates initial Deal creation.
-*   **Deduplication**: Identifies Account and Contact canonical IDs to prevent duplication on conversion.
-*   **Deal Logic**: Safely stages Deal_Key and creates the initial Deal organically using `Opportunity` and `Stage` from the Lead, immediately searching back by `Deal_Key` to survive bulk race conditions.
+*   **Purpose**: Implements an **always-convert policy**. Missing fields (e.g. Website, Industry, Phone, Consent, Product Interest) never block conversion. If absolute minimum Zoho fields (Last Name, Company) are empty, fallbacks are derived and pre-updated to ensure successful conversion.
+*   **Deduplication Trees**:
+    1.  **Contact lookup**: Searches first by `Email`, then falls back to `Phone`.
+    2.  **Account lookup**: Implements a strict priority lookup to prevent duplicate Accounts:
+        *   Linked Account from matched Contact.
+        *   Account matching derived `Account_Key` if present on Lead.
+        *   Account matching normalized Company name.
+        *   Account matching normalized Website domain.
+        *   Account matching normalized domain as Account Name.
+        *   Fallback name: `Unknown Account - {Lead ID}`.
+*   **Data Integrity Mapping**:
+    *   **Phone Mapping**: Lead `Phone` maps strictly to `Contact.Phone` only (**never** Account `Phone`). Lead `Company Phone` maps strictly to `Account.Phone`.
+    *   **Website Domain Normalization**: Standardizes website/company URLs to lowercase and strips protocols (`http://`, `https://`), subdomains (`www.`), trailing slashes, and paths after the slash.
+    *   **Product Interest Staging**: Treats Lead product interest as staging plain-text names, writing the list to `Product_Interest_Staging` on converted Contacts and Deals instead of standard linked/join lookup fields.
+    *   **Deal Matching & Reusability**: Reuses an existing Deal under the Account matching the same product staging signal, or the furthest `Open` Deal, or the furthest `Lost` Deal, fallback to creating a new one if none matches.
 
-### 2. `v3/processContact.deluge`
-*   **Trigger**: Contact Created or Updated.
-*   **Purpose**: Person-level commercial normalization. Ensures the Contact has a parent Account and an active Deal.
-*   **Deal Logic**: Gathers all sibling Contacts under the Account to find the furthest `bestStage` and `bestOpp`, then provisions or rolls up the canonical Deal.
-
-### 3. `v3/processAccount.deluge`
-*   **Trigger**: Account Created or Updated.
-*   **Purpose**: Account-level aggregate state and status orchestration.
-*   **Deal Logic**: Checks for an active Deal under the Account. If one is missing, it aggregates Contact stages and creates the canonical Deal.
-
-### 4. `v3/processDeal.deluge`
-*   **Trigger**: Deal Created or Updated.
-*   **Purpose**: Deal deduplication, product tracking, and amount summation.
+### 2. Contact State Normalizer: `normalizeContactCommercialState.deluge`
+*   **Trigger**: Contact Created or Updated (or called from `convert2lead`).
+*   **Purpose**: Normalizes Contact Stage, State, and Status fields and orchestrates Deal generation or reuse.
 *   **Key Operations**:
-    *   **Duplicate Silencing**: Instantly identifies and marks duplicate Deals (created during race conditions) as "Lost" / "Duplicate", preserving exactly one active Deal per Account.
-    *   **Product Sync**: Merges product signals across all related Contacts and the current Deal, searches the `Products` catalog, and sums up unit prices to automatically set the `Amount` field.
+    *   Examines related Calls, Events, Tasks, and Notes to dynamically set status to `Working` if active, else `New` or `Closed`.
+    *   Applies Opportunity and Stage gates (capturing Marketing Consent, Commercial readiness, etc.).
+    *   **Regression Prevention**: Rollup Contact Stage to Deal Stage ONLY if the contact's stage rank is **higher** than the Deal's current stage rank. Related Contacts can never demote/move a Deal stage backward.
+    *   Triggers `syncDealProductsAndValue` and `rollupAccountCommercialState`.
+
+### 3. Deal State Normalizer: `normalizeDealCommercialState.deluge`
+*   **Trigger**: Deal Created or Updated.
+*   **Purpose**: Validates commercial readiness gates, maps direct Deal edits to target opportunities, and rolls up contact stages.
+*   **Key Operations**:
+    *   Permits manual stage updates as source inputs, translating them to active opportunities.
+    *   **Regression Prevention**: Prevents associated Contacts under the Account from rolling a Deal stage backward below its direct target stage.
+    *   Triggers downstream Product syncs and Account rollups.
+
+### 4. Product Syncer & Pricing Engine: `syncDealProductsAndValue.deluge`
+*   **Trigger**: Called by Contact/Deal normalizers.
+*   **Purpose**: Queries products, associates them with the Deal, and aggregates their financial value.
+*   **Key Operations**:
+    *   Extracts product staging signals from `Product_Interest_Staging` on the Deal (handling comma-separated plain text lists of product names).
+    *   Falls back to standard `Product_Interest` name lookup or related Products list.
+    *   Queries the `Products` module by `Product_Name` matching each staging name.
+    *   Sums up their matching catalog price (`Unit_Price`) and updates Deal `Amount`.
+    *   Gracefully returns without failure if no matching product is found.
+
+### 5. Account Aggregator: `rollupAccountCommercialState.deluge`
+*   **Trigger**: Called by normalizers.
+*   **Purpose**: Dynamically rolls up commercial values and operational status onto the parent Account record.
+*   **Key Operations**:
+    *   **Account State**: Automatically sets to `Open` if **any** associated Deal is `Open`. Sets to `Lost` **only** if all related Deals are marked `Lost`.
+    *   **Account Status**: Sets to `Closed` if State is `Lost`. Sets to `Working` if any open Deal is `Working`. Otherwise, defaults to `New`.
+    *   **Product Rollup**: Account-level Product Interest writes are disabled for now.
 
 ---
 
