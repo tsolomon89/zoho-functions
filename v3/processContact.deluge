@@ -547,8 +547,11 @@ void automation.processContact(string contact_id)
 	// Pre-fetch the Products catalog once and match client-side (case + whitespace tolerant).
 	info "Aggregated PI list before product search: " + aggregatedPIList;
 
+	// searchRecords against Product_Active:true is more reliable than getRecords —
+	// getRecords often applies owner-filtering for workflow-executing users.
 	productCatalog = Map();
-	allProds = zoho.crm.getRecords("Products", 1, 200);
+	allProds = zoho.crm.searchRecords("Products", "(Product_Active:equals:true)");
+	info "searchRecords('Products', Product_Active=true) raw response: " + allProds;
 	if(allProds != null && allProds.size() > 0 && !allProds.toString().startsWith("{"))
 	{
 		for each p in allProds
@@ -585,6 +588,15 @@ void automation.processContact(string contact_id)
 		{
 			nameKey = safeName.toLowerCase();
 			prod = productCatalog.get(nameKey);
+			if(prod == null)
+			{
+				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
+				info "Catalog miss for '" + safeName + "', fallback searchRecords resp=" + sProd;
+				if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
+				{
+					prod = sProd.get(0);
+				}
+			}
 			if(prod != null)
 			{
 				prodId = prod.get("id").toString();
