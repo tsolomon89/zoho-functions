@@ -38,6 +38,11 @@ This repository uses local workspace configurations to guide agent behavior. The
 *   **API References**: Found in [.agents/rules/zoho-api-reference.md](file:///c:/Development/Projects/zoho-functions/.agents/rules/zoho-api-reference.md).
 *   **On-Demand Skills**: The core refactoring instruction manual is defined in [.agents/skills/zoho-crm-deluge-refactoring/SKILL.md](file:///c:/Development/Projects/zoho-functions/.agents/skills/zoho-crm-deluge-refactoring/SKILL.md).
 *   **Automated Workflows**: Chained slash command pipelines are defined in [.agents/workflows/deluge-refactor-workflow.md](file:///c:/Development/Projects/zoho-functions/.agents/workflows/deluge-refactor-workflow.md).
+*   **Reference Context**: Core Zoho API field names, schema formats, and CSV reference data:
+    *   **Zoho API Field Names**: [.agents/context/api_field_names](file:///c:/Development/Projects/zoho-functions/.agents/context/api_field_names)
+    *   **Example CRM Data**: [.agents/context/example_data](file:///c:/Development/Projects/zoho-functions/.agents/context/example_data)
+    *   **Test Data Sets**: [.agents/context/test_data](file:///c:/Development/Projects/zoho-functions/.agents/context/test_data)
+*   **Convergence Specification**: The source-of-truth rules, stages, states, and invariant definitions are documented in [spec.md](file:///c:/Development/Projects/zoho-functions/spec.md).
 
 ---
 

@@ -32,8 +32,8 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_LOST_REASONS = "Lost_Reasons";
-FIELD_DEAL_OPPORTUNITY = "Opportunity";
-FIELD_DEAL_STAGE = "Stage";
+FIELD_DEAL_OPPORTUNITY = "Stage";     // Zoho default 'Stage' field relabeled 'Opportunity' in UI
+FIELD_DEAL_STAGE = "Stage1";            // Custom field labeled 'Stage' in UI, API name is Stage1
 VALUE_OPEN = "Open";
 VALUE_LOST = "Lost";
 VALUE_NEW = "New";
@@ -67,6 +67,7 @@ website = ifnull(leadRecord.get("Website"),"");
 industry = ifnull(leadRecord.get("Industry"),"");
 email = ifnull(leadRecord.get("Email"),"");
 phone = ifnull(leadRecord.get("Phone"),"");
+personalPhone = ifnull(leadRecord.get("Personal_Phone"),"");
 leadSource = ifnull(leadRecord.get("Lead_Source"),"");
 leadStage = ifnull(leadRecord.get(FIELD_STAGE),"");
 leadStatus = ifnull(leadRecord.get(FIELD_STATUS),"");
@@ -275,28 +276,9 @@ if(marketingConsentValue != null)
 		marketingConsentCaptured = true;
 	}
 }
-readyForCommercials = false;
-readyValObj = leadRecord.get("Ready_For_Commercials");
-if(readyValObj != null)
-{
-	rStr = readyValObj.toString().toLowerCase().trim();
-	if(rStr != "" && rStr != "false" && rStr != "no" && rStr != "null" && rStr != "0")
-	{
-		readyForCommercials = true;
-	}
-}
-demoOutcomeVal = ifnull(leadRecord.get("Demo_Outcome"),"").toString().trim();
-if(demoOutcomeVal == "Qualified" || demoOutcomeVal == "Proceed to Commercials" || demoOutcomeVal == "Proceed to Commercial Terms" || demoOutcomeVal == "Good Demo")
-{
-	readyForCommercials = true;
-}
-hasProductStaging = false;
-if(leadProductInterestStr != "")
-{
-	hasProductStaging = true;
-}
 if(leadLostReasons != "")
 {
+	// Lost lead: stage preserved, opportunity mapped per spec
 	if(leadStage == "Marketing Consent")
 	{
 		targetOpportunity = "MQL";
@@ -307,12 +289,12 @@ if(leadLostReasons != "")
 		targetOpportunity = "SQL";
 		targetStage = leadStage;
 	}
-	else if(leadStage == "Commercials Sent" || leadStage == "Commercials Signed")
+	else if(leadStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = leadStage;
 	}
-	else if(leadStage == "Onboarding" || leadStage == "Renewal")
+	else if(leadStage == "Commercials Signed" || leadStage == "Onboarding" || leadStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
 		targetStage = leadStage;
@@ -320,6 +302,8 @@ if(leadLostReasons != "")
 }
 else
 {
+	// Open lead: pure Stage→Opportunity map per spec.md
+	// Only auto-advance: Marketing Consent with consent → Demo Booking
 	if(leadStage == "Marketing Consent")
 	{
 		if(marketingConsentCaptured == true)
@@ -333,48 +317,20 @@ else
 			targetStage = "Marketing Consent";
 		}
 	}
-	else if(leadStage == "Demo Booking")
+	else if(leadStage == "Demo Booking" || leadStage == "Demo Booked" || leadStage == "Demo Attended")
 	{
 		targetOpportunity = "SQL";
-		targetStage = "Demo Booking";
-	}
-	else if(leadStage == "Demo Booked")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booked";
-	}
-	else if(leadStage == "Demo Attended")
-	{
-		if(readyForCommercials == true && hasProductStaging == true)
-		{
-			targetOpportunity = "FTP";
-			targetStage = "Commercials Sent";
-		}
-		else
-		{
-			targetOpportunity = "SQL";
-			targetStage = "Demo Attended";
-		}
+		targetStage = leadStage;
 	}
 	else if(leadStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = "Commercials Sent";
 	}
-	else if(leadStage == "Commercials Signed")
+	else if(leadStage == "Commercials Signed" || leadStage == "Onboarding" || leadStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(leadStage == "Onboarding")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(leadStage == "Renewal")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Renewal";
+		targetStage = leadStage;
 	}
 }
 derivedState = VALUE_OPEN;
@@ -454,7 +410,6 @@ if(email != "")
 			existingContactId = existingContactRecord.get("id").toString();
 		}
 	}
-}
 }
 info "Existing Contact ID found:";
 info existingContactId;
@@ -616,7 +571,7 @@ else
 	
 	if(leadProductInterestStr != "")
 	{
-		dealMap.put("Product_Interest_Staging", leadProductInterestStr);
+
 	}
 	if(leadSource != "")
 	{
@@ -842,7 +797,7 @@ if(conversionResponse.get("Deals") != null)
 			silenceMap = Map();
 			silenceMap.put("State", "Lost");
 			silenceMap.put("Status", "Closed");
-			silenceMap.put("Reason_For_Loss", "Duplicate / Test Record");
+			silenceMap.put("Reason_For_Loss__s", "Duplicate / Test Record");
 			silenceTrigger = Map();
 			silenceTrigger.put("trigger", List());
 			zoho.crm.updateRecord("Deals", conversionDealId.toLong(), silenceMap, silenceTrigger);
@@ -867,7 +822,7 @@ if(conversionResponse.get("Deals") != null)
 							silenceMap = Map();
 							silenceMap.put("State", "Lost");
 							silenceMap.put("Status", "Closed");
-							silenceMap.put("Reason_For_Loss", "Duplicate / Test Record");
+							silenceMap.put("Reason_For_Loss__s", "Duplicate / Test Record");
 							silenceTrigger = Map();
 							silenceTrigger.put("trigger", List());
 							zoho.crm.updateRecord("Deals", conversionDealId.toLong(), silenceMap, silenceTrigger);
@@ -955,7 +910,7 @@ if(finalDealId == "")
 	
 	if(leadProductInterestStr != "")
 	{
-		dealCreateMap.put("Product_Interest_Staging", leadProductInterestStr);
+
 	}
 	if(leadSource != "")
 	{
@@ -1094,6 +1049,10 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		{
 			contactUpdateMap.put("Email", email);
 		}
+		if(ifnull(currentContact.get("Phone"), "") == "" && personalPhone != "")
+		{
+			contactUpdateMap.put("Phone", personalPhone);
+		}
 
 		if(ifnull(currentContact.get("Mobile"), "") == "" && leadRecord.get("Mobile") != null && leadRecord.get("Mobile").toString() != "")
 		{
@@ -1113,11 +1072,11 @@ if(finalContactId != null && finalContactId.toString().trim() != "" && finalCont
 		}
 		if(leadProductInterestStr != "")
 		{
-			contactUpdateMap.put("Product_Interest_Staging", leadProductInterestStr);
+
 		}
-		if(ifnull(currentContact.get("Connected_To"), "") == "" && leadRecord.get("Connected_To") != null && leadRecord.get("Connected_To").toString() != "")
+		if(ifnull(currentContact.get("Connected_To__s"), "") == "" && leadRecord.get("Connected_To__s") != null && leadRecord.get("Connected_To__s").toString() != "")
 		{
-			contactUpdateMap.put("Connected_To", leadRecord.get("Connected_To"));
+			contactUpdateMap.put("Connected_To__s", leadRecord.get("Connected_To__s"));
 		}
 		if(ifnull(currentContact.get("Skype_ID"), "") == "" && leadRecord.get("Skype_ID") != null && leadRecord.get("Skype_ID").toString() != "")
 		{

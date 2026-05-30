@@ -30,21 +30,17 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_OPPORTUNITY = "Opportunity";
-FIELD_DEAL_OPPORTUNITY = "Opportunity";
-FIELD_DEAL_STAGE = "Stage";
+FIELD_DEAL_OPPORTUNITY = "Stage";     // Zoho default 'Stage' field relabeled 'Opportunity' in UI
+FIELD_DEAL_STAGE = "Stage1";            // Custom field labeled 'Stage' in UI, API name is Stage1
 FIELD_LOST_REASONS = "Lost_Reasons";
 FIELD_PRODUCT_INTEREST = "Product_Interest";
-FIELD_READY_FOR_COMMERCIALS = "Ready_For_Commercials";
-FIELD_DEMO_OUTCOME = "Demo_Outcome";
+FIELD_READY_FOR_COMMERCIALS = ""; // REMOVED: field does not exist in Zoho
+FIELD_DEMO_OUTCOME = ""; // REMOVED: field does not exist in Zoho
 VALUE_OPEN = "Open";
 VALUE_LOST = "Lost";
 VALUE_NEW = "New";
 VALUE_WORKING = "Working";
 VALUE_CLOSED = "Closed";
-DEMO_OUTCOME_ADVANCE_VALUE_1 = "Qualified";
-DEMO_OUTCOME_ADVANCE_VALUE_2 = "Proceed to Commercials";
-DEMO_OUTCOME_ADVANCE_VALUE_3 = "Proceed to Commercial Terms";
-DEMO_OUTCOME_ADVANCE_VALUE_4 = "Good Demo";
 // ======================================================
 // FETCH CONTACT
 // ======================================================
@@ -84,13 +80,7 @@ if(contactState == "")
 {
 	contactState = DEFAULT_STATE;
 }
-contactProductInterestStaging = ifnull(contactRecord.get("Product_Interest_Staging"),"").toString().trim();
-contactProductInterestStaging = contactProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
-hasProductStaging = false;
-if(contactProductInterestStaging != "")
-{
-	hasProductStaging = true;
-}
+
 accountId = "";
 accountName = "";
 accountLookup = contactRecord.get("Account_Name");
@@ -155,32 +145,14 @@ if(contactNotes != null && contactNotes.size() > 0 && !contactNotes.toString().s
 info "Manual activity exists:";
 info manualActivityExists;
 // ======================================================
-// COMMERCIAL READINESS CHECK
-// ======================================================
-readyForCommercials = false;
-if(contactRecord.get(FIELD_READY_FOR_COMMERCIALS) != null)
-{
-	readyValue = contactRecord.get(FIELD_READY_FOR_COMMERCIALS).toString();
-	if(readyValue != "" && readyValue != "false" && readyValue != "False" && readyValue != "FALSE" && readyValue != "No" && readyValue != "no" && readyValue != "NO" && readyValue != "None" && readyValue != "null")
-	{
-		readyForCommercials = true;
-	}
-}
-if(contactRecord.get(FIELD_DEMO_OUTCOME) != null)
-{
-	demoOutcome = contactRecord.get(FIELD_DEMO_OUTCOME).toString();
-	if(demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_1 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_2 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_3 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_4)
-	{
-		readyForCommercials = true;
-	}
-}
-// ======================================================
 // DERIVE CONTACT TARGET STAGE & OPPORTUNITY
+// Pure Stage→Opportunity map per spec.md
 // ======================================================
 targetStage = contactStage;
 targetOpportunity = "MQL";
 if(contactLostReasons != "")
 {
+	// Lost: stage preserved, opportunity mapped per spec
 	if(contactStage == "Marketing Consent")
 	{
 		targetOpportunity = "MQL";
@@ -191,12 +163,12 @@ if(contactLostReasons != "")
 		targetOpportunity = "SQL";
 		targetStage = contactStage;
 	}
-	else if(contactStage == "Commercials Sent" || contactStage == "Commercials Signed")
+	else if(contactStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = contactStage;
 	}
-	else if(contactStage == "Onboarding" || contactStage == "Renewal")
+	else if(contactStage == "Commercials Signed" || contactStage == "Onboarding" || contactStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
 		targetStage = contactStage;
@@ -204,6 +176,7 @@ if(contactLostReasons != "")
 }
 else
 {
+	// Open: pure map with Marketing Consent auto-advance
 	if(contactStage == "Marketing Consent")
 	{
 		if(marketingConsentCaptured == true)
@@ -217,48 +190,20 @@ else
 			targetStage = "Marketing Consent";
 		}
 	}
-	else if(contactStage == "Demo Booking")
+	else if(contactStage == "Demo Booking" || contactStage == "Demo Booked" || contactStage == "Demo Attended")
 	{
 		targetOpportunity = "SQL";
-		targetStage = "Demo Booking";
-	}
-	else if(contactStage == "Demo Booked")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booked";
-	}
-	else if(contactStage == "Demo Attended")
-	{
-		if(readyForCommercials == true && hasProductStaging == true)
-		{
-			targetOpportunity = "FTP";
-			targetStage = "Commercials Sent";
-		}
-		else
-		{
-			targetOpportunity = "SQL";
-			targetStage = "Demo Attended";
-		}
+		targetStage = contactStage;
 	}
 	else if(contactStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = "Commercials Sent";
 	}
-	else if(contactStage == "Commercials Signed")
+	else if(contactStage == "Commercials Signed" || contactStage == "Onboarding" || contactStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
-		targetStage = "Commercials Signed";
-	}
-	else if(contactStage == "Onboarding")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(contactStage == "Renewal")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Renewal";
+		targetStage = contactStage;
 	}
 }
 derivedState = VALUE_OPEN;
@@ -449,30 +394,9 @@ if(existingDealRecord == null)
 	return "normalizeContactCommercialState completed. Matching Deal record could not be fetched by ID: " + finalDealId;
 }
 
-// Initialize Product Interest Staging Aggregation
+// Initialize Product Interest Aggregation (from Products related list only)
 aggregatedPIList = List();
 lowercasePIList = List();
-
-dealProductInterestStaging = ifnull(existingDealRecord.get("Product_Interest_Staging"),"").toString().trim();
-dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
-
-if(dealProductInterestStaging != "")
-{
-	dealPIParts = dealProductInterestStaging.replaceAll(";", ",").toList(",");
-	for each part in dealPIParts
-	{
-		pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
-		if(pTrim != "")
-		{
-			pLow = pTrim.toLowerCase();
-			if(!lowercasePIList.contains(pLow))
-			{
-				aggregatedPIList.add(pTrim);
-				lowercasePIList.add(pLow);
-			}
-		}
-	}
-}
 
 // ======================================================
 // GATHER AND PARTITION RELEVANT CONTACTS FOR ROLLUP
@@ -516,28 +440,7 @@ if(accountContacts != null && accountContacts.size() > 0 && !accountContacts.toS
 			candidateStage = ifnull(accountContact.get(FIELD_STAGE), DEFAULT_STAGE);
 			candidateState = ifnull(accountContact.get(FIELD_STATE), VALUE_OPEN);
 			candidateStatus = ifnull(accountContact.get(FIELD_STATUS), VALUE_NEW);
-			candidateProductInterest = ifnull(accountContact.get("Product_Interest_Staging"), "").toString().trim();
-			cFirstName = ifnull(accountContact.get("First_Name"), "");
-			cLastName = ifnull(accountContact.get("Last_Name"), "");
-			cFullName = (cFirstName + " " + cLastName).trim();
-			
-			if(candidateProductInterest != "")
-			{
-				cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
-				for each part in cParts
-				{
-					pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
-					if(pTrim != "")
-					{
-						pLow = pTrim.toLowerCase();
-						if(!lowercasePIList.contains(pLow))
-						{
-							aggregatedPIList.add(pTrim);
-							lowercasePIList.add(pLow);
-						}
-					}
-				}
-			}
+
 			
 			candidateRank = 0;
 			if(candidateStage == "Marketing Consent") { candidateRank = 1; }
@@ -584,28 +487,7 @@ if(!processedContactIds.contains(contactId.toString()))
 	candidateStage = ifnull(contactRecord.get(FIELD_STAGE), DEFAULT_STAGE);
 	candidateState = ifnull(contactRecord.get(FIELD_STATE), VALUE_OPEN);
 	candidateStatus = ifnull(contactRecord.get(FIELD_STATUS), VALUE_NEW);
-	candidateProductInterest = ifnull(contactRecord.get("Product_Interest_Staging"), "").toString().trim();
-	cFirstName = ifnull(contactRecord.get("First_Name"), "");
-	cLastName = ifnull(contactRecord.get("Last_Name"), "");
-	cFullName = (cFirstName + " " + cLastName).trim();
-	
-	if(candidateProductInterest != "")
-	{
-		cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
-		for each part in cParts
-		{
-			pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
-			if(pTrim != "")
-			{
-				pLow = pTrim.toLowerCase();
-				if(!lowercasePIList.contains(pLow))
-				{
-					aggregatedPIList.add(pTrim);
-					lowercasePIList.add(pLow);
-				}
-			}
-		}
-	}
+
 	
 	candidateRank = 0;
 	if(candidateStage == "Marketing Consent") { candidateRank = 1; }
@@ -665,7 +547,7 @@ rollupStatus = VALUE_NEW;
 
 dealLostReasons = "";
 customLostReasons = ifnull(existingDealRecord.get("Lost_Reasons"),"");
-reasonForLoss = ifnull(existingDealRecord.get("Reason_For_Loss"),"");
+reasonForLoss = ifnull(existingDealRecord.get("Reason_For_Loss__s"),"");
 if(customLostReasons != "") { dealLostReasons = customLostReasons; }
 else if(reasonForLoss != "") { dealLostReasons = reasonForLoss; }
 
@@ -786,10 +668,7 @@ if(dealKey != "")
 		dealRollupUpdateMap.put("Deal_Key", dealKey);
 	}
 }
-if(aggregatedPIStr != "")
-{
-	dealRollupUpdateMap.put("Product_Interest_Staging", aggregatedPIStr);
-}
+
 
 if(finalDealId != null && finalDealId.toString().trim() != "" && finalDealId.toString().trim() != "null")
 {

@@ -1,0 +1,59 @@
+﻿Field Label,API Name,Data Type,Custom Field
+Account Key,Account_Key,Single Line (Unique),Yes
+Address - City,City,Single Line,
+Address - Country / Region,Country,Pick List,
+Address - Flat / House No./ Building /...,Flat_House_No_Building_Apartment_...,Single Line,
+Address - Latitude,Latitude,Decimal,
+Address - Longitude,Longitude,Decimal,
+Address - State / Province,State,Pick List,
+Address - Street Address,Street,Single Line,
+Address - Zip / Postal Code,Zip_Code,Single Line,
+Annual Revenue,Annual_Revenue,Currency,
+Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
+Company,Company,Single Line,
+Company Linkedin,Company_Linkedin,Single Line,Yes
+Company Phone,Phone,Phone,
+Connected To,Connected_To__s,MultiModuleLookup,
+Converted Account,Converted_Account,Lookup,
+Converted Contact,Converted_Contact,Lookup,
+Converted Deal,Converted_Deal,Lookup,
+Created By,Created_By,Single Line,
+Days Visited,Days_Visited,Number,
+Deal Key,Deal_Key,Single Line (Unique),Yes
+Description,Description,Multi Line (Large),
+Email,Email,Email,
+Email Opt Out,Email_Opt_Out,Boolean,
+Fax,Fax,Fax,
+First Name,First_Name,Single Line,
+First Page Visited,First_Visited_URL,URL,
+First Visit,First_Visited_Time,DateTime,
+Industry,Industry,Pick List,
+Job Title,Job_Title,Pick List,Yes
+Last Name,Last_Name,Single Line,
+Lead Image,Record_Image,Record Image,
+Lead Owner,Owner,Lookup,
+Lead Source,Lead_Source,Pick List,
+Lead Status,Lead_Status,Pick List,
+Lost Reasons,Lost_Reasons,Pick List,Yes
+Marketing Consent,Marketing_Consent,Boolean,Yes
+Mobile,Mobile,Phone,
+Modified By,Modified_By,Single Line,
+Most Recent Visit,Last_Visited_Time,DateTime,
+No of Employees,No_of_Employees,Number,
+Number Of Chats,Number_Of_Chats,Number,
+Personal Linkedin,Personal_Linkedin,Single Line,Yes
+Personal Phone,Personal_Phone,Phone,Yes
+Product Interest,Product_Interest,Multiselect,Yes
+Products Linked,Products_Linked,Multi-Select Lookup,Yes
+Rating,Rating,Pick List,
+Referrer,Referrer,URL,
+Salutation,Salutation,Pick List,
+Secondary Email,Secondary_Email,Email,
+Skype ID,Skype_ID,Single Line,
+Stage,Stage,Pick List,Yes
+Status,Status,Pick List,Yes
+Tag,Tag,Single Line,
+Title,Designation,Single Line,
+Twitter,Twitter,Single Line,
+Visitor Score,Visitor_Score,Long Integer,
+Website,Website,URL,

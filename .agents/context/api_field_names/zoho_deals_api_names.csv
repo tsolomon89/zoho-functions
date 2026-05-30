@@ -1,0 +1,27 @@
+﻿Field Label,API Name,Data Type,Custom Field
+Account Name,Account_Name,Lookup,
+Amount,Amount,Currency,
+Campaign Source,Campaign_Source,Lookup,
+Closing Date,Closing_Date,Date,
+Connected To,Connected_To__s,MultiModuleLookup,
+Contact Name,Contact_Name,Lookup,
+Created By,Created_By,Single Line,
+Deal Image,Record_Image,Record Image,
+Deal Key,Deal_Key,Single Line (Unique),Yes
+Deal Name,Deal_Name,Single Line,
+Deal Owner,Owner,Lookup,
+Description,Description,Multi Line (Large),
+Expected Revenue,Expected_Revenue,Currency,
+Lead Source,Lead_Source,Pick List,
+Lost Reasons,Lost_Reasons,Pick List,Yes
+Modified By,Modified_By,Single Line,
+Next Step,Next_Step,Single Line,
+Opportunity,Stage,Pick List,
+Pipeline,Pipeline,Pick List,
+Probability (%),Probability,Number,
+Reason For Loss,Reason_For_Loss__s,Pick List,
+Stage,Stage1,Pick List,Yes
+State,State,Pick List,Yes
+Status,Status,Pick List,Yes
+Tag,Tag,Single Line,
+Type,Type,Pick List,

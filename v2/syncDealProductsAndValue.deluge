@@ -7,7 +7,7 @@ string automation.syncDealProductsAndValue(String deal_id)
 // - Helper function called by normalizers
 //
 // Purpose:
-// - Read Deal.Product_Interest_Staging.
+// - Read Deal's Products related list.
 // - Parse product names.
 // - Search Products by Product_Name.
 // - Sum Unit_Price.
@@ -43,24 +43,13 @@ if(dealRecord == null)
 info "Deal record fetched:";
 info dealRecord;
 // ======================================================
-// EXTRACT PRODUCT STAGING SIGNALS
+// EXTRACT PRODUCT SIGNALS FROM AVAILABLE SOURCES
+// Primary: Deal's Products related list (linked Product records)
+// Secondary: Deal's Product_Interest field if text names are readable
 // ======================================================
-dealStaging = ifnull(dealRecord.get("Product_Interest_Staging"),"").toString().trim();
-dealStaging = dealStaging.replaceAll(";",",");
 productNamesList = List();
-if(dealStaging != "")
-{
-	parts = dealStaging.toList(",");
-	for each  part in parts
-	{
-		pName = part.trim().replaceAll("\"","").replaceAll("'","");
-		if(pName != "" && !productNamesList.contains(pName))
-		{
-			productNamesList.add(pName);
-		}
-	}
-}
-// Read related Products list if readable/accessible
+
+// 1. Primary: Read related Products list (actual linked Product records)
 relatedProducts = zoho.crm.getRelatedRecords("Products","Deals",dealId);
 if(relatedProducts != null && relatedProducts.size() > 0 && !relatedProducts.toString().startsWith("{"))
 {

@@ -71,7 +71,7 @@ The automation is divided into 5 modular Deluge custom functions.
 *   **Data Integrity Mapping**:
     *   **Phone Mapping**: Lead's default `Phone` field (labeled 'Company Phone') maps strictly to `Account.Phone`.
     *   **Website Domain Normalization**: Standardizes website/company URLs to lowercase and strips protocols (`http://`, `https://`), subdomains (`www.`), trailing slashes, and paths after the slash.
-    *   **Product Interest Staging**: Treats Lead product interest as staging plain-text names, writing the list to `Product_Interest_Staging` on converted Contacts and Deals instead of standard linked/join lookup fields.
+    *   **Product Interest**: Lead `Product_Interest` (Multiselect text) and `Products_Linked` (Multi-Select Lookup to Product records) are read as staging inputs. The canonical product set lives on the Deal as the `Products` related list, not as a Deal-level field. There is no `Product_Interest_Staging` field.
     *   **Deal Matching & Reusability**: Reuses an existing Deal under the Account matching the same product staging signal, or the furthest `Open` Deal, or the furthest `Lost` Deal, fallback to creating a new one if none matches.
 
 ### 2. Contact State Normalizer: `normalizeContactCommercialState.deluge`
@@ -95,8 +95,8 @@ The automation is divided into 5 modular Deluge custom functions.
 *   **Trigger**: Called by Contact/Deal normalizers.
 *   **Purpose**: Queries products, associates them with the Deal, and aggregates their financial value.
 *   **Key Operations**:
-    *   Extracts product staging signals from `Product_Interest_Staging` on the Deal (handling comma-separated plain text lists of product names).
-    *   Falls back to standard `Product_Interest` name lookup or related Products list.
+    *   Reads the Deal's `Products` related list for already-staged product names.
+    *   Aggregates Lead `Product_Interest` (text) / `Products_Linked` (lookup) and Contact `Product_Interest` (Multi-Select Lookup) as additional staging signals.
     *   Queries the `Products` module by `Product_Name` matching each staging name.
     *   Sums up their matching catalog price (`Unit_Price`) and updates Deal `Amount`.
     *   Gracefully returns without failure if no matching product is found.
@@ -137,9 +137,21 @@ To prevent cascading execution loops, workflows must only trigger on **source fi
 
 | Source/Trigger Fields (Safe) | Calculated Fields (Never Trigger On) |
 | :--- | :--- |
-| `Stage` | `Opportunity` |
+| `Stage` (custom, UI label "Stage") | `Stage` (standard, UI label "Opportunity") |
 | `Marketing_Consent` | `State` |
 | `Lost_Reasons` | `Status` |
-| `Product_Interest_Staging` | `Amount` |
-| `Ready_For_Commercials` | `Expected_Revenue` |
-| `Demo_Outcome` | |
+| `Product_Interest` | `Amount` |
+| `Products_Linked` (Leads) | `Expected_Revenue` |
+| `Reason_For_Loss__s` | |
+
+---
+
+## 6. Workspace Context & Reference Data
+
+To guide development, testing, and agent behaviors, this repository includes core context, schemas, example records, and system specifications:
+
+*   **API Field Reference**: [.agents/context/api_field_names](file:///c:/Development/Projects/zoho-functions/.agents/context/api_field_names) contains canonical CSV exports of API names for fields and related lists (Accounts, Contacts, Deals, and Leads).
+*   **Example CRM Data**: [.agents/context/example_data](file:///c:/Development/Projects/zoho-functions/.agents/context/example_data) contains CSV exports of matched sample entities demonstrating how normalized fields are constructed.
+*   **Test Data Sets**: [.agents/context/test_data](file:///c:/Development/Projects/zoho-functions/.agents/context/test_data) contains test upload lists used to validate lead ingestion and workflow trigger rules.
+*   **System Convergence Spec**: [spec.md](file:///c:/Development/Projects/zoho-functions/spec.md) defines the authoritative architectural specifications for deduplication logic, stage/opportunity progression mappings, and the invariant rules that all Deluge automations must preserve.
+

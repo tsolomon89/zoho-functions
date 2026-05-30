@@ -28,13 +28,13 @@ FIELD_STAGE = "Stage";
 FIELD_STATUS = "Status";
 FIELD_STATE = "State";
 FIELD_OPPORTUNITY = "Opportunity";
-FIELD_DEAL_OPPORTUNITY = "Opportunity";
-FIELD_DEAL_STAGE = "Stage";
+FIELD_DEAL_OPPORTUNITY = "Stage";     // Zoho default 'Stage' field relabeled 'Opportunity' in UI
+FIELD_DEAL_STAGE = "Stage1";            // Custom field labeled 'Stage' in UI, API name is Stage1
 FIELD_LOST_REASONS = "Lost_Reasons";
 FIELD_PRODUCT_INTEREST = "Product_Interest";
-FIELD_READY_FOR_COMMERCIALS = "Ready_For_Commercials";
-FIELD_DEMO_OUTCOME = "Demo_Outcome";
-FIELD_REASON_FOR_LOSS = "Reason_For_Loss";
+FIELD_READY_FOR_COMMERCIALS = ""; // REMOVED: field does not exist in Zoho
+FIELD_DEMO_OUTCOME = ""; // REMOVED: field does not exist in Zoho
+FIELD_REASON_FOR_LOSS = "Reason_For_Loss__s";
 VALUE_OPEN = "Open";
 VALUE_LOST = "Lost";
 VALUE_NEW = "New";
@@ -71,7 +71,7 @@ info dealRecord;
 // ======================================================
 dealName = ifnull(dealRecord.get("Deal_Name"),"").toString().trim();
 dealKey = ifnull(dealRecord.get("Deal_Key"),"").toString().trim();
-reasonForLoss = ifnull(dealRecord.get("Reason_For_Loss"),"").toString().trim();
+reasonForLoss = ifnull(dealRecord.get("Reason_For_Loss__s"),"").toString().trim();
 dealState = ifnull(dealRecord.get("State"),"").toString().trim();
 dealStatus = ifnull(dealRecord.get("Status"),"").toString().trim();
 
@@ -105,13 +105,7 @@ else if(reasonForLoss != "")
 {
 	dealLostReasons = reasonForLoss;
 }
-dealProductInterestStaging = ifnull(dealRecord.get("Product_Interest_Staging"),"").toString().trim();
-dealProductInterestStaging = dealProductInterestStaging.replaceAll(";",",").replaceAll("\"","").replaceAll("'","");
-hasProductStaging = false;
-if(dealProductInterestStaging != "")
-{
-	hasProductStaging = true;
-}
+
 accountId = "";
 accountName = "";
 accountLookup = dealRecord.get("Account_Name");
@@ -222,32 +216,14 @@ if(dealNotes != null && dealNotes.size() > 0 && !dealNotes.toString().startsWith
 info "Manual activity exists:";
 info manualActivityExists;
 // ======================================================
-// COMMERCIAL READINESS CHECK
-// ======================================================
-readyForCommercials = false;
-if(dealRecord.get(FIELD_READY_FOR_COMMERCIALS) != null)
-{
-	readyValue = dealRecord.get(FIELD_READY_FOR_COMMERCIALS).toString();
-	if(readyValue != "" && readyValue != "false" && readyValue != "False" && readyValue != "FALSE" && readyValue != "No" && readyValue != "no" && readyValue != "NO" && readyValue != "None" && readyValue != "null")
-	{
-		readyForCommercials = true;
-	}
-}
-if(dealRecord.get(FIELD_DEMO_OUTCOME) != null)
-{
-	demoOutcome = dealRecord.get(FIELD_DEMO_OUTCOME).toString();
-	if(demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_1 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_2 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_3 || demoOutcome == DEMO_OUTCOME_ADVANCE_VALUE_4)
-	{
-		readyForCommercials = true;
-	}
-}
-// ======================================================
 // DERIVE DEAL TARGET OPPORTUNITY & STAGE
+// Pure Stage→Opportunity map per spec.md
 // ======================================================
 targetStage = dealStage;
 targetOpportunity = "MQL";
 if(dealLostReasons != "")
 {
+	// Lost: stage preserved, opportunity mapped per spec
 	if(dealStage == "Marketing Consent")
 	{
 		targetOpportunity = "MQL";
@@ -258,12 +234,12 @@ if(dealLostReasons != "")
 		targetOpportunity = "SQL";
 		targetStage = dealStage;
 	}
-	else if(dealStage == "Commercials Sent" || dealStage == "Commercials Signed")
+	else if(dealStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = dealStage;
 	}
-	else if(dealStage == "Onboarding" || dealStage == "Renewal")
+	else if(dealStage == "Commercials Signed" || dealStage == "Onboarding" || dealStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
 		targetStage = dealStage;
@@ -271,53 +247,26 @@ if(dealLostReasons != "")
 }
 else
 {
+	// Open: pure Stage→Opportunity map per spec
 	if(dealStage == "Marketing Consent")
 	{
 		targetOpportunity = "MQL";
 		targetStage = "Marketing Consent";
 	}
-	else if(dealStage == "Demo Booking")
+	else if(dealStage == "Demo Booking" || dealStage == "Demo Booked" || dealStage == "Demo Attended")
 	{
 		targetOpportunity = "SQL";
-		targetStage = "Demo Booking";
-	}
-	else if(dealStage == "Demo Booked")
-	{
-		targetOpportunity = "SQL";
-		targetStage = "Demo Booked";
-	}
-	else if(dealStage == "Demo Attended")
-	{
-		if(readyForCommercials == true && hasProductStaging == true)
-		{
-			targetOpportunity = "FTP";
-			targetStage = "Commercials Sent";
-		}
-		else
-		{
-			targetOpportunity = "SQL";
-			targetStage = "Demo Attended";
-		}
+		targetStage = dealStage;
 	}
 	else if(dealStage == "Commercials Sent")
 	{
 		targetOpportunity = "FTP";
 		targetStage = "Commercials Sent";
 	}
-	else if(dealStage == "Commercials Signed")
+	else if(dealStage == "Commercials Signed" || dealStage == "Onboarding" || dealStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
-		targetStage = "Commercials Signed";
-	}
-	else if(dealStage == "Onboarding")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Onboarding";
-	}
-	else if(dealStage == "Renewal")
-	{
-		targetOpportunity = "RTP";
-		targetStage = "Renewal";
+		targetStage = dealStage;
 	}
 }
 derivedState = VALUE_OPEN;
@@ -412,28 +361,7 @@ if(accountId != null && accountId.toString().trim() != "" && accountId.toString(
 				candidateStage = ifnull(accountContact.get(FIELD_STAGE), DEFAULT_STAGE);
 				candidateState = ifnull(accountContact.get(FIELD_STATE), VALUE_OPEN);
 				candidateStatus = ifnull(accountContact.get(FIELD_STATUS), VALUE_NEW);
-				candidateProductInterest = ifnull(accountContact.get("Product_Interest_Staging"), "").toString().trim();
-				cFirstName = ifnull(accountContact.get("First_Name"), "");
-				cLastName = ifnull(accountContact.get("Last_Name"), "");
-				cFullName = (cFirstName + " " + cLastName).trim();
-				
-				if(candidateProductInterest != "")
-				{
-					cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
-					for each part in cParts
-					{
-						pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
-						if(pTrim != "")
-						{
-							pLow = pTrim.toLowerCase();
-							if(!lowercasePIList.contains(pLow))
-							{
-								aggregatedPIList.add(pTrim);
-								lowercasePIList.add(pLow);
-							}
-						}
-					}
-				}
+
 				
 				candidateRank = 0;
 				if(candidateStage == "Marketing Consent") { candidateRank = 1; }
@@ -485,28 +413,7 @@ if(currentPrimaryContactId != "" && !processedIds.contains(currentPrimaryContact
 		candidateStage = ifnull(candidateContact.get(FIELD_STAGE), DEFAULT_STAGE);
 		candidateState = ifnull(candidateContact.get(FIELD_STATE), VALUE_OPEN);
 		candidateStatus = ifnull(candidateContact.get(FIELD_STATUS), VALUE_NEW);
-		candidateProductInterest = ifnull(candidateContact.get("Product_Interest_Staging"), "").toString().trim();
-		cFirstName = ifnull(candidateContact.get("First_Name"), "");
-		cLastName = ifnull(candidateContact.get("Last_Name"), "");
-		cFullName = (cFirstName + " " + cLastName).trim();
-		
-		if(candidateProductInterest != "")
-		{
-			cParts = candidateProductInterest.replaceAll(";", ",").toList(",");
-			for each part in cParts
-			{
-				pTrim = part.trim().replaceAll("\"", "").replaceAll("'", "");
-				if(pTrim != "")
-				{
-					pLow = pTrim.toLowerCase();
-					if(!lowercasePIList.contains(pLow))
-					{
-						aggregatedPIList.add(pTrim);
-						lowercasePIList.add(pLow);
-					}
-				}
-			}
-		}
+
 		
 		candidateRank = 0;
 		if(candidateStage == "Marketing Consent") { candidateRank = 1; }
@@ -673,10 +580,7 @@ if(dealKey != "")
 		dealUpdateMap.put("Deal_Key", dealKey);
 	}
 }
-if(aggregatedPIStr != "")
-{
-	dealUpdateMap.put("Product_Interest_Staging", aggregatedPIStr);
-}
+
 
 triggerMap = Map();
 triggerMap.put("trigger", List());
