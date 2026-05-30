@@ -687,6 +687,7 @@ void automation.processContact(string contact_id)
 		dealPayload = Map();
 		dealPayload.put("data", dealDataList);
 
+		info "Deal v8 PUT payload: " + dealPayload.toString();
 		dealUpdResp = invokeurl
 		[
 			url: "https://www.zohoapis.com/crm/v8/Deals/" + canonicalDealId
