@@ -85,13 +85,20 @@ void automation.processLead(string lead_id)
 		leadContactRole = resolvedRole;
 	}
 
-	// Lead.Product_Interest is a Multiselect (delimited text of product names)
+	// Lead.Product_Interest is a Multiselect (delimited text of product names).
+	// Try both the documented API name and the "1"-suffixed variant in case the field
+	// was renamed in CRM (same pattern Zoho applies when fields are duplicated).
 	leadPIStr = "";
 	leadPIRaw = leadRecord.get("Product_Interest");
-	if(leadPIRaw != null)
+	leadPIRaw1 = leadRecord.get("Product_Interest1");
+	info "Lead Product_Interest raw=" + leadPIRaw + " | Product_Interest1 raw=" + leadPIRaw1;
+	piSource = leadPIRaw;
+	if(piSource == null) { piSource = leadPIRaw1; }
+	if(piSource != null)
 	{
-		leadPIStr = leadPIRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
+		leadPIStr = piSource.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
 	}
+	info "Lead PI parsed string='" + leadPIStr + "'";
 
 	// ---- 2. Derive Account_Key ----
 	normalizedDomain = "";
@@ -468,7 +475,7 @@ void automation.processLead(string lead_id)
 				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
 				contactJobTitleMap.put(cId_loop, ifnull(fullC.get("Job_Title"), "").toString().trim());
 
-				cPI = fullC.get("Product_Interest");
+				cPI = fullC.get("Products_Linked");
 				if(cPI != null)
 				{
 					cPIStr = cPI.toString();
@@ -713,7 +720,26 @@ void automation.processLead(string lead_id)
 	// ---- 11. Resolve Products + attach via Products related list ----
 	// updateRelatedRecord parameter order (matching the Contact_Roles pattern):
 	//   ("Products", productId, "Deals", dealId, dataMap)
-	// Writing Product_Details directly on the Deal record is not reliable across orgs.
+	// We pre-fetch the full Products catalog once and match client-side (case + whitespace
+	// tolerant). searchRecords by Product_Name is unreliable for multi-word/numeric values
+	// due to Zoho's search-index lag.
+	info "Aggregated PI list before product search: " + aggregatedPIList;
+
+	productCatalog = Map();
+	allProds = zoho.crm.getRecords("Products", 1, 200);
+	if(allProds != null && allProds.size() > 0 && !allProds.toString().startsWith("{"))
+	{
+		for each p in allProds
+		{
+			pNameRaw = ifnull(p.get("Product_Name"), "").toString().trim().replaceAll("  ", " ");
+			if(pNameRaw != "")
+			{
+				productCatalog.put(pNameRaw.toLowerCase(), p);
+			}
+		}
+	}
+	info "Product catalog loaded: " + productCatalog.size() + " products";
+
 	existingProdIdsAttached = List();
 	existingProdsRel = zoho.crm.getRelatedRecords("Products", "Deals", canonicalDealId.toLong());
 	if(existingProdsRel != null && existingProdsRel.size() > 0 && !existingProdsRel.toString().startsWith("{"))
@@ -732,13 +758,13 @@ void automation.processLead(string lead_id)
 	prodAttachCount = 0;
 	for each pName in aggregatedPIList
 	{
-		safeName = pName.trim().replaceAll("[\\(\\)\\:\\,]", "");
+		safeName = pName.trim().replaceAll("  ", " ");
 		if(safeName != "")
 		{
-			sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
-			if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
+			nameKey = safeName.toLowerCase();
+			prod = productCatalog.get(nameKey);
+			if(prod != null)
 			{
-				prod = sProd.get(0);
 				prodId = prod.get("id").toString();
 				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
 				totalAmount = totalAmount + price;
@@ -756,7 +782,7 @@ void automation.processLead(string lead_id)
 			}
 			else
 			{
-				info "No Product record matched name: " + safeName;
+				info "No Product record matched name: '" + safeName + "' (lookupKey='" + nameKey + "')";
 			}
 		}
 	}

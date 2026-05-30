@@ -47,7 +47,7 @@ Other Address - Zip / Postal Code,Other_Zip,Single Line,
 Other Phone,Other_Phone,Phone,
 Personal Linkedin,Personal_Linkedin,Single Line,Yes
 Phone,Phone,Phone,
-Product Interest,Product_Interest,Multi-Select Lookup,Yes
+Products Linked,Products_Linked,Multi-Select Lookup,Yes
 Referrer,Referrer,URL,
 Reporting To,Reporting_To,Lookup,
 Salutation,Salutation,Pick List,
