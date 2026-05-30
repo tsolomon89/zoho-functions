@@ -69,8 +69,7 @@ This repository uses local workspace configurations to guide agent behavior. The
 
 The following files constitute the automated workflow pipeline:
 
-1.  [convert2lead.deluge](file:///c:/Development/Projects/zoho-functions/convert2lead.deluge): Intake processor.
-2.  [normalizeContactCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/normalizeContactCommercialState.deluge): Person-level normalization.
-3.  [normalizeDealCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/normalizeDealCommercialState.deluge): Deal-level normalization.
-4.  [syncDealProductsAndValue.deluge](file:///c:/Development/Projects/zoho-functions/syncDealProductsAndValue.deluge): Product lookup and Deal Amount summation.
-5.  [rollupAccountCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/rollupAccountCommercialState.deluge): Account-level aggregate state and status.
+1.  [v3/processLead.deluge](file:///c:/Development/Projects/zoho-functions/v3/processLead.deluge): Lead intake and conversion orchestrator.
+2.  [v3/processContact.deluge](file:///c:/Development/Projects/zoho-functions/v3/processContact.deluge): Person-level normalization and Deal roller.
+3.  [v3/processAccount.deluge](file:///c:/Development/Projects/zoho-functions/v3/processAccount.deluge): Account-level aggregation and Deal generator.
+4.  [v3/processDeal.deluge](file:///c:/Development/Projects/zoho-functions/v3/processDeal.deluge): Deal deduplicator and Amount summation.
