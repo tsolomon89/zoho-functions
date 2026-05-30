@@ -152,7 +152,9 @@ void automation.processDeal(string deal_id)
 					tKeyLoop = cJobTitleLoop.toLowerCase();
 					if(euTitles.contains(tKeyLoop)) { resolvedRoleLoop = "End User"; }
 					else if(infTitles.contains(tKeyLoop)) { resolvedRoleLoop = "Influencer"; }
-					stampResp = zoho.crm.updateRecord("Contacts", cId.toLong(), {"Contact_Role1": resolvedRoleLoop});
+					suppressTrigger = Map();
+					suppressTrigger.put("trigger", List());
+					stampResp = zoho.crm.updateRecord("Contacts", cId.toLong(), {"Contact_Role1": resolvedRoleLoop}, suppressTrigger);
 					info "processDeal: stamped Contact_Role1 on " + cId + " title='" + cJobTitleLoop + "' → '" + resolvedRoleLoop + "' resp=" + stampResp;
 				}
 
@@ -385,6 +387,17 @@ void automation.processDeal(string deal_id)
 
 	totalAmount = 0.0;
 	prodAddedCount = 0;
+
+	// Sum existing line-item prices FIRST (workflow-cascade safety — see processLead).
+	for each pdExisting in mergedPDList
+	{
+		if(pdExisting.get("list_price") != null)
+		{
+			totalAmount = totalAmount + ifnull(pdExisting.get("list_price"), "0").toDecimal();
+		}
+	}
+	info "Sum from existing line items: " + totalAmount;
+
 	for each pName in aggregatedPIList
 	{
 		safeName = pName.trim().replaceAll("  ", " ");
@@ -409,10 +422,11 @@ void automation.processDeal(string deal_id)
 			{
 				prodId = prod.get("id").toString();
 				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
-				totalAmount = totalAmount + price;
 
 				if(!seenProdIds.contains(prodId))
 				{
+					// Only count NEW products in totalAmount (existing summed in pre-pass)
+					totalAmount = totalAmount + price;
 					newPD = Map();
 					newProdLookup = Map();
 					newProdLookup.put("id", prodId);
@@ -489,10 +503,11 @@ void automation.processDeal(string deal_id)
 
 	if(dUpd.size() > 0)
 	{
-		// zoho.crm.updateRecord auto-authenticates; invokeurl to zohoapis.com without
-		// a connection returns AUTHENTICATION_FAILURE in this org.
+		// Suppress Deal workflow to prevent processDeal recursing on its own write.
 		info "Deal updateRecord payload: " + dUpd.toString();
-		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
+		suppressTrigger = Map();
+		suppressTrigger.put("trigger", List());
+		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd, suppressTrigger);
 		info "Deal updateRecord resp: " + dealUpdResp;
 	}
 

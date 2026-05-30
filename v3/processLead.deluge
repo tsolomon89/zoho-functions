@@ -287,8 +287,13 @@ void automation.processLead(string lead_id)
 
 	if(updCon.size() > 0)
 	{
-		contactUpdResp = zoho.crm.updateRecord("Contacts", newContactId.toLong(), updCon);
-		info "Contact update resp (incl. Contact_Role): " + contactUpdResp;
+		// Suppress Contact workflow trigger to prevent processContact from racing
+		// against this same processLead run (which would read Deal Product_Details=0
+		// before our step 11 writes them and clobber Amount with 0).
+		suppressTrigger = Map();
+		suppressTrigger.put("trigger", List());
+		contactUpdResp = zoho.crm.updateRecord("Contacts", newContactId.toLong(), updCon, suppressTrigger);
+		info "Contact update resp (incl. Contact_Role, trigger suppressed): " + contactUpdResp;
 	}
 
 	// ---- 6. Resolve / create canonical active Deal ----
@@ -772,6 +777,20 @@ void automation.processLead(string lead_id)
 
 	totalAmount = 0.0;
 	prodAddedCount = 0;
+
+	// Sum existing line-item prices FIRST. Critical for workflow-cascade safety:
+	// when processDeal/processContact/processAccount fire after a previous run that
+	// already attached Products, aggregatedPIList may be empty. Without this pre-pass,
+	// totalAmount stays 0 and the cascade wipes Amount to 0 on the next Deal update.
+	for each pdExisting in mergedPDList
+	{
+		if(pdExisting.get("list_price") != null)
+		{
+			totalAmount = totalAmount + ifnull(pdExisting.get("list_price"), "0").toDecimal();
+		}
+	}
+	info "Sum from existing line items: " + totalAmount;
+
 	for each pName in aggregatedPIList
 	{
 		safeName = pName.trim().replaceAll("  ", " ");
@@ -796,10 +815,11 @@ void automation.processLead(string lead_id)
 			{
 				prodId = prod.get("id").toString();
 				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
-				totalAmount = totalAmount + price;
 
 				if(!seenProdIds.contains(prodId))
 				{
+					// Only count NEW products in totalAmount (existing summed in pre-pass)
+					totalAmount = totalAmount + price;
 					newPD = Map();
 					newProdLookup = Map();
 					newProdLookup.put("id", prodId);
@@ -861,9 +881,12 @@ void automation.processLead(string lead_id)
 	{
 		// zoho.crm.updateRecord auto-authenticates; invokeurl to zohoapis.com without
 		// a connection returns AUTHENTICATION_FAILURE in this org. Product_Details writes
-		// land via updateRecord; Zoho auto-recalculates Amount from the line-item totals.
+		// land via updateRecord. Suppress trigger to prevent processDeal cascade clobbering
+		// Amount mid-flow.
 		info "Deal updateRecord payload: " + dUpd.toString();
-		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
+		suppressTrigger = Map();
+		suppressTrigger.put("trigger", List());
+		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd, suppressTrigger);
 		info "Deal updateRecord resp: " + dealUpdResp;
 	}
 
