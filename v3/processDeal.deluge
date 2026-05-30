@@ -118,63 +118,74 @@ void automation.processDeal(string deal_id)
 	bestOpp = "MQL";
 	anyContactOpen = false;
 	openContactIdsAtMax = List();
+	processedContactIds = List();
 
+	// getRelatedRecords does NOT reliably return custom fields (Stage, State,
+	// Product_Interest). Fetch each Contact full record so the rollup uses real values.
 	for each c in relContacts
 	{
 		cId = "";
 		if(c.get("id") != null) { cId = c.get("id").toString(); }
-
-		cState = ifnull(c.get("State"), "Open").toString();
-		cStage = ifnull(c.get("Stage"), "Marketing Consent").toString();
-
-		cPI = c.get("Product_Interest");
-		if(cPI != null)
+		if(cId != "" && cId != "null")
 		{
-			cPIStr = cPI.toString();
-			if(cPIStr.startsWith("[") && cPIStr.endsWith("]") && cPIStr.contains("{"))
+			processedContactIds.add(cId);
+			fullC = zoho.crm.getRecordById("Contacts", cId.toLong());
+			if(fullC != null && fullC.get("id") != null)
 			{
-				for each item in cPI
+				cState = ifnull(fullC.get("State"), "Open").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
+
+				cPI = fullC.get("Product_Interest");
+				if(cPI != null)
 				{
-					if(item != null && item.get("name") != null)
+					cPIStr = cPI.toString();
+					if(cPIStr.startsWith("[") && cPIStr.endsWith("]") && cPIStr.contains("{"))
 					{
-						pn = item.get("name").toString().trim();
-						if(pn != "" && !lowercasePIList.contains(pn.toLowerCase()))
+						for each item in cPI
 						{
-							aggregatedPIList.add(pn);
-							lowercasePIList.add(pn.toLowerCase());
+							if(item != null && item.get("name") != null)
+							{
+								pn = item.get("name").toString().trim();
+								if(pn != "" && !lowercasePIList.contains(pn.toLowerCase()))
+								{
+									aggregatedPIList.add(pn);
+									lowercasePIList.add(pn.toLowerCase());
+								}
+							}
+						}
+					}
+					else if(cPIStr != "" && cPIStr != "null")
+					{
+						cleaned = cPIStr.removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+						for each part in cleaned.toList(",")
+						{
+							pTrim = part.trim();
+							if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+							{
+								aggregatedPIList.add(pTrim);
+								lowercasePIList.add(pTrim.toLowerCase());
+							}
 						}
 					}
 				}
-			}
-			else if(cPIStr != "" && cPIStr != "null")
-			{
-				cleaned = cPIStr.replaceAll("\\[", "").replaceAll("\\]", "").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
-				for each part in cleaned.toList(",")
+
+				if(cState == "Open")
 				{
-					pTrim = part.trim();
-					if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+					anyContactOpen = true;
+					rank = ifnull(stageRanks.get(cStage), 1);
+					info "Contact " + cId + " Stage=" + cStage + " rank=" + rank;
+					if(rank > maxRank)
 					{
-						aggregatedPIList.add(pTrim);
-						lowercasePIList.add(pTrim.toLowerCase());
+						maxRank = rank;
+						bestStage = cStage;
+						openContactIdsAtMax = List();
+						openContactIdsAtMax.add(cId);
+					}
+					else if(rank == maxRank)
+					{
+						openContactIdsAtMax.add(cId);
 					}
 				}
-			}
-		}
-
-		if(cState == "Open")
-		{
-			anyContactOpen = true;
-			rank = ifnull(stageRanks.get(cStage), 1);
-			if(rank > maxRank)
-			{
-				maxRank = rank;
-				bestStage = cStage;
-				openContactIdsAtMax = List();
-				openContactIdsAtMax.add(cId);
-			}
-			else if(rank == maxRank && cId != "")
-			{
-				openContactIdsAtMax.add(cId);
 			}
 		}
 	}
@@ -183,6 +194,8 @@ void automation.processDeal(string deal_id)
 	else if(maxRank == 5) { bestOpp = "FTP"; }
 	else if(maxRank >= 2) { bestOpp = "SQL"; }
 	else { bestOpp = "MQL"; }
+
+	info "Rollup: bestStage=" + bestStage + " bestOpp=" + bestOpp + " maxRank=" + maxRank + " anyContactOpen=" + anyContactOpen;
 
 	// Existing Deal Products → contribute to aggregation
 	existingProds = zoho.crm.getRelatedRecords("Products", "Deals", canonicalDealId.toLong());
@@ -201,7 +214,7 @@ void automation.processDeal(string deal_id)
 		}
 	}
 
-	// ---- 5. Maintain Contact_Roles ----
+	// ---- 5. Maintain Contact_Roles (each entry's id == Contact id) ----
 	existingRoles = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", canonicalDealId.toLong());
 	existingRoleMap = Map();
 	if(existingRoles != null && existingRoles.size() > 0 && !existingRoles.toString().startsWith("{"))
@@ -210,15 +223,26 @@ void automation.processDeal(string deal_id)
 		{
 			if(er.get("id") != null)
 			{
-				existingRoleMap.put(er.get("id").toString(), ifnull(er.get("Contact_Role"), "").toString());
+				erRoleRaw = er.get("Contact_Role");
+				erRoleStr = "";
+				if(erRoleRaw != null)
+				{
+					erRoleStr = erRoleRaw.toString();
+					if(erRoleStr.startsWith("{") && erRoleRaw.get("name") != null)
+					{
+						erRoleStr = erRoleRaw.get("name").toString();
+					}
+				}
+				existingRoleMap.put(er.get("id").toString(), erRoleStr);
 			}
 		}
 	}
+	info "Existing Contact_Roles on Deal " + canonicalDealId + ": " + existingRoleMap.size();
 
-	for each c in relContacts
+	roleAddCount = 0;
+	roleSkipCount = 0;
+	for each cId in processedContactIds
 	{
-		cId = "";
-		if(c.get("id") != null) { cId = c.get("id").toString(); }
 		if(cId != "")
 		{
 			existingRoleVal = existingRoleMap.get(cId);
@@ -226,13 +250,46 @@ void automation.processDeal(string deal_id)
 			{
 				roleMap = Map();
 				roleMap.put("Contact_Role", "Decision Maker");
-				zoho.crm.updateRelatedRecord("Deals", canonicalDealId.toLong(), "Contact_Roles", cId.toLong(), roleMap);
+				roleResp = zoho.crm.updateRelatedRecord("Deals", canonicalDealId.toLong(), "Contact_Roles", cId.toLong(), roleMap);
+				info "Contact_Roles upsert deal=" + canonicalDealId + " contact=" + cId + " resp=" + roleResp;
+				roleAddCount = roleAddCount + 1;
+			}
+			else
+			{
+				info "Contact_Roles skip contact=" + cId + " (existing role=" + existingRoleVal + ")";
+				roleSkipCount = roleSkipCount + 1;
 			}
 		}
 	}
+	info "Contact_Roles summary: added=" + roleAddCount + " skipped=" + roleSkipCount;
 
-	// ---- 6. Resolve & attach Products, sum Amount ----
+	// ---- 6. Resolve Products + build Product_Details (canonical line-item shape) ----
+	// Fetch targetDeal early so its Product_Details is the basis for the merge.
+	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+
+	existingPDList = targetDeal.get("Product_Details");
+	seenProdIds = List();
+	mergedPDList = List();
+	if(existingPDList != null && existingPDList.toString().startsWith("["))
+	{
+		for each pd in existingPDList
+		{
+			prodLookup = pd.get("product");
+			if(prodLookup != null && prodLookup.get("id") != null)
+			{
+				pid_existing = prodLookup.get("id").toString();
+				if(!seenProdIds.contains(pid_existing))
+				{
+					seenProdIds.add(pid_existing);
+					mergedPDList.add(pd);
+				}
+			}
+		}
+	}
+	info "Existing Product_Details entries on Deal " + canonicalDealId + ": " + seenProdIds.size();
+
 	totalAmount = 0.0;
+	pdAddedCount = 0;
 	for each pName in aggregatedPIList
 	{
 		safeName = pName.trim().replaceAll("[\\(\\)\\:\\,]", "");
@@ -242,24 +299,33 @@ void automation.processDeal(string deal_id)
 			if(sProd != null && sProd.size() > 0 && !sProd.toString().startsWith("{"))
 			{
 				prod = sProd.get(0);
+				prodId = prod.get("id").toString();
 				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
 				totalAmount = totalAmount + price;
 
-				prodId = prod.get("id").toString();
-				if(!existingProdIds.contains(prodId))
+				if(!seenProdIds.contains(prodId))
 				{
-					attachMap = Map();
-					attachMap.put("Quantity", 1);
-					attachMap.put("list_price", price);
-					zoho.crm.updateRelatedRecord("Deals", canonicalDealId.toLong(), "Products", prodId.toLong(), attachMap);
-					existingProdIds.add(prodId);
+					seenProdIds.add(prodId);
+					newPD = Map();
+					newProdLookup = Map();
+					newProdLookup.put("id", prodId);
+					newPD.put("product", newProdLookup);
+					newPD.put("quantity", 1);
+					newPD.put("list_price", price);
+					mergedPDList.add(newPD);
+					pdAddedCount = pdAddedCount + 1;
+					info "Attaching Product to Deal: " + safeName + " (id=" + prodId + ", price=" + price + ")";
 				}
+			}
+			else
+			{
+				info "No Product record matched name: " + safeName;
 			}
 		}
 	}
+	info "Product resolution: totalAmount=" + totalAmount + " newlyAttached=" + pdAddedCount + " totalLineItems=" + mergedPDList.size();
 
 	// ---- 7. Pick primary + update canonical Deal ----
-	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
 	currentPrimaryId = "";
 	cnLookup = targetDeal.get("Contact_Name");
 	if(cnLookup != null && cnLookup.get("id") != null) { currentPrimaryId = cnLookup.get("id").toString(); }
@@ -282,6 +348,11 @@ void automation.processDeal(string deal_id)
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+
+	if(pdAddedCount > 0)
+	{
+		dUpd.put("Product_Details", mergedPDList);
+	}
 
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
