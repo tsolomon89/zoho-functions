@@ -859,23 +859,12 @@ void automation.processLead(string lead_id)
 
 	if(dUpd.size() > 0)
 	{
-		// Route via invokeurl to v8 explicitly. zoho.crm.updateRecord uses v2 by default,
-		// which does NOT reliably accept Product_Details writes (Zoho silently ignores it
-		// and returns SUCCESS). v8 PUT supports the simplified Product_Details shape.
-		dealDataList = List();
-		dealDataList.add(dUpd);
-		dealPayload = Map();
-		dealPayload.put("data", dealDataList);
-
-		info "Deal v8 PUT payload: " + dealPayload.toString();
-		dealUpdResp = invokeurl
-		[
-			url: "https://www.zohoapis.com/crm/v8/Deals/" + canonicalDealId
-			type: PUT
-			parameters: dealPayload.toString()
-			headers: {"Content-Type": "application/json"}
-		];
-		info "Deal v8 update resp: " + dealUpdResp;
+		// zoho.crm.updateRecord auto-authenticates; invokeurl to zohoapis.com without
+		// a connection returns AUTHENTICATION_FAILURE in this org. Product_Details writes
+		// land via updateRecord; Zoho auto-recalculates Amount from the line-item totals.
+		info "Deal updateRecord payload: " + dUpd.toString();
+		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
+		info "Deal updateRecord resp: " + dealUpdResp;
 	}
 
 	// ---- 13. Roll up Account State / Status ----
