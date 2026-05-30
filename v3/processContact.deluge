@@ -568,22 +568,32 @@ void automation.processContact(string contact_id)
 	}
 	info "Product catalog loaded: " + productCatalog.size() + " products";
 
-	existingProdIdsAttached = List();
-	existingProdsRel = zoho.crm.getRelatedRecords("Products", "Deals", canonicalDealId.toLong());
-	if(existingProdsRel != null && existingProdsRel.size() > 0 && !existingProdsRel.toString().startsWith("{"))
+	// Deals' Products related list is the Product_Details field (embedded line items),
+	// NOT a true association. updateRelatedRecord("Products", ...) returns a no-op success.
+	// The reliable write path is updateRecord with a merged Product_Details array.
+	existingPDList = targetDeal.get("Product_Details");
+	mergedPDList = List();
+	seenProdIds = List();
+	if(existingPDList != null && existingPDList.size() > 0)
 	{
-		for each ep in existingProdsRel
+		for each pd in existingPDList
 		{
-			if(ep.get("id") != null)
+			prodLookup = pd.get("product");
+			if(prodLookup != null && prodLookup.get("id") != null)
 			{
-				existingProdIdsAttached.add(ep.get("id").toString());
+				pid_existing = prodLookup.get("id").toString();
+				if(!seenProdIds.contains(pid_existing))
+				{
+					seenProdIds.add(pid_existing);
+					mergedPDList.add(pd);
+				}
 			}
 		}
 	}
-	info "Existing attached Products on Deal " + canonicalDealId + ": " + existingProdIdsAttached.size();
+	info "Existing Product_Details on Deal " + canonicalDealId + ": " + seenProdIds.size();
 
 	totalAmount = 0.0;
-	prodAttachCount = 0;
+	prodAddedCount = 0;
 	for each pName in aggregatedPIList
 	{
 		safeName = pName.trim().replaceAll("  ", " ");
@@ -610,15 +620,18 @@ void automation.processContact(string contact_id)
 				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
 				totalAmount = totalAmount + price;
 
-				if(!existingProdIdsAttached.contains(prodId))
+				if(!seenProdIds.contains(prodId))
 				{
-					attachMap = Map();
-					attachMap.put("Quantity", 1);
-					attachMap.put("list_price", price);
-					prodResp = zoho.crm.updateRelatedRecord("Products", prodId.toLong(), "Deals", canonicalDealId.toLong(), attachMap);
-					info "Products attach deal=" + canonicalDealId + " product=" + prodId + " (name='" + safeName + "', price=" + price + ") resp=" + prodResp;
-					existingProdIdsAttached.add(prodId);
-					prodAttachCount = prodAttachCount + 1;
+					newPD = Map();
+					newProdLookup = Map();
+					newProdLookup.put("id", prodId);
+					newPD.put("product", newProdLookup);
+					newPD.put("quantity", 1);
+					newPD.put("list_price", price);
+					mergedPDList.add(newPD);
+					seenProdIds.add(prodId);
+					prodAddedCount = prodAddedCount + 1;
+					info "Queueing Product for Deal: " + safeName + " (id=" + prodId + ", price=" + price + ")";
 				}
 			}
 			else
@@ -627,7 +640,7 @@ void automation.processContact(string contact_id)
 			}
 		}
 	}
-	info "Products summary: attached=" + prodAttachCount + " totalAmount=" + totalAmount + " totalLineItems=" + existingProdIdsAttached.size();
+	info "Products summary: newlyQueued=" + prodAddedCount + " totalAmount=" + totalAmount + " totalLineItems=" + mergedPDList.size();
 
 	// ---- 10. Update canonical Deal ----
 	dUpd = Map();
@@ -635,6 +648,11 @@ void automation.processContact(string contact_id)
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+
+	if(prodAddedCount > 0)
+	{
+		dUpd.put("Product_Details", mergedPDList);
+	}
 
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
@@ -659,7 +677,20 @@ void automation.processContact(string contact_id)
 
 	if(dUpd.size() > 0)
 	{
-		zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd);
+		// Route via invokeurl to v8 explicitly so Product_Details writes are honored.
+		dealDataList = List();
+		dealDataList.add(dUpd);
+		dealPayload = Map();
+		dealPayload.put("data", dealDataList);
+
+		dealUpdResp = invokeurl
+		[
+			url: "https://www.zohoapis.com/crm/v8/Deals/" + canonicalDealId
+			type: PUT
+			parameters: dealPayload.toString()
+			headers: {"Content-Type": "application/json"}
+		];
+		info "Deal v8 update resp: " + dealUpdResp;
 	}
 
 	// ---- 11. Roll up Account State / Status ----
