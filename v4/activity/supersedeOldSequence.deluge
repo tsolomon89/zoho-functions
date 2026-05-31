@@ -1,0 +1,90 @@
+// =========================================================================
+// supersedeOldSequence
+//
+// Prevents stale sequences from emitting work after Stage changes. Called
+// from sequenceRouter when Active_Sequence_Stage differs from current
+// Stage1. Idempotent.
+//
+// Actions:
+//   1. Find related Calls where Sequence_Managed=true,
+//      Sequence_Stage=Active_Sequence_Stage, Call_Outcome is empty,
+//      Stale != true. Set Stale=true and Status="Cancelled".
+//   2. Find related Tasks where Sequence_Managed=true,
+//      Sequence_Stage=Active_Sequence_Stage, Status != "Completed",
+//      Blocks_Sequence=true. Set Status="Deferred" so the operator sees
+//      they were superseded (we do NOT delete history).
+//   3. Stamp Deal: Sequence_Superseded_At=now, Sequence_Status="Superseded".
+//
+// All writes use empty triggerMap so cascading workflows don't fire.
+// =========================================================================
+
+void automation.supersedeOldSequence(string dealIdStr)
+{
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(dealId == 0) { return; }
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+
+	oldStage = ifnull(deal.get("Active_Sequence_Stage"), "").toString();
+	if(oldStage == "")
+	{
+		automation.logAutomationEvent("supersedeOldSequence", "Deals", dealId.toString(), "no_action", "no_active_stage", null);
+		return;
+	}
+
+	now = zoho.currenttime;
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	staleCallCount = 0;
+	relCalls = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
+	if(!isNull(relCalls) && relCalls.size() > 0 && !relCalls.toString().startsWith("{"))
+	{
+		for each call in relCalls
+		{
+			seqManaged   = ifnull(call.get("Sequence_Managed"), "No").toString();
+			callOutcome  = ifnull(call.get("Call_Outcome"), "").toString();
+			callSeqStage = ifnull(call.get("Sequence_Stage"), "").toString();
+			alreadyStale = ifnull(call.get("Stale"), "No").toString();
+
+			if(seqManaged == "Yes" && callOutcome == "" && callSeqStage == oldStage && alreadyStale != "Yes")
+			{
+				staleUpd = Map();
+				staleUpd.put("Stale", "Yes");
+				staleUpd.put("Status", "Cancelled");
+				zoho.crm.updateRecord("Calls", call.get("id").toLong(), staleUpd, triggerMap);
+				staleCallCount = staleCallCount + 1;
+			}
+		}
+	}
+
+	deferredTaskCount = 0;
+	relTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+	if(!isNull(relTasks) && relTasks.size() > 0 && !relTasks.toString().startsWith("{"))
+	{
+		for each tk in relTasks
+		{
+			tSeq      = ifnull(tk.get("Sequence_Managed"), "No").toString();
+			tStatus   = ifnull(tk.get("Status"), "").toString();
+			tSeqStage = ifnull(tk.get("Sequence_Stage"), "").toString();
+			tBlocks   = ifnull(tk.get("Blocks_Sequence"), "No").toString();
+
+			if(tSeq == "Yes" && tStatus != "Completed" && tSeqStage == oldStage && tBlocks == "Yes")
+			{
+				tUpd = Map();
+				tUpd.put("Status", "Deferred");
+				zoho.crm.updateRecord("Tasks", tk.get("id").toLong(), tUpd, triggerMap);
+				deferredTaskCount = deferredTaskCount + 1;
+			}
+		}
+	}
+
+	dealUpd = Map();
+	dealUpd.put("Sequence_Superseded_At", now);
+	dealUpd.put("Sequence_Status", "Superseded");
+	zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+	automation.logAutomationEvent("supersedeOldSequence", "Deals", dealId.toString(), "supersede", "success", {"old_stage":oldStage, "stale_calls":staleCallCount, "deferred_tasks":deferredTaskCount});
+}

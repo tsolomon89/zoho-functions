@@ -1,0 +1,96 @@
+Module,Label,API_Name,Type,Picklist_Values,Required,Reuse_Notes
+Deals,Stage,Stage1,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,Yes,REUSE existing custom field Stage1 (already has the 8 spec values per v3 code)
+Deals,Stage Rank,(derived),Number,1-8,Yes,DO NOT CREATE - derive in Deluge from Stage1 via stageRanks map
+Deals,Opportunity,Stage,Picklist,MQL;SQL;FTP;RTP,Yes,REUSE default Zoho Stage field (renamed Opportunity in UI; already holds these values per v3 code)
+Deals,State,State,Picklist,Open;Lost;Won,Yes,REUSE existing State field
+Deals,Status,Status,Picklist,New;Working;Closed,Yes,REUSE existing Status field
+Deals,Reason For Loss,Reason_For_Loss__s,Picklist,(existing),No,REUSE existing field
+Deals,Sequence Status,Sequence_Status,Picklist,Not Started;Initialized;Waiting on Call;Waiting on Meeting;Waiting on Email Trigger;Waiting on Internal Task;Paused;Deferred;Manual Only;Completed;Superseded;Suppressed,Yes,CREATE
+Deals,Sequence Action Mode,Sequence_Action_Mode,Picklist,Call First;Email First;Meeting First;Task First;Manual Review First,Yes,CREATE - default Call First
+Deals,Active Sequence Stage,Active_Sequence_Stage,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,Yes,CREATE
+Deals,Active Sequence Attempt,Active_Sequence_Attempt,Number,0-5,Yes,CREATE
+Deals,Active Email Chain Step,Active_Email_Chain_Step,Number,0-7,Yes,CREATE
+Deals,Next Action Type,Next_Action_Type,Picklist,Call;Automated Email;Meeting;Task;Stage Update;Manual Review,Yes,CREATE
+Deals,Next Action Due Date,Next_Action_Due_Date,DateTime,,Yes,CREATE
+Deals,Sequence Paused Until,Sequence_Paused_Until,DateTime,,Yes,CREATE
+Deals,Sequence Superseded At,Sequence_Superseded_At,DateTime,,Yes,CREATE
+Deals,Automation Suppressed,Automation_Suppressed,Checkbox,true;false,Yes,CREATE
+Deals,Suppression Reason,Suppression_Reason,Picklist,Existing Client;Existing Open Conversation;Partner Managed;Bad Data;Do Not Contact;Duplicate;Imported Historical Record;Manual Handling Required;Legal/Compliance;Stage Incorrect,Yes,CREATE
+Deals,Demo Meeting ID,Demo_Meeting_ID,Text,,Yes,CREATE - stores related Event ID
+Deals,Demo Start DateTime,Demo_Start_DateTime,DateTime,,Yes,CREATE
+Deals,Demo End DateTime,Demo_End_DateTime,DateTime,,Yes,CREATE
+Deals,Demo Reminder Send At,Demo_Reminder_Send_At,DateTime,,Yes,CREATE - one business day before AM
+Deals,Demo Status,Demo_Status,Picklist,Not Scheduled;Scheduled;Confirmed;Rescheduled;Cancelled;Completed;No Show,Yes,CREATE
+Deals,Demo Outcome,Demo_Outcome,Picklist,Scheduled;Attended - Qualified;Attended - Needs Follow-up;Attended - Not Qualified;No Show;Rescheduled;Cancelled;Commercials Requested;Follow-up Required,Yes,CREATE
+Deals,Commercials Status,Commercials_Status,Picklist,Not Started;Drafting;Ready to Send;Sent;Discussed;Intent to Sign;Signed;Deferred;Rejected,Yes,CREATE
+Deals,Commercials Sent At,Commercials_Sent_At,DateTime,,Yes,CREATE - starts FTP follow-up
+Deals,Commercials Discussed At,Commercials_Discussed_At,DateTime,,Yes,CREATE
+Deals,Commercial Outcome,Commercial_Outcome,Picklist,Intent to Sign;Needs Review;Deferred;Rejected;No Answer;Signed,Yes,CREATE
+Deals,Next Comm Follow-Up Date,Next_Comm_Follow_Up_Date,DateTime,,Yes,CREATED (label shortened from 'Next Commercial Follow-Up Date' due to 25-char limit)
+Deals,Comm Follow-Up Reason,Comm_Follow_Up_Reason,Picklist,Budget Timing;Board Approval;Legal Review;Procurement;Asked To Defer;No Response;Other,No,CREATED (label shortened from 'Commercial Follow-Up Reason')
+Deals,Intent To Sign,Intent_To_Sign,Checkbox,true;false,Yes,CREATE
+Deals,Expected Signature Date,Expected_Signature_Date,Date,,No,CREATE
+Deals,Signed At,Signed_At,DateTime,,Yes,CREATE
+Deals,Seq Thread Message ID,Seq_Thread_Message_ID,Text,,Yes,CREATED (label shortened from 'Sequence Thread Message ID')
+Deals,Last Email Message ID,Last_Email_Message_ID,Text,,Yes,CREATE - email threading reference
+Deals,Last Email Template,Last_Email_Template,Text,,No,CREATE - audit
+Deals,Last Email Sent At,Last_Email_Sent_At,DateTime,,No,CREATE - timing logic
+Deals,Product Resolution Status,Product_Resolution_Status,Picklist,Not Started;Resolved;Missing Product Interest;Failed;Manual Review;No Active Product Match,Yes,CREATE
+Deals,Deal Value Source,Deal_Value_Source,Picklist,Product Derived;Manual;Imported;Estimated;Unknown,No,CREATE
+Deals,Associated Product IDs,Associated_Product_IDs,Multi-line Text,,No,CREATE - debug reference
+Calls,(use What_Id + $se_module=Deals),What_Id,Lookup: polymorphic,,Yes,REUSE - Zoho Activities modules do NOT allow custom Lookup fields; use built-in What_Id with $se_module='Deals'
+Calls,Sequence Managed,Sequence_Managed,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (Activities modules disallow Boolean type)
+Calls,Sequence Stage,Sequence_Stage,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,Yes,CREATED on Calls (shared across Activities sub-modules: visible on Events/Tasks too)
+Calls,Sequence Attempt,Sequence_Attempt,Number,1-5,Yes,CREATED on Calls (shared across Activities sub-modules)
+Calls,Call Outcome,Call_Outcome,Picklist,Positive;Neutral;No Answer;Negative;Deferred;Bad Data;Already Handled;Not Relevant;Manual Only;Do Not Contact,Yes,CREATE
+Calls,Outcome Notes,Outcome_Notes,Multi-line Text,,No,CREATE - rep notes
+Calls,Next Follow-Up Date,Next_Follow_Up_Date,DateTime,,Yes,CREATED on Calls (shared across Activities sub-modules)
+Calls,Email Trigger Template,Email_Trigger_Template,Text,,No,CREATE - resolved template name
+Calls,Call Purpose Detail,Call_Purpose_Detail,Picklist,Data Completion;Book Demo;Confirm Attendance;Post-Demo Follow-Up;Commercial Discussion;Onboarding;Renewal,No,CREATE
+Calls,Block Email Until Done,Block_Email_Until_Done,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (was 'Blocks Email Until Completed' Checkbox; renamed for 25-char limit + Activities disallow Boolean)
+Calls,Stale,Stale,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (Activities disallow Boolean) - set 'Yes' by supersedeOldSequence
+Events,(use What_Id + $se_module=Deals),What_Id,Lookup: polymorphic,,Yes,REUSE - Activities disallow custom Lookups; use What_Id with $se_module='Deals'
+Events,Sequence Managed,Sequence_Managed,Picklist,Yes;No,No,SHARED from Calls (Activities cross-module field)
+Events,Meeting Type,Meeting_Type,Picklist,Demo;Commercial Discussion;Onboarding;Renewal;Other,Yes,CREATE
+Events,Meeting Status,Meeting_Status,Picklist,Scheduled;Confirmed;Rescheduled;Cancelled;Completed;No Show,Yes,CREATE
+Events,Meeting Outcome,Meeting_Outcome,Picklist,Scheduled;Attended - Qualified;Attended - Needs Follow-up;Attended - Not Qualified;No Show;Rescheduled;Cancelled;Commercials Discussed;Intent to Sign;Renewal Agreed;Renewal Declined,No,CREATE
+Events,Reminder Send At,Reminder_Send_At,DateTime,,No,CREATE
+Events,Follow-Up Required,Follow_Up_Required,Picklist,Yes;No,No,CREATED as Yes/No picklist (Activities disallow Boolean)
+Events,Follow-Up Stage,Follow_Up_Stage,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,No,CREATE
+Events,Ext Calendar Booking ID,Ext_Calendar_Booking_ID,Text,,No,CREATED (label shortened from 'External Calendar Booking ID')
+Tasks,(use What_Id + $se_module=Deals),What_Id,Lookup: polymorphic,,Yes,REUSE - Activities disallow custom Lookups; use What_Id with $se_module='Deals'
+Tasks,Sequence Managed,Sequence_Managed,Picklist,Yes;No,Yes,SHARED from Calls (Activities cross-module field)
+Tasks,Task Type,Task_Type,Picklist,Enrichment;Data Repair;Draft Commercials;Send Commercials;Review Reply;Onboarding Setup;Manual Review;Suppression Review,Yes,CREATE
+Tasks,Task Outcome,Task_Outcome,Picklist,Completed;Blocked;Not Relevant;Already Handled;Needs Follow-Up;Failed,No,CREATE
+Tasks,Sequence Stage,Sequence_Stage,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,No,SHARED from Calls (Activities cross-module field)
+Tasks,Sequence Attempt,Sequence_Attempt,Number,0-5,No,SHARED from Calls
+Tasks,Next Follow-Up Date,Next_Follow_Up_Date,DateTime,,No,SHARED from Calls
+Tasks,Blocks Sequence,Blocks_Sequence,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (Activities disallow Boolean)
+Contacts,Contact Source Class,Contact_Source_Class,Picklist,Inbound Form;LinkedIn Prospecting;Partner Referral;Existing Database;Existing Client;Calendar Booking;Migration;Manual Add;Bulk Import,No,CREATED (label shortened from 'Contact Source Classification')
+Contacts,Marketing Consent Status,Marketing_Consent_Status,Picklist,Consented;Not Consented;Unknown;Withdrawn,Yes,CREATE NEW - existing Marketing_Consent Boolean is semantically different (true/false vs 4 states). Keep Boolean for legacy then deprecate.
+Contacts,Profile Completion Status,Profile_Completion_Status,Picklist,Complete;Missing Company;Missing Phone;Missing Product Interest;Missing Role;Needs Enrichment,No,CREATE
+Contacts,Do Not Contact Reason,Do_Not_Contact_Reason,Picklist,Unsubscribed;Existing Client;Duplicate;Bad Data;Legal/Compliance;Requested No Contact,No,CREATE
+Contacts,Preferred Contact Method,Preferred_Contact_Method,Picklist,Phone;Email;No Preference;Partner Managed,No,CREATE
+Contacts,Last Enrichment Status,Last_Enrichment_Status,Picklist,Not Started;Completed;Failed;Needs Review,No,CREATE
+Contacts,Active Deal ID,Active_Deal_ID,Text,,No,CREATE - debug reference
+Leads,Lead Processing Status,Lead_Processing_Status,Picklist,Not Processed;Processing;Converted;Failed;Manual Review;Duplicate,Yes,CREATE
+Leads,Conversion Outcome,Conversion_Outcome,Multi-line Text,,No,CREATE
+Leads,Imported Record Type,Imported_Record_Type,Picklist,Inbound Form;LinkedIn Prospecting;Partner Referral;Existing Database;Existing Client;Calendar Booking;Migration;Manual Add;Bulk Import,No,CREATE
+Leads,Initial Stage,Initial_Stage,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,No,CREATE
+Leads,Initial Opportunity,Initial_Opportunity,Picklist,MQL;SQL;FTP;RTP,No,CREATE
+Leads,Product Resolution Status,Product_Resolution_Status,Picklist,Not Started;Resolved;Missing Product Interest;Failed;Manual Review;No Active Product Match,No,CREATE
+Leads,Processing Error,Processing_Error,Multi-line Text,,No,CREATE - error/debug output
+Leads,Ready for Conversion,Ready_for_Conversion,Checkbox,true;false,No,CREATE
+Accounts,Account Source Class,Account_Source_Class,Picklist,Inbound Form;LinkedIn Prospecting;Partner Referral;Existing Database;Existing Client;Calendar Booking;Migration;Manual Add;Bulk Import,No,CREATED (label shortened from 'Account Source Classification')
+Accounts,Account Enrichment Status,Account_Enrichment_Status,Picklist,Not Started;Complete;Needs Research;Failed,No,CREATE
+Accounts,Industry Validation,Industry_Validation,Picklist,Known;Inferred;Unknown;Needs Review,No,CREATED (label shortened from 'Industry Confirmation Status')
+Accounts,Company Size Band,Company_Size_Band,Picklist,1-10;11-50;51-200;201-500;501-1000;1000+;Unknown,No,CREATE
+Accounts,Account Status,Account_Status,Picklist,Prospect;Active Customer;Existing Client;Partner;Churned;Do Not Contact,No,CREATE NEW - existing Status field holds (New/Working/Closed) lifecycle state; Account Status is a separate commercial classification
+Accounts,Automation Suppressed,Automation_Suppressed,Checkbox,true;false,No,CREATE
+Accounts,Suppression Reason,Account_Suppression_Reason,Picklist,Existing Client;Existing Open Conversation;Partner Managed;Bad Data;Do Not Contact;Duplicate;Imported Historical Record;Manual Handling Required;Legal/Compliance;Stage Incorrect,No,CREATE
+Products,CRM Product Type,CRM_Product_Type,Picklist,Product;Feature;Solution;Use Case;Bundle,No,CREATE
+Products,Default Deal Value,Default_Deal_Value,Currency,,Yes,CREATE - used for Deal Amount calculation (in addition to existing Unit_Price)
+Products,Value Calculation Method,Value_Calculation_Method,Picklist,Fixed;Tiered;Manual;Imported,No,CREATE
+Products,Active for Deal Auto,Active_for_Deal_Auto,Checkbox,true;false,Yes,CREATED (label shortened from 'Active for Deal Automation') - distinct from existing Product_Active
+Products,Product Mapping Aliases,Product_Mapping_Aliases,Multi-line Text,,No,CREATE - semicolon-separated synonyms for resolveProducts
+Products,Needs Manual Pricing,Needs_Manual_Pricing,Checkbox,true;false,No,CREATE

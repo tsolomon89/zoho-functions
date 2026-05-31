@@ -1,0 +1,124 @@
+// =========================================================================
+// sequenceRouter
+//
+// Main state-machine entrypoint for Deals. Called from:
+//   - v3/processLead.deluge, processContact.deluge, processAccount.deluge,
+//     processDeal.deluge (graph-layer hook after canonical Deal exists)
+//   - WF002 Deal Sequence Router (Sequence_Status = Not Started)
+//   - WF003 Deal Stage Change Router (Stage1 changed)
+//   - WF010 Date-Based Follow-Up Router (Sequence_Paused_Until reached etc.)
+//
+// Decisions:
+//   1. Automation_Suppressed = true               → return.
+//   2. Stage1 empty                                → manual-review Task, return.
+//   3. Sequence_Status in Paused/Manual Only/
+//      Suppressed AND Sequence_Paused_Until not
+//      yet reached                                 → return.
+//   4. Active_Sequence_Stage != current Stage1     → supersedeOldSequence.
+//   5. Sequence_Status empty / Not Started /
+//      Initialized / Superseded OR stage just
+//      changed                                     → bootstrap new sequence:
+//                                                    createStageCall(deal,
+//                                                                    stage, 1)
+//                                                    + stamp Sequence_Status,
+//                                                    Active_Sequence_Stage,
+//                                                    Active_Sequence_Attempt.
+//
+// Field-name reminders:
+//   Stage              = Stage1                    (8 stage values)
+//   Opportunity        = Stage                     (MQL/SQL/FTP/RTP)
+//
+// All Deal updates pass an empty triggerMap to avoid re-firing WF002/WF003.
+// =========================================================================
+
+void automation.sequenceRouter(string dealIdStr)
+{
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	automation.logAutomationEvent("sequenceRouter", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
+
+	if(dealId == 0)
+	{
+		automation.logAutomationEvent("sequenceRouter", "Deals", "", "guard", "skip_no_id", null);
+		return;
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id")))
+	{
+		automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "skip_not_found", null);
+		return;
+	}
+
+	suppressed = ifnull(deal.get("Automation_Suppressed"), false);
+	if(suppressed.toString() == "true")
+	{
+		automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	stage = ifnull(deal.get("Stage1"), "").toString();
+	if(stage == "")
+	{
+		mrTask = Map();
+		mrTask.put("Subject", "Sequence: Stage1 missing on Deal " + dealId);
+		mrTask.put("Status", "Not Started");
+		mrTask.put("What_Id", dealId);
+		mrTask.put("$se_module", "Deals");
+		mrTask.put("Sequence_Managed", "Yes");
+		mrTask.put("Task_Type", "Manual Review");
+		mrTask.put("Blocks_Sequence", "Yes");
+		mrTask.put("Description", "sequenceRouter cannot initialize - Stage1 is empty. Set the Stage and re-trigger.");
+		mrResp = zoho.crm.createRecord("Tasks", mrTask);
+		automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "manual_review_no_stage", {"task_resp":mrResp});
+		return;
+	}
+
+	sequenceStatus = ifnull(deal.get("Sequence_Status"), "").toString();
+	activeStage    = ifnull(deal.get("Active_Sequence_Stage"), "").toString();
+	pausedUntil    = deal.get("Sequence_Paused_Until");
+	now            = zoho.currenttime;
+
+	pausedStates = {"Paused", "Manual Only", "Suppressed", "Deferred"};
+	if(pausedStates.contains(sequenceStatus))
+	{
+		if(isNull(pausedUntil) || pausedUntil > now)
+		{
+			automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "skip_paused", {"sequence_status":sequenceStatus, "paused_until":ifnull(pausedUntil, "").toString()});
+			return;
+		}
+		info "sequenceRouter: resume after pause; pausedUntil=" + pausedUntil + " now=" + now;
+	}
+
+	stageChanged = (activeStage != "" && activeStage != stage);
+	if(stageChanged)
+	{
+		automation.supersedeOldSequence(dealId.toString());
+	}
+
+	bootstrapStates = {"", "Not Started", "Initialized", "Superseded", "Completed", "Deferred"};
+	needsBootstrap = stageChanged || bootstrapStates.contains(sequenceStatus);
+
+	if(needsBootstrap)
+	{
+		callId = automation.createStageCall(dealId.toString(), stage, 1);
+
+		updateMap = Map();
+		updateMap.put("Sequence_Status", "Waiting on Call");
+		updateMap.put("Active_Sequence_Stage", stage);
+		updateMap.put("Active_Sequence_Attempt", 1);
+		updateMap.put("Active_Email_Chain_Step", 0);
+		updateMap.put("Next_Action_Type", "Call");
+		updateMap.put("Sequence_Paused_Until", "");
+
+		triggerMap = Map();
+		triggerMap.put("trigger", List());
+		dealResp = zoho.crm.updateRecord("Deals", dealId, updateMap, triggerMap);
+
+		automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "bootstrap", "success", {"stage":stage, "call_id":callId, "deal_resp":dealResp});
+	}
+	else
+	{
+		automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "no_action", "already_active", {"stage":stage, "sequence_status":sequenceStatus, "active_stage":activeStage});
+	}
+}

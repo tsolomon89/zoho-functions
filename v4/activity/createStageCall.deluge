@@ -1,0 +1,99 @@
+// =========================================================================
+// createStageCall
+//
+// Creates a sequence-managed Call for a given Deal, Stage, and Attempt.
+//
+// Duplicate prevention (FUNCTION_SPEC.md §8):
+//   Before creating, search for existing open Call where
+//   What_Id = dealId AND Sequence_Managed = "Yes" AND
+//   Sequence_Stage = stage AND Sequence_Attempt = attempt AND
+//   Call_Outcome is empty AND Stale != "Yes".
+//   If found, return its ID.
+// Note: Zoho Activities modules disallow custom Lookup fields and Boolean fields.
+// Calls/Events/Tasks use the built-in polymorphic What_Id + $se_module="Deals"
+// for record linkage, and Yes/No picklists in place of true/false.
+//
+// Call Purpose is mapped from Stage. Due date is now for attempt 1,
+// +2 business days for attempts 2-5.
+//
+// Returns the Call ID (existing or new) or "" on failure.
+// =========================================================================
+
+string automation.createStageCall(string dealIdStr, string stage, int attempt)
+{
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(dealId == 0 || isNull(stage) || stage == "")
+	{
+		automation.logAutomationEvent("createStageCall", "Calls", "", "guard", "skip_invalid_input", {"deal":ifnull(dealId, "").toString(), "stage":ifnull(stage, "")});
+		return "";
+	}
+	if(isNull(attempt) || attempt < 1) { attempt = 1; }
+
+	searchCriteria = "(What_Id:equals:\"" + dealId + "\")and(Sequence_Managed:equals:Yes)and(Sequence_Stage:equals:\"" + stage + "\")and(Sequence_Attempt:equals:" + attempt + ")";
+	existing = zoho.crm.searchRecords("Calls", searchCriteria);
+	if(!isNull(existing) && existing.size() > 0 && !existing.toString().startsWith("{"))
+	{
+		for each c in existing
+		{
+			outcomeStr = ifnull(c.get("Call_Outcome"), "").toString();
+			staleStr   = ifnull(c.get("Stale"), "No").toString();
+			if(outcomeStr == "" && staleStr != "Yes")
+			{
+				existingId = c.get("id").toString();
+				automation.logAutomationEvent("createStageCall", "Calls", existingId, "no_action", "duplicate_open_call", {"deal":dealId, "stage":stage, "attempt":attempt});
+				return existingId;
+			}
+		}
+	}
+
+	purposeMap = Map();
+	purposeMap.put("Marketing Consent", "Data Completion");
+	purposeMap.put("Demo Booking",      "Book Demo");
+	purposeMap.put("Demo Booked",       "Confirm Attendance");
+	purposeMap.put("Demo Attended",     "Post-Demo Follow-Up");
+	purposeMap.put("Commercials Sent",  "Commercial Discussion");
+	purposeMap.put("Commercials Signed","Commercial Discussion");
+	purposeMap.put("Onboarding",        "Onboarding");
+	purposeMap.put("Renewal",           "Renewal");
+	callPurpose = ifnull(purposeMap.get(stage), "Data Completion").toString();
+
+	dueDate = zoho.currenttime;
+	if(attempt > 1)
+	{
+		dueDateStr = automation.calculateBusinessDate(zoho.currenttime, 2, "business_days");
+		dueDate = dueDateStr.toDateTime("yyyy-MM-dd HH:mm:ss");
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	contactId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { contactId = cnLookup.get("id").toString(); }
+
+	callMap = Map();
+	callMap.put("Subject", stage + " Call " + attempt);
+	callMap.put("What_Id", dealId);
+	callMap.put("$se_module", "Deals");
+	if(contactId != "") { callMap.put("Who_Id", contactId); }
+	callMap.put("Sequence_Managed", "Yes");
+	callMap.put("Sequence_Stage", stage);
+	callMap.put("Sequence_Attempt", attempt);
+	callMap.put("Block_Email_Until_Done", "Yes");
+	callMap.put("Call_Purpose_Detail", callPurpose);
+	callMap.put("Call_Type", "Outbound");
+	callMap.put("Call_Start_Time", dueDate);
+	callMap.put("Stale", "No");
+
+	createResp = zoho.crm.createRecord("Calls", callMap);
+	newCallId = "";
+	if(!isNull(createResp) && !isNull(createResp.get("id")))
+	{
+		newCallId = createResp.get("id").toString();
+		automation.logAutomationEvent("createStageCall", "Calls", newCallId, "create", "success", {"deal":dealId, "stage":stage, "attempt":attempt, "due":ifnull(dueDate, "").toString()});
+	}
+	else
+	{
+		automation.logAutomationEvent("createStageCall", "Calls", "", "create", "failed", {"deal":dealId, "stage":stage, "attempt":attempt, "resp":createResp});
+	}
+	return newCallId;
+}

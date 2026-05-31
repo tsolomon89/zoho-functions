@@ -1,0 +1,138 @@
+// =========================================================================
+// handleCommercialsStatusChange
+//
+// Triggered by WF004 when Deal.Commercials_Status changes. Implements
+// FUNCTION_SPEC.md §12.
+//
+// Boundary rule (AGENTS.md §Commercial Boundary): FTP starts only when
+// commercials have actually been sent. Stage1 advance below enforces it.
+//
+//   Sent      → Stage1=Commercials Sent, Stage=FTP,
+//               Commercials_Sent_At=now (if empty),
+//               Sequence_Status=Not Started (so sequenceRouter creates
+//               Commercials Sent Call 1 via WF003 stage-change router).
+//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
+//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
+//   Signed    → Stage1=Commercials Signed, Stage=RTP, Signed_At=now,
+//               State=Won (only if currently Open), Sequence_Status=Not Started.
+//   Deferred  → Sequence_Status=Deferred,
+//               Sequence_Paused_Until=Next_Commercial_Follow_Up_Date.
+//   Rejected  → Deal Lost/Closed, Reason "Commercial Rejected".
+// =========================================================================
+
+void automation.handleCommercialsStatusChange(string dealIdStr)
+{
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
+
+	if(dealId == 0)
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", "", "guard", "skip_no_id", null);
+		return;
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id")))
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_not_found", null);
+		return;
+	}
+
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	cStatus = ifnull(deal.get("Commercials_Status"), "").toString();
+	now = zoho.currenttime;
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	if(cStatus == "Sent")
+	{
+		dealUpd = Map();
+		dealUpd.put("Stage1", "Commercials Sent");
+		dealUpd.put("Stage", "FTP");
+		if(isNull(deal.get("Commercials_Sent_At")))
+		{
+			dealUpd.put("Commercials_Sent_At", now);
+		}
+		dealUpd.put("Sequence_Status", "Not Started");
+		dealUpd.put("Active_Sequence_Stage", "");
+		dealUpd.put("Active_Sequence_Attempt", 0);
+		dealUpd.put("Active_Email_Chain_Step", 0);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+
+		automation.sendSequencedEmail(dealId, "Commercials Sent", 0, "commercials_terms");
+
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "sent", "stage_to_commercials_sent", {"sent_at":now});
+		return;
+	}
+
+	if(cStatus == "Discussed")
+	{
+		dealUpd = Map();
+		if(isNull(deal.get("Commercials_Discussed_At"))) { dealUpd.put("Commercials_Discussed_At", now); }
+		if(dealUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap); }
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "discussed", "stamped", null);
+		return;
+	}
+
+	if(cStatus == "Intent to Sign")
+	{
+		dealUpd = Map();
+		dealUpd.put("Intent_To_Sign", true);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "intent_to_sign", "flag_set", null);
+		return;
+	}
+
+	if(cStatus == "Signed")
+	{
+		dealUpd = Map();
+		dealUpd.put("Stage1", "Commercials Signed");
+		dealUpd.put("Stage", "RTP");
+		if(isNull(deal.get("Signed_At"))) { dealUpd.put("Signed_At", now); }
+		if(ifnull(deal.get("State"), "").toString() == "Open") { dealUpd.put("State", "Won"); }
+		dealUpd.put("Sequence_Status", "Not Started");
+		dealUpd.put("Active_Sequence_Stage", "");
+		dealUpd.put("Active_Sequence_Attempt", 0);
+		dealUpd.put("Active_Email_Chain_Step", 0);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+
+		automation.sendSequencedEmail(dealId, "Commercials Signed", 0, "commercials_signed_confirmation");
+
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "signed", "stage_to_commercials_signed", {"signed_at":now});
+		return;
+	}
+
+	if(cStatus == "Deferred")
+	{
+		nextFu = deal.get("Next_Comm_Follow_Up_Date");
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Deferred");
+		if(!isNull(nextFu)) { dealUpd.put("Sequence_Paused_Until", nextFu); }
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "deferred", "paused", {"until":ifnull(nextFu, "").toString()});
+		return;
+	}
+
+	if(cStatus == "Rejected")
+	{
+		dealUpd = Map();
+		dealUpd.put("State", "Lost");
+		dealUpd.put("Status", "Closed");
+		dealUpd.put("Sequence_Status", "Completed");
+		if(ifnull(deal.get("Reason_For_Loss__s"), "").toString() == "")
+		{
+			dealUpd.put("Reason_For_Loss__s", "Commercial Rejected");
+		}
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "rejected", "deal_lost", null);
+		return;
+	}
+
+	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "no_action", cStatus, null);
+}

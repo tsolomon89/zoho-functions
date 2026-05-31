@@ -1,0 +1,123 @@
+Day,Stage,Action_Type,Attempt_or_Chain_Step,Template_Name,Business_Day_Offset,Notes
+0,Marketing Consent,Call,1,,0,Sequence entry. Subject 'Marketing Consent Call 1'. Due same day.
+0,Marketing Consent,Email,1,Marketing Consent Email 1,0,Sends only on Neutral/No Answer outcome of Call 1.
+2,Marketing Consent,Call,2,,+2 business days,Created by handleCallOutcome after Call 1 Neutral/No Answer.
+2,Marketing Consent,Email,2,Marketing Consent Email 2,+2 business days,Sends only on Neutral/No Answer outcome of Call 2.
+4,Marketing Consent,Call,3,,+2 business days,
+4,Marketing Consent,Email,3,Marketing Consent Email 3,+2 business days,
+6,Marketing Consent,Call,4,,+2 business days,
+6,Marketing Consent,Email,4,Marketing Consent Email 4,+2 business days,
+8,Marketing Consent,Call,5,,+2 business days,Final phone attempt.
+8,Marketing Consent,Email,5,Marketing Consent Email 5,+2 business days,
+10,Marketing Consent,Email,Chain 1,Marketing Consent Post-Call Email Chain 1,+2 business days after Email 5,Post-call chain begins.
+13,Marketing Consent,Email,Chain 2,Marketing Consent Post-Call Email Chain 2,+3 calendar days,
+16,Marketing Consent,Email,Chain 3,Marketing Consent Post-Call Email Chain 3,+3 calendar days,
+19,Marketing Consent,Email,Chain 4,Marketing Consent Post-Call Email Chain 4,+3 calendar days,
+22,Marketing Consent,Email,Chain 5,Marketing Consent Post-Call Email Chain 5,+3 calendar days,
+25,Marketing Consent,Email,Chain 6,Marketing Consent Post-Call Email Chain 6,+3 calendar days,
+28,Marketing Consent,Email,Chain 7,Marketing Consent Post-Call Email Chain 7,+3 calendar days,Sequence Status = Completed after this.
+0,Demo Booking,Call,1,,0,Sequence entry. Subject 'Demo Booking Call 1'.
+0,Demo Booking,Email,1,Demo Booking Email 1,0,Sends only on Neutral/No Answer.
+2,Demo Booking,Call,2,,+2 business days,
+2,Demo Booking,Email,2,Demo Booking Email 2,+2 business days,
+4,Demo Booking,Call,3,,+2 business days,
+4,Demo Booking,Email,3,Demo Booking Email 3,+2 business days,
+6,Demo Booking,Call,4,,+2 business days,
+6,Demo Booking,Email,4,Demo Booking Email 4,+2 business days,
+8,Demo Booking,Call,5,,+2 business days,
+8,Demo Booking,Email,5,Demo Booking Email 5,+2 business days,
+10,Demo Booking,Email,Chain 1,Demo Booking Post-Call Email Chain 1,+2 business days after Email 5,
+13,Demo Booking,Email,Chain 2,Demo Booking Post-Call Email Chain 2,+3 calendar days,
+16,Demo Booking,Email,Chain 3,Demo Booking Post-Call Email Chain 3,+3 calendar days,
+19,Demo Booking,Email,Chain 4,Demo Booking Post-Call Email Chain 4,+3 calendar days,
+22,Demo Booking,Email,Chain 5,Demo Booking Post-Call Email Chain 5,+3 calendar days,
+25,Demo Booking,Email,Chain 6,Demo Booking Post-Call Email Chain 6,+3 calendar days,
+28,Demo Booking,Email,Chain 7,Demo Booking Post-Call Email Chain 7,+3 calendar days,
+0,Demo Booked,Email,Confirmation,Demo Booked Confirmation Email,0,Sends on meeting created (positive Demo Booking outcome). Not gated by call.
+-1,Demo Booked,Email,Reminder,Demo Booked Reminder Email,-1 business day AM,Triggered by Demo Reminder Send At. Protects attendance.
+0,Demo Booked,Email,NoShow,Demo Booked No-Show Email,0,Triggered only on Demo Outcome = No Show.
+2,Demo Booked,Email,Chain 1,Demo Booked Post-Call Email Chain 1,+2 business days after No Show,
+5,Demo Booked,Email,Chain 2,Demo Booked Post-Call Email Chain 2,+3 calendar days,
+8,Demo Booked,Email,Chain 3,Demo Booked Post-Call Email Chain 3,+3 calendar days,
+11,Demo Booked,Email,Chain 4,Demo Booked Post-Call Email Chain 4,+3 calendar days,
+14,Demo Booked,Email,Chain 5,Demo Booked Post-Call Email Chain 5,+3 calendar days,
+17,Demo Booked,Email,Chain 6,Demo Booked Post-Call Email Chain 6,+3 calendar days,
+20,Demo Booked,Email,Chain 7,Demo Booked Post-Call Email Chain 7,+3 calendar days,
+0,Demo Attended,Email,Post-Demo,Demo Attended Post-Demo Email,0,Triggered on Demo Outcome = Attended - Qualified. Also creates Draft Commercials task.
+0,Demo Attended,Call,1,,0,Sequence entry after demo attended.
+0,Demo Attended,Email,1,Demo Attended Email 1,0,On Neutral/No Answer.
+2,Demo Attended,Call,2,,+2 business days,
+2,Demo Attended,Email,2,Demo Attended Email 2,+2 business days,
+4,Demo Attended,Call,3,,+2 business days,
+4,Demo Attended,Email,3,Demo Attended Email 3,+2 business days,
+6,Demo Attended,Email,CommercialsTerms,Commercials Sent Terms Email,Triggered by Commercials Status = Sent,Boundary email; advances Stage to Commercials Sent.
+8,Demo Attended,Email,Chain 1,Demo Attended Post-Call Email Chain 1,+2 business days,
+11,Demo Attended,Email,Chain 2,Demo Attended Post-Call Email Chain 2,+3 calendar days,
+14,Demo Attended,Email,Chain 3,Demo Attended Post-Call Email Chain 3,+3 calendar days,
+17,Demo Attended,Email,Chain 4,Demo Attended Post-Call Email Chain 4,+3 calendar days,
+20,Demo Attended,Email,Chain 5,Demo Attended Post-Call Email Chain 5,+3 calendar days,
+23,Demo Attended,Email,Chain 6,Demo Attended Post-Call Email Chain 6,+3 calendar days,
+26,Demo Attended,Email,Chain 7,Demo Attended Post-Call Email Chain 7,+3 calendar days,
+0,Commercials Sent,Call,1,,0,Sequence entry on Commercials Status = Sent. Due +2 business days.
+0,Commercials Sent,Email,1,Commercials Sent Email 1,0,On Neutral/No Answer.
+2,Commercials Sent,Call,2,,+2 business days,
+2,Commercials Sent,Email,2,Commercials Sent Email 2,+2 business days,
+4,Commercials Sent,Call,3,,+2 business days,
+4,Commercials Sent,Email,3,Commercials Sent Email 3,+2 business days,
+6,Commercials Sent,Call,4,,+2 business days,
+6,Commercials Sent,Email,4,Commercials Sent Email 4,+2 business days,
+8,Commercials Sent,Call,5,,+2 business days,
+8,Commercials Sent,Email,5,Commercials Sent Email 5,+2 business days,
+10,Commercials Sent,Email,Chain 1,Commercials Sent Post-Call Email Chain 1,+2 business days,
+13,Commercials Sent,Email,Chain 2,Commercials Sent Post-Call Email Chain 2,+3 calendar days,
+16,Commercials Sent,Email,Chain 3,Commercials Sent Post-Call Email Chain 3,+3 calendar days,
+19,Commercials Sent,Email,Chain 4,Commercials Sent Post-Call Email Chain 4,+3 calendar days,
+22,Commercials Sent,Email,Chain 5,Commercials Sent Post-Call Email Chain 5,+3 calendar days,
+25,Commercials Sent,Email,Chain 6,Commercials Sent Post-Call Email Chain 6,+3 calendar days,
+28,Commercials Sent,Email,Chain 7,Commercials Sent Post-Call Email Chain 7,+3 calendar days,
+0,Commercials Signed,Email,Confirmation,Commercials Signed Confirmation Email,0,Triggered on signature/Commercials Status = Signed. Not call-gated.
+0,Commercials Signed,Call,1,,0,Sequence entry. Onboarding handoff.
+0,Commercials Signed,Email,1,Commercials Signed Email 1,0,On Neutral/No Answer.
+2,Commercials Signed,Call,2,,+2 business days,
+4,Commercials Signed,Call,3,,+2 business days,
+6,Commercials Signed,Call,4,,+2 business days,
+8,Commercials Signed,Call,5,,+2 business days,
+10,Commercials Signed,Email,Chain 1,Commercials Signed Post-Call Email Chain 1,+2 business days,
+13,Commercials Signed,Email,Chain 2,Commercials Signed Post-Call Email Chain 2,+3 calendar days,
+16,Commercials Signed,Email,Chain 3,Commercials Signed Post-Call Email Chain 3,+3 calendar days,
+19,Commercials Signed,Email,Chain 4,Commercials Signed Post-Call Email Chain 4,+3 calendar days,
+22,Commercials Signed,Email,Chain 5,Commercials Signed Post-Call Email Chain 5,+3 calendar days,
+25,Commercials Signed,Email,Chain 6,Commercials Signed Post-Call Email Chain 6,+3 calendar days,
+28,Commercials Signed,Email,Chain 7,Commercials Signed Post-Call Email Chain 7,+3 calendar days,
+0,Onboarding,Email,Kickoff,Onboarding Kickoff Email,0,Triggered on Stage entry. Not call-gated.
+0,Onboarding,Call,1,,0,Sequence entry.
+0,Onboarding,Email,1,Onboarding Email 1,0,On Neutral/No Answer.
+2,Onboarding,Call,2,,+2 business days,
+2,Onboarding,Email,2,Onboarding Email 2,+2 business days,
+4,Onboarding,Call,3,,+2 business days,
+6,Onboarding,Call,4,,+2 business days,
+8,Onboarding,Call,5,,+2 business days,
+10,Onboarding,Email,Chain 1,Onboarding Post-Call Email Chain 1,+2 business days,
+13,Onboarding,Email,Chain 2,Onboarding Post-Call Email Chain 2,+3 calendar days,
+16,Onboarding,Email,Chain 3,Onboarding Post-Call Email Chain 3,+3 calendar days,
+19,Onboarding,Email,Chain 4,Onboarding Post-Call Email Chain 4,+3 calendar days,
+22,Onboarding,Email,Chain 5,Onboarding Post-Call Email Chain 5,+3 calendar days,
+25,Onboarding,Email,Chain 6,Onboarding Post-Call Email Chain 6,+3 calendar days,
+28,Onboarding,Email,Chain 7,Onboarding Post-Call Email Chain 7,+3 calendar days,
+0,Renewal,Call,1,,0,Sequence entry.
+0,Renewal,Email,1,Renewal Email 1,0,On Neutral/No Answer.
+2,Renewal,Call,2,,+2 business days,
+2,Renewal,Email,2,Renewal Email 2,+2 business days,
+4,Renewal,Call,3,,+2 business days,
+4,Renewal,Email,3,Renewal Email 3,+2 business days,
+6,Renewal,Call,4,,+2 business days,
+6,Renewal,Email,4,Renewal Email 4,+2 business days,
+8,Renewal,Call,5,,+2 business days,
+8,Renewal,Email,5,Renewal Email 5,+2 business days,
+10,Renewal,Email,Chain 1,Renewal Post-Call Email Chain 1,+2 business days,
+13,Renewal,Email,Chain 2,Renewal Post-Call Email Chain 2,+3 calendar days,
+16,Renewal,Email,Chain 3,Renewal Post-Call Email Chain 3,+3 calendar days,
+19,Renewal,Email,Chain 4,Renewal Post-Call Email Chain 4,+3 calendar days,
+22,Renewal,Email,Chain 5,Renewal Post-Call Email Chain 5,+3 calendar days,
+25,Renewal,Email,Chain 6,Renewal Post-Call Email Chain 6,+3 calendar days,
+28,Renewal,Email,Chain 7,Renewal Post-Call Email Chain 7,+3 calendar days,

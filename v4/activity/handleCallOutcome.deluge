@@ -1,0 +1,256 @@
+// =========================================================================
+// handleCallOutcome
+//
+// Primary email/next-action gate, triggered by WF006 when a sequence-managed
+// Call gets a Call_Outcome value. Implements FUNCTION_SPEC.md §9 outcome
+// branches. Drops stale calls (Sequence_Stage != current Deal Stage1).
+//
+// Outcome handling:
+//   Positive       → advance Stage (Marketing Consent → Demo Booking, etc.)
+//                    and Opportunity. Lets WF003 re-route via sequenceRouter.
+//   Neutral        → sendSequencedEmail({Stage} Email {N}) + createStageCall N+1.
+//   No Answer      → same as Neutral, but trigger_context = "call_no_answer".
+//   Negative       → Deal State=Lost, Status=Closed.
+//   Deferred       → Sequence_Status=Deferred, Paused_Until=Next_Follow_Up_Date.
+//   Bad Data       → Pause + Data Repair Task.
+//   Already Handled→ Mark step complete; no email, no new call.
+//   Not Relevant   → Pause + Manual Review Task.
+//   Manual Only    → Set Automation_Suppressed=true, Suppression_Reason.
+//   Do Not Contact → Same as Manual Only with Do Not Contact reason.
+//
+// After Call 5 the 7-email post-call chain begins (Active_Email_Chain_Step=1,
+// Sequence_Status=Waiting on Email Trigger, scheduled via Next_Action_Due_Date).
+// =========================================================================
+
+void automation.handleCallOutcome(string callIdStr)
+{
+	callId = 0;
+	if(!isNull(callIdStr) && callIdStr != "") { callId = callIdStr.toLong(); }
+	automation.logAutomationEvent("handleCallOutcome", "Calls", ifnull(callId, "").toString(), "entry", "in_progress", null);
+
+	if(callId == 0)
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", "", "guard", "skip_no_id", null);
+		return;
+	}
+
+	call = zoho.crm.getRecordById("Calls", callId);
+	if(isNull(call) || isNull(call.get("id")))
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_not_found", null);
+		return;
+	}
+
+	if(ifnull(call.get("Sequence_Managed"), "No").toString() != "Yes")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_not_sequence_managed", null);
+		return;
+	}
+
+	if(ifnull(call.get("Stale"), "No").toString() == "Yes")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_stale", null);
+		return;
+	}
+
+	// Activities modules use What_Id polymorphic lookup; Related_Deal is not a permissible custom field type.
+	whatLookup = call.get("What_Id");
+	seModule   = ifnull(call.get("$se_module"), "").toString();
+	if(isNull(whatLookup) || isNull(whatLookup.get("id")) || seModule != "Deals")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		return;
+	}
+	dealId = whatLookup.get("id").toLong();
+
+	outcome = ifnull(call.get("Call_Outcome"), "").toString();
+	if(outcome == "")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_outcome", null);
+		return;
+	}
+
+	callSeqStage   = ifnull(call.get("Sequence_Stage"), "").toString();
+	callSeqAttempt = ifnull(call.get("Sequence_Attempt"), 0).toLong();
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id")))
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_deal_not_found", {"deal":dealId});
+		return;
+	}
+	dealStage = ifnull(deal.get("Stage1"), "").toString();
+
+	if(callSeqStage != "" && callSeqStage != dealStage)
+	{
+		staleUpd = Map();
+		staleUpd.put("Stale", "Yes");
+		zoho.crm.updateRecord("Calls", callId, staleUpd);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "marked_stale", {"call_stage":callSeqStage, "deal_stage":dealStage});
+		return;
+	}
+
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	if(outcome == "Positive")
+	{
+		nextStage = "";
+		if(dealStage == "Marketing Consent")         { nextStage = "Demo Booking"; }
+		else if(dealStage == "Demo Booking")         { nextStage = "Demo Booked"; }
+		else if(dealStage == "Demo Booked")          { nextStage = "Demo Attended"; }
+		else if(dealStage == "Commercials Sent")     { nextStage = "Commercials Signed"; }
+		else if(dealStage == "Commercials Signed")   { nextStage = "Onboarding"; }
+		else if(dealStage == "Onboarding")           { nextStage = "Renewal"; }
+
+		if(nextStage != "")
+		{
+			oppMap = Map();
+			oppMap.put("Marketing Consent",  "MQL");
+			oppMap.put("Demo Booking",       "SQL");
+			oppMap.put("Demo Booked",        "SQL");
+			oppMap.put("Demo Attended",      "SQL");
+			oppMap.put("Commercials Sent",   "FTP");
+			oppMap.put("Commercials Signed", "RTP");
+			oppMap.put("Onboarding",         "RTP");
+			oppMap.put("Renewal",            "RTP");
+
+			dealUpd = Map();
+			dealUpd.put("Stage1", nextStage);
+			dealUpd.put("Stage", ifnull(oppMap.get(nextStage), "MQL").toString());
+			zoho.crm.updateRecord("Deals", dealId, dealUpd);
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_positive", "advanced_stage", {"deal":dealId, "from":dealStage, "to":nextStage});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_positive", "no_advance_target", {"deal":dealId, "stage":dealStage});
+		}
+		return;
+	}
+
+	if(outcome == "Neutral" || outcome == "No Answer")
+	{
+		triggerCtx = "call_neutral";
+		if(outcome == "No Answer") { triggerCtx = "call_no_answer"; }
+
+		automation.sendSequencedEmail(dealId.toString(), dealStage, callSeqAttempt, triggerCtx);
+
+		if(callSeqAttempt < 5)
+		{
+			automation.createStageCall(dealId.toString(), dealStage, callSeqAttempt + 1);
+			dealUpd = Map();
+			dealUpd.put("Active_Sequence_Attempt", callSeqAttempt + 1);
+			dealUpd.put("Sequence_Status", "Waiting on Call");
+			dealUpd.put("Next_Action_Type", "Call");
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_" + outcome, "next_call_created", {"deal":dealId, "next_attempt":callSeqAttempt + 1});
+		}
+		else
+		{
+			nextEmailDueStr = automation.calculateBusinessDate(zoho.currenttime, 2, "business_days");
+			nextEmailDue = nextEmailDueStr.toDateTime("yyyy-MM-dd HH:mm:ss");
+			dealUpd = Map();
+			dealUpd.put("Sequence_Status", "Waiting on Email Trigger");
+			dealUpd.put("Active_Email_Chain_Step", 1);
+			dealUpd.put("Next_Action_Type", "Automated Email");
+			dealUpd.put("Next_Action_Due_Date", nextEmailDue);
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_" + outcome, "started_post_call_chain", {"deal":dealId, "stage":dealStage, "next_due":nextEmailDueStr});
+		}
+		return;
+	}
+
+	if(outcome == "Negative")
+	{
+		dealUpd = Map();
+		dealUpd.put("State", "Lost");
+		dealUpd.put("Status", "Closed");
+		dealUpd.put("Sequence_Status", "Completed");
+		if(ifnull(deal.get("Reason_For_Loss__s"), "").toString() == "")
+		{
+			dealUpd.put("Reason_For_Loss__s", "Disqualified - Call");
+		}
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_negative", "deal_lost", {"deal":dealId});
+		return;
+	}
+
+	if(outcome == "Deferred")
+	{
+		nextFu = call.get("Next_Follow_Up_Date");
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Deferred");
+		if(!isNull(nextFu)) { dealUpd.put("Sequence_Paused_Until", nextFu); }
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_deferred", "paused", {"deal":dealId, "until":ifnull(nextFu, "").toString()});
+		return;
+	}
+
+	if(outcome == "Bad Data")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Paused");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+		repairTask = Map();
+		repairTask.put("Subject", "Data Repair for Deal " + dealId + " (Bad Data on Call)");
+		repairTask.put("Status", "Not Started");
+		repairTask.put("What_Id", dealId);
+		repairTask.put("$se_module", "Deals");
+		repairTask.put("Sequence_Managed", "Yes");
+		repairTask.put("Task_Type", "Data Repair");
+		repairTask.put("Blocks_Sequence", "Yes");
+		zoho.crm.createRecord("Tasks", repairTask);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_bad_data", "paused_data_repair", {"deal":dealId});
+		return;
+	}
+
+	if(outcome == "Already Handled")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_already_handled", "step_complete", {"deal":dealId});
+		return;
+	}
+
+	if(outcome == "Not Relevant")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Paused");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+		mrTask = Map();
+		mrTask.put("Subject", "Manual Review for Deal " + dealId + " (Not Relevant call outcome)");
+		mrTask.put("Status", "Not Started");
+		mrTask.put("What_Id", dealId);
+		mrTask.put("$se_module", "Deals");
+		mrTask.put("Sequence_Managed", "Yes");
+		mrTask.put("Task_Type", "Manual Review");
+		mrTask.put("Blocks_Sequence", "Yes");
+		zoho.crm.createRecord("Tasks", mrTask);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_not_relevant", "paused_manual_review", {"deal":dealId});
+		return;
+	}
+
+	if(outcome == "Manual Only")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Manual Only");
+		dealUpd.put("Automation_Suppressed", true);
+		dealUpd.put("Suppression_Reason", "Manual Handling Required");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_manual_only", "automation_off", {"deal":dealId});
+		return;
+	}
+
+	if(outcome == "Do Not Contact")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Suppressed");
+		dealUpd.put("Automation_Suppressed", true);
+		dealUpd.put("Suppression_Reason", "Do Not Contact");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_dnc", "suppressed", {"deal":dealId});
+		return;
+	}
+
+	automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "unknown_outcome", outcome, {"deal":dealId});
+}
