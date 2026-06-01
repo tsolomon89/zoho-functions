@@ -391,7 +391,7 @@ arguments come from merge fields on the Email record.
 
 | Field | Value |
 |---|---|
-| Trigger | Email Notifications → Outgoing → `Replied` |
+| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Replied` |
 | Criteria | `Related Deal` is not empty |
 | Function arg `eventType` | `replied` |
 | Behavior | Pause sequence (`Sequence_Status = Paused`), create `Review Reply` Task. Reply does **not** auto-advance the Deal. |
@@ -400,7 +400,7 @@ arguments come from merge fields on the Email record.
 
 | Field | Value |
 |---|---|
-| Trigger | Email Notifications → Outgoing → `Bounced` |
+| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Bounced` |
 | Criteria | `Related Deal` is not empty |
 | Function arg `eventType` | `bounced` |
 | Behavior | Pause sequence, create `Data Repair` Task, flag Contact `Profile_Completion_Status = Needs Enrichment`. |
@@ -409,7 +409,7 @@ arguments come from merge fields on the Email record.
 
 | Field | Value |
 |---|---|
-| Trigger | Email Notifications → Outgoing → `Not Replied` |
+| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Unreplied` (Zoho prompts for a threshold window; set per sequence cadence, suggested 3 business days) |
 | Criteria | `Related Deal` is not empty |
 | Function arg `eventType` | `not replied` |
 | Behavior | Passive event. Log only. No state change; the regular call/email cadence continues to drive the sequence. |
@@ -418,7 +418,7 @@ arguments come from merge fields on the Email record.
 
 | Field | Value |
 |---|---|
-| Trigger | Email Notifications → Outgoing → `Opened and Unreplied` |
+| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Open and Unreplied` (note: Zoho UI says "Open", not "Opened") |
 | Criteria | `Related Deal` is not empty |
 | Function arg `eventType` | `opened but not replied` |
 | Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
@@ -427,7 +427,7 @@ arguments come from merge fields on the Email record.
 
 | Field | Value |
 |---|---|
-| Trigger | Email Notifications → Outgoing → `Clicked` |
+| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Clicked` |
 | Criteria | `Related Deal` is not empty |
 | Function arg `eventType` | `clicked` |
 | Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |

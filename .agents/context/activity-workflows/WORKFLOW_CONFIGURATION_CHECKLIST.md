@@ -164,18 +164,15 @@ Configure each sub-rule in the Zoho UI as below.
       one in step "Action" below; you'll see five entries like
       `handleEmailEvent (replied)`, `handleEmailEvent (bounced)`, etc.
 
-- [ ] In Setup → Automation → Workflow Rules, choose the module the
-      Outgoing email is sent from. In practice this is **Deals** (sales
-      emails) or **Contacts** depending on where your sequence emails
-      originate. WORKFLOW_TRIGGER_MAP.md lists the trigger module as
-      `Emails`; the Zoho UI surfaces these event types when you create
-      a rule on the owning record's module via the "Email" trigger
-      category — confirm against your org's UI before wiring all five.
+- [ ] In Setup → Automation → Workflow Rules, choose **Emails** as the
+      module. The trigger picker (`Execute this workflow rule based on`)
+      offers two top-level options: `Incoming email` and
+      `Outgoing email`. All five WF009 sub-rules use `Outgoing email`.
 
 ### WF009a — Outgoing Email Replied
 
-- [ ] **Module:** Deals (or Contacts — see common setup)
-- [ ] **Trigger:** Email Notifications → Outgoing → `Replied`
+- [ ] **Module:** Emails
+- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Replied`
 - [ ] **Criteria:** `Related Deal` is not empty
 - [ ] **Action:** Function → `handleEmailEvent (replied)`
 - [ ] **Static arg `eventType`:** `replied`
@@ -185,8 +182,8 @@ Configure each sub-rule in the Zoho UI as below.
 
 ### WF009b — Outgoing Email Bounced
 
-- [ ] **Module:** Deals (or Contacts)
-- [ ] **Trigger:** Email Notifications → Outgoing → `Bounced`
+- [ ] **Module:** Emails
+- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Bounced`
 - [ ] **Criteria:** `Related Deal` is not empty
 - [ ] **Action:** Function → `handleEmailEvent (bounced)`
 - [ ] **Static arg `eventType`:** `bounced`
@@ -195,11 +192,10 @@ Configure each sub-rule in the Zoho UI as below.
 
 ### WF009c — Outgoing Email Unreplied
 
-- [ ] **Module:** Deals (or Contacts)
-- [ ] **Trigger:** Email Notifications → Outgoing → `Not Replied`
-      (Zoho UI will ask for a window, e.g. "Not replied within N days" —
-      set the threshold matching your sequence cadence; suggested 3
-      business days)
+- [ ] **Module:** Emails
+- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Unreplied`
+      (Zoho UI prompts for a threshold window — set this to match your
+      sequence cadence; suggested 3 business days)
 - [ ] **Criteria:** `Related Deal` is not empty
 - [ ] **Action:** Function → `handleEmailEvent (not replied)`
 - [ ] **Static arg `eventType`:** `not replied`
@@ -208,9 +204,10 @@ Configure each sub-rule in the Zoho UI as below.
 
 ### WF009d — Outgoing Email Opened and Unreplied
 
-- [ ] **Module:** Deals (or Contacts)
-- [ ] **Trigger:** Email Notifications → Outgoing →
-      `Opened and Unreplied` (set the window per WF009c)
+- [ ] **Module:** Emails
+- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Open and Unreplied`
+      (note: Zoho's UI says "Open and Unreplied", not "Opened and
+      Unreplied" — set the window per WF009c)
 - [ ] **Criteria:** `Related Deal` is not empty
 - [ ] **Action:** Function → `handleEmailEvent (opened but not replied)`
 - [ ] **Static arg `eventType`:** `opened but not replied`
@@ -219,13 +216,28 @@ Configure each sub-rule in the Zoho UI as below.
 
 ### WF009e — Outgoing Email Clicked
 
-- [ ] **Module:** Deals (or Contacts)
-- [ ] **Trigger:** Email Notifications → Outgoing → `Clicked`
+- [ ] **Module:** Emails
+- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Clicked`
 - [ ] **Criteria:** `Related Deal` is not empty
 - [ ] **Action:** Function → `handleEmailEvent (clicked)`
 - [ ] **Static arg `eventType`:** `clicked`
 - [ ] **Expected behavior:** Passive log only. Reserved for future
       engagement-aware branching.
+
+### Other Outgoing trigger options (not wired by WF009)
+
+The `Outgoing email` picker also exposes `Sent`, `Opened`, and
+`Unopened`. None of these are part of the WF009 sub-rules — they're
+either too noisy (Sent fires on every send) or redundant with the
+engagement-aware branches above (Opened, Unopened). Skip them unless
+you're adding a new engagement signal to `handleEmailEvent`.
+
+### Incoming Email triggers (out of scope for WF009)
+
+The `Incoming email` branch exposes `Received`, `Unreplied`, and
+`Opened and Unreplied`. None of these map to WF009 — inbound email
+handling (e.g. unsolicited replies, support inbound) would need a
+separate handler function and a new WF.
 
 ### WF009 implementation notes
 
