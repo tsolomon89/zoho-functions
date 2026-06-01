@@ -158,6 +158,27 @@ Grep across `v4/` found the same `zoho.currenttime`/`.toDateTime(...)` → datet
 - **Status:** PASS
 - **Observed:** counts unchanged (Contacts=5, Accounts=2, Deals=2, Calls=1). Deal `Modified_Time` advanced to `13:07:50`, `Description` persisted, `Sequence_Status="Waiting on Call"` / `Active_Sequence_Stage="Marketing Consent"` / `Active_Sequence_Attempt=1` unchanged. sequenceRouter correctly recognised state was already active (sequence not in bootstrap states) and skipped Call creation.
 
+### T4 — multi-Lead → multi-Contact role precedence
+
+- **Status:** PASS (on the actual role-assignment assertion) + separate race-condition bug found.
+- **Action taken:** Created 3 Leads with the same `Website="https://acme-t0900-t4.example"`, sequential with 60s / 45s / 60s waits between:
+  - Lead A `991103000000799031` — Job_Title="Head of Marketing" (Decision Maker)
+  - Lead B `991103000000792032` — Job_Title="Product Manager" (End User)
+  - Lead C `991103000000785085` — Job_Title="Marketing Manager" (Influencer)
+- **Observed:**
+  - 3 Contacts created under one Account (`991103000000762150`, `Account_Key=acme-t0900-t4.example`). Each Contact's `Contact_Role1` matches its title-mapped role: DM / EU / Inf. ✅
+  - 1 canonical Deal `991103000000757200` with `Deal_Key=acme-t0900-t4.example::active`, `Stage1=Marketing Consent`, `Stage=MQL`, `State=Open`, `Sequence_Status=Waiting on Call`. ✅
+  - Deal's `Contact_Roles` related list has all 3 entries with correct roles. ✅
+  - Deal's primary `Contact_Name` is T4_A (Decision Maker). This is correct — primary selection is "furthest viable open Contact", all 3 are equally open at creation, T4_A was first. Role-precedence (EU > Inf > DM) applies to per-Contact role assignment, not primary selection.
+- **Race-condition bug found (separate from T4's assertion):** two `Marketing Consent Call 1` records were created on Deal `991103000000757200`, IDs `991103000000733355` (13:10:12) and `991103000000752299` (13:10:13), ~1 second apart. Both have `Sequence_Managed=Yes, Sequence_Stage=Marketing Consent, Sequence_Attempt=1` — the dup-check in `createStageCall` should have prevented this.
+  - **Root cause:** Grep across `v4/` found `sequenceRouter(...)` called from FIVE places — [processLead.deluge:898](../../../v4/processLead.deluge#L898), [processContact.deluge:712](../../../v4/processContact.deluge#L712), [processAccount.deluge:562](../../../v4/processAccount.deluge#L562), [processDeal.deluge:519](../../../v4/processDeal.deluge#L519), [handleTaskCompletion.deluge:73](../../../v4/activity/handleTaskCompletion.deluge#L73). When a Lead is created: WF001a → processLead → (creates Deal which triggers WF001d → processDeal → sequenceRouter) AND processLead itself calls sequenceRouter at its tail. Both sequenceRouter invocations enter the bootstrap branch in parallel because Sequence_Status is still empty when both read the Deal. Both call `createStageCall`. `createStageCall`'s `zoho.crm.searchRecords` dup-check returns "no existing Call" for both because neither create has committed yet. Both create Call 1. Race.
+  - **Why T1 didn't show it:** T1's only Call creation flowed through a manual MCP-driven Deal update (`Sequence_Status=Not Started`), which fires only WF001d/processDeal/sequenceRouter — single chain, no race. T4's Leads each fire the full graph cascade where processLead + processDeal both invoke sequenceRouter.
+  - **Fix options (deferred, design decision needed):**
+    1. **Trigger suppression** at processLead/Contact/Account's Deal write: pass `triggerMap = {trigger: []}` so WF001d does not fire, then rely solely on the explicit `sequenceRouter(dealId)` call at the parent function's tail. Cleanest separation.
+    2. **Remove the redundant tail calls** to `automation.sequenceRouter(...)` from processLead/processContact/processAccount and rely on WF001d → processDeal → sequenceRouter. Risk: if WF001d is disabled or misconfigured the Deal never bootstraps a sequence.
+    3. **Post-create dedup inside createStageCall**: after creating the Call, re-search and if multiple open Calls exist for the same (What_Id, Sequence_Stage, Sequence_Attempt) mark all-but-first as `Stale=Yes`. Doesn't prevent the race but heals afterward.
+  - **Cleanup performed:** deleted duplicate Call `991103000000733355`, kept `991103000000752299` for downstream test consistency.
+
 
 
 
