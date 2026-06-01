@@ -709,7 +709,7 @@ void automation.processContact(string contact_id)
 	if(canonicalDealId != "" && postState == "Open")
 	{
 		info "sequenceRouter hook (processContact): canonicalDealId=" + canonicalDealId;
-		automation.sequenceRouter(canonicalDealId.toString());
+		automation.sequenceRouter(canonicalDealId.toLong());
 	}
 
 	// ---- 11. Roll up Account State / Status ----

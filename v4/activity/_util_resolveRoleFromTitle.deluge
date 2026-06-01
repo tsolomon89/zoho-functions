@@ -1,23 +1,23 @@
-// =========================================================================
-// _util_resolveRoleFromTitle
-//
-// Maps a Job_Title string to a Contact_Role using the canonical title lists
-// from .agents/context/field_mapping/Jurnii Personas - Job Tile to Contact
-// Role Mapping.csv. Precedence on ambiguous titles: End User > Influencer
-// > Decision Maker (default).
-//
-// Returns a Map with:
-//   role_name → "Decision Maker" | "End User" | "Influencer"
-//   role_id   → string id from the supplied roleIdMap (Contacts/roles API
-//               result), or empty if not resolvable
-//
-// v3/processX files keep their inline title lists to remain self-contained.
-// The activity layer (handleCallOutcome, sequenceRouter, etc.) calls this
-// util so behavior stays consistent without copying the lists again.
-// =========================================================================
-
 string automation.resolveRoleFromTitle(string jobTitle, map roleIdMap)
 {
+	// =========================================================================
+	// _util_resolveRoleFromTitle
+	//
+	// Maps a Job_Title string to a Contact_Role using the canonical title lists
+	// from .agents/context/field_mapping/Jurnii Personas - Job Tile to Contact
+	// Role Mapping.csv. Precedence on ambiguous titles: End User > Influencer
+	// > Decision Maker (default).
+	//
+	// Returns a Map with:
+	//   role_name → "Decision Maker" | "End User" | "Influencer"
+	//   role_id   → string id from the supplied roleIdMap (Contacts/roles API
+	//               result), or empty if not resolvable
+	//
+	// v3/processX files keep their inline title lists to remain self-contained.
+	// The activity layer (handleCallOutcome, sequenceRouter, etc.) calls this
+	// util so behavior stays consistent without copying the lists again.
+	// =========================================================================
+
 	result = Map();
 	result.put("role_name", "Decision Maker");
 	result.put("role_id", "");

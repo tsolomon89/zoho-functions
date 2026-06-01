@@ -1,27 +1,27 @@
-// =========================================================================
-// handleCommercialsStatusChange
-//
-// Triggered by WF004 when Deal.Commercials_Status changes. Implements
-// FUNCTION_SPEC.md §12.
-//
-// Boundary rule (AGENTS.md §Commercial Boundary): FTP starts only when
-// commercials have actually been sent. Stage1 advance below enforces it.
-//
-//   Sent      → Stage1=Commercials Sent, Stage=FTP,
-//               Commercials_Sent_At=now (if empty),
-//               Sequence_Status=Not Started (so sequenceRouter creates
-//               Commercials Sent Call 1 via WF003 stage-change router).
-//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
-//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
-//   Signed    → Stage1=Commercials Signed, Stage=RTP, Signed_At=now,
-//               State=Won (only if currently Open), Sequence_Status=Not Started.
-//   Deferred  → Sequence_Status=Deferred,
-//               Sequence_Paused_Until=Next_Commercial_Follow_Up_Date.
-//   Rejected  → Deal Lost/Closed, Reason "Commercial Rejected".
-// =========================================================================
-
 void automation.handleCommercialsStatusChange(string dealIdStr)
 {
+	// =========================================================================
+	// handleCommercialsStatusChange
+	//
+	// Triggered by WF004 when Deal.Commercials_Status changes. Implements
+	// FUNCTION_SPEC.md §12.
+	//
+	// Boundary rule (AGENTS.md §Commercial Boundary): FTP starts only when
+	// commercials have actually been sent. Stage1 advance below enforces it.
+	//
+	//   Sent      → Stage1=Commercials Sent, Stage=FTP,
+	//               Commercials_Sent_At=now (if empty),
+	//               Sequence_Status=Not Started (so sequenceRouter creates
+	//               Commercials Sent Call 1 via WF003 stage-change router).
+	//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
+	//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
+	//   Signed    → Stage1=Commercials Signed, Stage=RTP, Signed_At=now,
+	//               State=Won (only if currently Open), Sequence_Status=Not Started.
+	//   Deferred  → Sequence_Status=Deferred,
+	//               Sequence_Paused_Until=Next_Commercial_Follow_Up_Date.
+	//   Rejected  → Deal Lost/Closed, Reason "Commercial Rejected".
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);

@@ -1,28 +1,28 @@
-// =========================================================================
-// sendSequencedEmail
-//
-// Resolves a Zoho email template via _util_resolveTemplate, sends it to the
-// Deal's primary Contact, and stamps tracking fields on the Deal so future
-// emails can thread/measure correctly.
-//
-// Send mechanism: Zoho CRM Send Mail API
-//   POST /crm/v3/Contacts/{record_id}/actions/send_mail
-// This endpoint requires a connection because invokeurl to zohoapis.com
-// without one returns AUTHENTICATION_FAILURE in this org (see processAccount
-// note ~line 549). Configure a connection named "zoho_crm" in Setup →
-// Developer Space → Connections (scope: ZohoCRM.modules.contacts.UPDATE,
-// ZohoCRM.modules.contacts.READ, ZohoCRM.modules.contacts.send_mail).
-//
-// triggerContext values: see _util_resolveTemplate header.
-//
-// Tracking fields written on Deal:
-//   Last_Email_Template, Last_Email_Sent_At, Last_Email_Message_ID,
-//   Seq_Thread_Message_ID (only if currently empty),
-//   Active_Email_Chain_Step (only when triggerContext = post_call_chain).
-// =========================================================================
-
 void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOrChainStep, string triggerContext)
 {
+	// =========================================================================
+	// sendSequencedEmail
+	//
+	// Resolves a Zoho email template via _util_resolveTemplate, sends it to the
+	// Deal's primary Contact, and stamps tracking fields on the Deal so future
+	// emails can thread/measure correctly.
+	//
+	// Send mechanism: Zoho CRM Send Mail API
+	//   POST /crm/v3/Contacts/{record_id}/actions/send_mail
+	// This endpoint requires a connection because invokeurl to zohoapis.com
+	// without one returns AUTHENTICATION_FAILURE in this org (see processAccount
+	// note ~line 549). Configure a connection named "zoho_crm" in Setup →
+	// Developer Space → Connections (scope: ZohoCRM.modules.contacts.UPDATE,
+	// ZohoCRM.modules.contacts.READ, ZohoCRM.modules.contacts.send_mail).
+	//
+	// triggerContext values: see _util_resolveTemplate header.
+	//
+	// Tracking fields written on Deal:
+	//   Last_Email_Template, Last_Email_Sent_At, Last_Email_Message_ID,
+	//   Seq_Thread_Message_ID (only if currently empty),
+	//   Active_Email_Chain_Step (only when triggerContext = post_call_chain).
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("sendSequencedEmail", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", {"stage":stage, "step":attemptOrChainStep, "ctx":triggerContext});
@@ -76,8 +76,7 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	}
 
 	consentRaw = ifnull(contact.get("Marketing_Consent_Status"), "").toString();
-	consentLegacy = ifnull(contact.get("Marketing_Consent"), false).toString();
-	if(consentRaw == "Not Consented" || consentRaw == "Withdrawn" || consentLegacy == "false_explicit_deny")
+	if(consentRaw == "Not Consented" || consentRaw == "Withdrawn")
 	{
 		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "skip_no_consent", {"contact":contactId, "consent":consentRaw});
 		return;
@@ -102,6 +101,7 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		url    : "https://www.zohoapis.com/crm/v3/Contacts/" + contactId + "/actions/send_mail"
 		type   : POST
 		parameters : sendPayload.toString()
+		headers : {"Content-Type":"application/json"}
 		connection : "zoho_crm"
 	];
 

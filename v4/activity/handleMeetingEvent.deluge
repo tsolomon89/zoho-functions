@@ -1,25 +1,25 @@
-// =========================================================================
-// handleMeetingEvent
-//
-// Triggered by WF007 when an Event is created or edited and What_Id is
-// set. Implements FUNCTION_SPEC.md §13. Owns the calculation of
-// Demo_Reminder_Send_At (one business day before, AM) and mirrors Event
-// state into Deal Demo_* fields. Meetings are Zoho `Events`.
-//
-//   Created / Updated (scheduled) → mirror Event Meeting_Status onto Deal
-//                                   Demo_Status, copy Demo Start/End, set
-//                                   Demo_Reminder_Send_At =
-//                                   calculateBusinessDate(Start_DateTime,
-//                                                         -1,
-//                                                         "business_days_minus_AM").
-//   Cancelled                      → Deal Demo_Status=Cancelled, create
-//                                   recovery Call at Demo Booked stage.
-//   Rescheduled                    → Deal Demo_Status=Rescheduled,
-//                                    recompute Demo_Reminder_Send_At.
-// =========================================================================
-
 void automation.handleMeetingEvent(string eventIdStr)
 {
+	// =========================================================================
+	// handleMeetingEvent
+	//
+	// Triggered by WF007 when an Event is created or edited and What_Id is
+	// set. Implements FUNCTION_SPEC.md §13. Owns the calculation of
+	// Demo_Reminder_Send_At (one business day before, AM) and mirrors Event
+	// state into Deal Demo_* fields. Meetings are Zoho `Events`.
+	//
+	//   Created / Updated (scheduled) → mirror Event Meeting_Status onto Deal
+	//                                   Demo_Status, copy Demo Start/End, set
+	//                                   Demo_Reminder_Send_At =
+	//                                   calculateBusinessDate(Start_DateTime,
+	//                                                         -1,
+	//                                                         "business_days_minus_AM").
+	//   Cancelled                      → Deal Demo_Status=Cancelled, create
+	//                                   recovery Call at Demo Booked stage.
+	//   Rescheduled                    → Deal Demo_Status=Rescheduled,
+	//                                    recompute Demo_Reminder_Send_At.
+	// =========================================================================
+
 	eventId = 0;
 	if(!isNull(eventIdStr) && eventIdStr != "") { eventId = eventIdStr.toLong(); }
 	automation.logAutomationEvent("handleMeetingEvent", "Events", ifnull(eventId, "").toString(), "entry", "in_progress", null);
@@ -65,7 +65,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 	{
 		dealUpd = Map();
 		dealUpd.put("Demo_Status", "Cancelled");
-		dealUpd.put("Demo_Reminder_Send_At", "");
+		dealUpd.put("Demo_Reminder_Send_At", null);
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.createStageCall(dealId.toString(), "Demo Booked", 1);
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "recovery_call", {"deal":dealId});

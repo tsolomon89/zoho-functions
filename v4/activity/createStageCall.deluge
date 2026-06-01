@@ -1,26 +1,26 @@
-// =========================================================================
-// createStageCall
-//
-// Creates a sequence-managed Call for a given Deal, Stage, and Attempt.
-//
-// Duplicate prevention (FUNCTION_SPEC.md §8):
-//   Before creating, search for existing open Call where
-//   What_Id = dealId AND Sequence_Managed = "Yes" AND
-//   Sequence_Stage = stage AND Sequence_Attempt = attempt AND
-//   Call_Outcome is empty AND Stale != "Yes".
-//   If found, return its ID.
-// Note: Zoho Activities modules disallow custom Lookup fields and Boolean fields.
-// Calls/Events/Tasks use the built-in polymorphic What_Id + $se_module="Deals"
-// for record linkage, and Yes/No picklists in place of true/false.
-//
-// Call Purpose is mapped from Stage. Due date is now for attempt 1,
-// +2 business days for attempts 2-5.
-//
-// Returns the Call ID (existing or new) or "" on failure.
-// =========================================================================
-
 string automation.createStageCall(string dealIdStr, string stage, int attempt)
 {
+	// =========================================================================
+	// createStageCall
+	//
+	// Creates a sequence-managed Call for a given Deal, Stage, and Attempt.
+	//
+	// Duplicate prevention (FUNCTION_SPEC.md §8):
+	//   Before creating, search for existing open Call where
+	//   What_Id = dealId AND Sequence_Managed = "Yes" AND
+	//   Sequence_Stage = stage AND Sequence_Attempt = attempt AND
+	//   Call_Outcome is empty AND Stale != "Yes".
+	//   If found, return its ID.
+	// Note: Zoho Activities modules disallow custom Lookup fields and Boolean fields.
+	// Calls/Events/Tasks use the built-in polymorphic What_Id + $se_module="Deals"
+	// for record linkage, and Yes/No picklists in place of true/false.
+	//
+	// Call Purpose is mapped from Stage. Due date is now for attempt 1,
+	// +2 business days for attempts 2-5.
+	//
+	// Returns the Call ID (existing or new) or "" on failure.
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0 || isNull(stage) || stage == "")

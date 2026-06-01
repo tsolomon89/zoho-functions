@@ -1,38 +1,38 @@
-// =========================================================================
-// sequenceRouter
-//
-// Main state-machine entrypoint for Deals. Called from:
-//   - v3/processLead.deluge, processContact.deluge, processAccount.deluge,
-//     processDeal.deluge (graph-layer hook after canonical Deal exists)
-//   - WF002 Deal Sequence Router (Sequence_Status = Not Started)
-//   - WF003 Deal Stage Change Router (Stage1 changed)
-//   - WF010 Date-Based Follow-Up Router (Sequence_Paused_Until reached etc.)
-//
-// Decisions:
-//   1. Automation_Suppressed = true               → return.
-//   2. Stage1 empty                                → manual-review Task, return.
-//   3. Sequence_Status in Paused/Manual Only/
-//      Suppressed AND Sequence_Paused_Until not
-//      yet reached                                 → return.
-//   4. Active_Sequence_Stage != current Stage1     → supersedeOldSequence.
-//   5. Sequence_Status empty / Not Started /
-//      Initialized / Superseded OR stage just
-//      changed                                     → bootstrap new sequence:
-//                                                    createStageCall(deal,
-//                                                                    stage, 1)
-//                                                    + stamp Sequence_Status,
-//                                                    Active_Sequence_Stage,
-//                                                    Active_Sequence_Attempt.
-//
-// Field-name reminders:
-//   Stage              = Stage1                    (8 stage values)
-//   Opportunity        = Stage                     (MQL/SQL/FTP/RTP)
-//
-// All Deal updates pass an empty triggerMap to avoid re-firing WF002/WF003.
-// =========================================================================
-
 void automation.sequenceRouter(string dealIdStr)
 {
+	// =========================================================================
+	// sequenceRouter
+	//
+	// Main state-machine entrypoint for Deals. Called from:
+	//   - v3/processLead.deluge, processContact.deluge, processAccount.deluge,
+	//     processDeal.deluge (graph-layer hook after canonical Deal exists)
+	//   - WF002 Deal Sequence Router (Sequence_Status = Not Started)
+	//   - WF003 Deal Stage Change Router (Stage1 changed)
+	//   - WF010 Date-Based Follow-Up Router (Sequence_Paused_Until reached etc.)
+	//
+	// Decisions:
+	//   1. Automation_Suppressed = true               → return.
+	//   2. Stage1 empty                                → manual-review Task, return.
+	//   3. Sequence_Status in Paused/Manual Only/
+	//      Suppressed AND Sequence_Paused_Until not
+	//      yet reached                                 → return.
+	//   4. Active_Sequence_Stage != current Stage1     → supersedeOldSequence.
+	//   5. Sequence_Status empty / Not Started /
+	//      Initialized / Superseded OR stage just
+	//      changed                                     → bootstrap new sequence:
+	//                                                    createStageCall(deal,
+	//                                                                    stage, 1)
+	//                                                    + stamp Sequence_Status,
+	//                                                    Active_Sequence_Stage,
+	//                                                    Active_Sequence_Attempt.
+	//
+	// Field-name reminders:
+	//   Stage              = Stage1                    (8 stage values)
+	//   Opportunity        = Stage                     (MQL/SQL/FTP/RTP)
+	//
+	// All Deal updates pass an empty triggerMap to avoid re-firing WF002/WF003.
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("sequenceRouter", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
@@ -96,6 +96,36 @@ void automation.sequenceRouter(string dealIdStr)
 		automation.supersedeOldSequence(dealId.toString());
 	}
 
+	// Post-call chain branch: when handleCallOutcome started the 7-email
+	// post-call chain (Sequence_Status = "Waiting on Email Trigger"),
+	// resume here on each WF010 date trigger and advance one chain step.
+	if(!stageChanged && sequenceStatus == "Waiting on Email Trigger")
+	{
+		chainStep = ifnull(deal.get("Active_Email_Chain_Step"), 0).toLong();
+		if(chainStep >= 1 && chainStep <= 7)
+		{
+			automation.sendSequencedEmail(dealId.toString(), stage, chainStep, "post_call_chain");
+			nextStep = chainStep + 1;
+			chainUpd = Map();
+			if(nextStep > 7)
+			{
+				chainUpd.put("Sequence_Status", "Completed");
+				chainUpd.put("Next_Action_Due_Date", null);
+			}
+			else
+			{
+				chainUpd.put("Active_Email_Chain_Step", nextStep);
+				nextDueStr = automation.calculateBusinessDate(zoho.currenttime, 3, "calendar_days");
+				chainUpd.put("Next_Action_Due_Date", nextDueStr.toDateTime("yyyy-MM-dd HH:mm:ss"));
+			}
+			triggerMap2 = Map();
+			triggerMap2.put("trigger", List());
+			zoho.crm.updateRecord("Deals", dealId, chainUpd, triggerMap2);
+			automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "post_call_chain", "advanced", {"step":chainStep, "next_step":nextStep});
+			return;
+		}
+	}
+
 	bootstrapStates = {"", "Not Started", "Initialized", "Superseded", "Completed", "Deferred"};
 	needsBootstrap = stageChanged || bootstrapStates.contains(sequenceStatus);
 
@@ -109,7 +139,7 @@ void automation.sequenceRouter(string dealIdStr)
 		updateMap.put("Active_Sequence_Attempt", 1);
 		updateMap.put("Active_Email_Chain_Step", 0);
 		updateMap.put("Next_Action_Type", "Call");
-		updateMap.put("Sequence_Paused_Until", "");
+		updateMap.put("Sequence_Paused_Until", null);
 
 		triggerMap = Map();
 		triggerMap.put("trigger", List());

@@ -1,20 +1,20 @@
-// =========================================================================
-// _util_calculateBusinessDate
-//
-// Compute a future or past datetime offset by N days, skipping weekends when
-// in business-day mode. Used by sequenceRouter / createStageCall / handle*
-// to schedule next actions, demo reminders, and commercial follow-ups.
-//
-// mode values:
-//   "business_days"          - skip Saturday and Sunday
-//   "business_days_minus_AM" - same as business_days, then snap time to 09:00 local
-//   "calendar_days"          - straight calendar add (no skipping)
-//
-// offset may be negative (e.g., -1 for "one business day before").
-// =========================================================================
-
 string automation.calculateBusinessDate(date startDate, int offset, string calcMode)
 {
+	// =========================================================================
+	// _util_calculateBusinessDate
+	//
+	// Compute a future or past datetime offset by N days, skipping weekends when
+	// in business-day mode. Used by sequenceRouter / createStageCall / handle*
+	// to schedule next actions, demo reminders, and commercial follow-ups.
+	//
+	// mode values:
+	//   "business_days"          - skip Saturday and Sunday
+	//   "business_days_minus_AM" - same as business_days, then snap time to 09:00 local
+	//   "calendar_days"          - straight calendar add (no skipping)
+	//
+	// offset may be negative (e.g., -1 for "one business day before").
+	// =========================================================================
+
 	if(isNull(startDate))
 	{
 		startDate = zoho.currentdate;

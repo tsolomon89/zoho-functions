@@ -1,28 +1,28 @@
-// =========================================================================
-// handleEmailEvent
-//
-// Triggered by WF009 on email reply/bounce/no-reply events. Implements
-// WORKFLOW_TRIGGER_MAP.md §WF009.
-//
-// Default policy:
-//   replied  → does NOT count as positive. Create Review Reply Task,
-//              pause sequence so the rep decides next step.
-//   bounced  → pause sequence, create Data Repair Task, mark Contact
-//              Profile_Completion_Status="Missing Phone" or similar if
-//              email field is the only problem.
-//   not replied / opened but not replied / clicked → no automation action;
-//                                                    logged only.
-//
-// Email replies do NOT automatically advance the Deal. Stage moves require
-// either an explicit Call_Outcome=Positive or a Demo_Outcome/Commercials_Status
-// transition.
-//
-// Inputs may be empty/synthetic when triggered by Zoho's email system rules;
-// guard accordingly.
-// =========================================================================
-
 void automation.handleEmailEvent(string emailRecordIdStr, string eventType, string relatedDealIdStr, string relatedContactIdStr)
 {
+	// =========================================================================
+	// handleEmailEvent
+	//
+	// Triggered by WF009 on email reply/bounce/no-reply events. Implements
+	// WORKFLOW_TRIGGER_MAP.md §WF009.
+	//
+	// Default policy:
+	//   replied  → does NOT count as positive. Create Review Reply Task,
+	//              pause sequence so the rep decides next step.
+	//   bounced  → pause sequence, create Data Repair Task, mark Contact
+	//              Profile_Completion_Status="Missing Phone" or similar if
+	//              email field is the only problem.
+	//   not replied / opened but not replied / clicked → no automation action;
+	//                                                    logged only.
+	//
+	// Email replies do NOT automatically advance the Deal. Stage moves require
+	// either an explicit Call_Outcome=Positive or a Demo_Outcome/Commercials_Status
+	// transition.
+	//
+	// Inputs may be empty/synthetic when triggered by Zoho's email system rules;
+	// guard accordingly.
+	// =========================================================================
+
 	emailRecordId = 0;
 	if(!isNull(emailRecordIdStr) && emailRecordIdStr != "") { emailRecordId = emailRecordIdStr.toLong(); }
 	relatedDealId = 0;

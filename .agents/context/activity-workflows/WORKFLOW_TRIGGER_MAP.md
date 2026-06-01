@@ -357,57 +357,90 @@ Handle non-call manual work, including enrichment, data repair, commercial draft
 
 ---
 
-# WF009 — Email Event Handler
+# WF009 — Email Event Handler (5 sub-rules)
+
+WF009 fans out one workflow rule per Outgoing-email event type. The Zoho
+UI's Email Notifications trigger fires per event (`Replied`,
+`Bounced`, `Not Replied`, `Opened and Unreplied`, `Clicked`) and lets you
+choose only one event-type per rule, so the Zoho-side configuration is a
+1-to-1 mapping: one sub-rule = one event-type → one function call with
+the matching `eventType` static string passed to `handleEmailEvent`.
+
+`Sequence_Managed`, `Stale`, and consent gating are validated *inside*
+`handleEmailEvent`; the criteria below are deliberately minimal so the
+function is reached for every relevant event and can short-circuit
+itself.
 
 ## Module
 
-Emails
+All five sub-rules use the **Emails** module (Outgoing Email events).
 
-## Trigger
-
-Supported email events where available:
-
-- replied
-- bounced
-- not replied
-- opened but not replied
-- clicked
-
-## Criteria
+## Function (all sub-rules)
 
 ```text
-Email belongs to active sequence
-Related Deal is not empty
+handleEmailEvent(email_id, eventType, related_deal_id, related_contact_id)
 ```
 
-## Function
+The Zoho UI lets you set static argument values per function action. Each
+sub-rule passes a different literal for `eventType`; the other three
+arguments come from merge fields on the Email record.
 
-```text
-handleEmailEvent(email_id)
-```
+## Sub-rules
+
+### WF009a — Outgoing Email Replied
+
+| Field | Value |
+|---|---|
+| Trigger | Email Notifications → Outgoing → `Replied` |
+| Criteria | `Related Deal` is not empty |
+| Function arg `eventType` | `replied` |
+| Behavior | Pause sequence (`Sequence_Status = Paused`), create `Review Reply` Task. Reply does **not** auto-advance the Deal. |
+
+### WF009b — Outgoing Email Bounced
+
+| Field | Value |
+|---|---|
+| Trigger | Email Notifications → Outgoing → `Bounced` |
+| Criteria | `Related Deal` is not empty |
+| Function arg `eventType` | `bounced` |
+| Behavior | Pause sequence, create `Data Repair` Task, flag Contact `Profile_Completion_Status = Needs Enrichment`. |
+
+### WF009c — Outgoing Email Unreplied
+
+| Field | Value |
+|---|---|
+| Trigger | Email Notifications → Outgoing → `Not Replied` |
+| Criteria | `Related Deal` is not empty |
+| Function arg `eventType` | `not replied` |
+| Behavior | Passive event. Log only. No state change; the regular call/email cadence continues to drive the sequence. |
+
+### WF009d — Outgoing Email Opened and Unreplied
+
+| Field | Value |
+|---|---|
+| Trigger | Email Notifications → Outgoing → `Opened and Unreplied` |
+| Criteria | `Related Deal` is not empty |
+| Function arg `eventType` | `opened but not replied` |
+| Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
+
+### WF009e — Outgoing Email Clicked
+
+| Field | Value |
+|---|---|
+| Trigger | Email Notifications → Outgoing → `Clicked` |
+| Criteria | `Related Deal` is not empty |
+| Function arg `eventType` | `clicked` |
+| Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
 
 ## Purpose
 
-Interrupt or pause sequences.
+Interrupt or pause sequences on adverse email signals (reply, bounce).
+Passive events (opened, clicked, not replied) are recorded so the
+automation log captures engagement without auto-advancing Stage.
 
-Email reply does not automatically mean positive.
-
-Default behavior:
-
-```text
-Email reply
-→ create Review Reply task
-→ optionally pause sequence
-```
-
-Bounce behavior:
-
-```text
-Email bounced
-→ pause sequence
-→ mark bad email/data repair
-→ create data repair task
-```
+`handleEmailEvent` is the single source of truth for the per-event
+behavior; WF009a–e are dumb fanouts to it. Add a new sub-rule when a
+new Zoho Outgoing email-event type is needed.
 
 ---
 

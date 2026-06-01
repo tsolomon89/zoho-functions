@@ -1,26 +1,26 @@
-// =========================================================================
-// handleDemoOutcome
-//
-// Triggered by WF005 when Deal.Demo_Outcome changes. Implements
-// FUNCTION_SPEC.md §11 outcome branches.
-//
-//   Attended - Qualified      → Stage1=Demo Attended, send Post-Demo email,
-//                               Commercials_Status=Drafting, create
-//                               "Draft Commercials" Task.
-//   Attended - Needs Follow-up→ Stage1=Demo Attended, createStageCall.
-//   Attended - Not Qualified  → Deal Lost/Closed, Reason "Demo Disqualified".
-//   No Show                   → send No-Show recovery email, create recovery
-//                               Call at Demo Booked stage.
-//   Rescheduled               → recompute Demo_Reminder_Send_At from Event
-//                               (handleMeetingEvent owns the calculation).
-//   Cancelled                 → Stage1=Demo Booking, supersede current.
-//   Commercials Requested     → Commercials_Status=Drafting + task (same as
-//                               Attended - Qualified path without auto email).
-//   Follow-up Required        → createStageCall Demo Attended attempt 1.
-// =========================================================================
-
 void automation.handleDemoOutcome(string dealIdStr)
 {
+	// =========================================================================
+	// handleDemoOutcome
+	//
+	// Triggered by WF005 when Deal.Demo_Outcome changes. Implements
+	// FUNCTION_SPEC.md §11 outcome branches.
+	//
+	//   Attended - Qualified      → Stage1=Demo Attended, send Post-Demo email,
+	//                               Commercials_Status=Drafting, create
+	//                               "Draft Commercials" Task.
+	//   Attended - Needs Follow-up→ Stage1=Demo Attended, createStageCall.
+	//   Attended - Not Qualified  → Deal Lost/Closed, Reason "Demo Disqualified".
+	//   No Show                   → send No-Show recovery email, create recovery
+	//                               Call at Demo Booked stage.
+	//   Rescheduled               → recompute Demo_Reminder_Send_At from Event
+	//                               (handleMeetingEvent owns the calculation).
+	//   Cancelled                 → Stage1=Demo Booking, supersede current.
+	//   Commercials Requested     → Commercials_Status=Drafting + task (same as
+	//                               Attended - Qualified path without auto email).
+	//   Follow-up Required        → createStageCall Demo Attended attempt 1.
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("handleDemoOutcome", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);

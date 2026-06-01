@@ -1,24 +1,24 @@
-// =========================================================================
-// handleTaskCompletion
-//
-// Triggered by WF008 when a sequence-managed Task is completed or gets a
-// Task_Outcome. Implements FUNCTION_SPEC.md §14.
-//
-// Branches by Task_Type:
-//   Data Repair        → resume sequenceRouter on Related Deal (lifts the
-//                        Sequence_Status=Paused state from the call outcome
-//                        that created this task).
-//   Draft Commercials  → no auto-advance. Operator sets Commercials_Status=
-//                        Ready to Send when actually ready; WF004 handles
-//                        the rest. We just log here.
-//   Send Commercials   → bump Commercials_Status to Sent so WF004 runs.
-//   Manual Review      → no automation action; logged.
-//   Suppression Review → no automation action; logged.
-//   Enrichment / Onboarding Setup / Review Reply → resume sequenceRouter.
-// =========================================================================
-
 void automation.handleTaskCompletion(string taskIdStr)
 {
+	// =========================================================================
+	// handleTaskCompletion
+	//
+	// Triggered by WF008 when a sequence-managed Task is completed or gets a
+	// Task_Outcome. Implements FUNCTION_SPEC.md §14.
+	//
+	// Branches by Task_Type:
+	//   Data Repair        → resume sequenceRouter on Related Deal (lifts the
+	//                        Sequence_Status=Paused state from the call outcome
+	//                        that created this task).
+	//   Draft Commercials  → no auto-advance. Operator sets Commercials_Status=
+	//                        Ready to Send when actually ready; WF004 handles
+	//                        the rest. We just log here.
+	//   Send Commercials   → bump Commercials_Status to Sent so WF004 runs.
+	//   Manual Review      → no automation action; logged.
+	//   Suppression Review → no automation action; logged.
+	//   Enrichment / Onboarding Setup / Review Reply → resume sequenceRouter.
+	// =========================================================================
+
 	taskId = 0;
 	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }
 	automation.logAutomationEvent("handleTaskCompletion", "Tasks", ifnull(taskId, "").toString(), "entry", "in_progress", null);
@@ -68,7 +68,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 	{
 		dealUpd = Map();
 		dealUpd.put("Sequence_Status", "Not Started");
-		dealUpd.put("Sequence_Paused_Until", "");
+		dealUpd.put("Sequence_Paused_Until", null);
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "resumed_router", {"deal":dealId, "type":tType});

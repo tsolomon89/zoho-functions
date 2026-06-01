@@ -1,25 +1,25 @@
-// =========================================================================
-// supersedeOldSequence
-//
-// Prevents stale sequences from emitting work after Stage changes. Called
-// from sequenceRouter when Active_Sequence_Stage differs from current
-// Stage1. Idempotent.
-//
-// Actions:
-//   1. Find related Calls where Sequence_Managed=true,
-//      Sequence_Stage=Active_Sequence_Stage, Call_Outcome is empty,
-//      Stale != true. Set Stale=true and Status="Cancelled".
-//   2. Find related Tasks where Sequence_Managed=true,
-//      Sequence_Stage=Active_Sequence_Stage, Status != "Completed",
-//      Blocks_Sequence=true. Set Status="Deferred" so the operator sees
-//      they were superseded (we do NOT delete history).
-//   3. Stamp Deal: Sequence_Superseded_At=now, Sequence_Status="Superseded".
-//
-// All writes use empty triggerMap so cascading workflows don't fire.
-// =========================================================================
-
 void automation.supersedeOldSequence(string dealIdStr)
 {
+	// =========================================================================
+	// supersedeOldSequence
+	//
+	// Prevents stale sequences from emitting work after Stage changes. Called
+	// from sequenceRouter when Active_Sequence_Stage differs from current
+	// Stage1. Idempotent.
+	//
+	// Actions:
+	//   1. Find related Calls where Sequence_Managed=true,
+	//      Sequence_Stage=Active_Sequence_Stage, Call_Outcome is empty,
+	//      Stale != true. Set Stale=true and Status="Cancelled".
+	//   2. Find related Tasks where Sequence_Managed=true,
+	//      Sequence_Stage=Active_Sequence_Stage, Status != "Completed",
+	//      Blocks_Sequence=true. Set Status="Deferred" so the operator sees
+	//      they were superseded (we do NOT delete history).
+	//   3. Stamp Deal: Sequence_Superseded_At=now, Sequence_Status="Superseded".
+	//
+	// All writes use empty triggerMap so cascading workflows don't fire.
+	// =========================================================================
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0) { return; }

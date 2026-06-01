@@ -1,29 +1,29 @@
-// =========================================================================
-// handleCallOutcome
-//
-// Primary email/next-action gate, triggered by WF006 when a sequence-managed
-// Call gets a Call_Outcome value. Implements FUNCTION_SPEC.md §9 outcome
-// branches. Drops stale calls (Sequence_Stage != current Deal Stage1).
-//
-// Outcome handling:
-//   Positive       → advance Stage (Marketing Consent → Demo Booking, etc.)
-//                    and Opportunity. Lets WF003 re-route via sequenceRouter.
-//   Neutral        → sendSequencedEmail({Stage} Email {N}) + createStageCall N+1.
-//   No Answer      → same as Neutral, but trigger_context = "call_no_answer".
-//   Negative       → Deal State=Lost, Status=Closed.
-//   Deferred       → Sequence_Status=Deferred, Paused_Until=Next_Follow_Up_Date.
-//   Bad Data       → Pause + Data Repair Task.
-//   Already Handled→ Mark step complete; no email, no new call.
-//   Not Relevant   → Pause + Manual Review Task.
-//   Manual Only    → Set Automation_Suppressed=true, Suppression_Reason.
-//   Do Not Contact → Same as Manual Only with Do Not Contact reason.
-//
-// After Call 5 the 7-email post-call chain begins (Active_Email_Chain_Step=1,
-// Sequence_Status=Waiting on Email Trigger, scheduled via Next_Action_Due_Date).
-// =========================================================================
-
 void automation.handleCallOutcome(string callIdStr)
 {
+	// =========================================================================
+	// handleCallOutcome
+	//
+	// Primary email/next-action gate, triggered by WF006 when a sequence-managed
+	// Call gets a Call_Outcome value. Implements FUNCTION_SPEC.md §9 outcome
+	// branches. Drops stale calls (Sequence_Stage != current Deal Stage1).
+	//
+	// Outcome handling:
+	//   Positive       → advance Stage (Marketing Consent → Demo Booking, etc.)
+	//                    and Opportunity. Lets WF003 re-route via sequenceRouter.
+	//   Neutral        → sendSequencedEmail({Stage} Email {N}) + createStageCall N+1.
+	//   No Answer      → same as Neutral, but trigger_context = "call_no_answer".
+	//   Negative       → Deal State=Lost, Status=Closed.
+	//   Deferred       → Sequence_Status=Deferred, Paused_Until=Next_Follow_Up_Date.
+	//   Bad Data       → Pause + Data Repair Task.
+	//   Already Handled→ Mark step complete; no email, no new call.
+	//   Not Relevant   → Pause + Manual Review Task.
+	//   Manual Only    → Set Automation_Suppressed=true, Suppression_Reason.
+	//   Do Not Contact → Same as Manual Only with Do Not Contact reason.
+	//
+	// After Call 5 the 7-email post-call chain begins (Active_Email_Chain_Step=1,
+	// Sequence_Status=Waiting on Email Trigger, scheduled via Next_Action_Due_Date).
+	// =========================================================================
+
 	callId = 0;
 	if(!isNull(callIdStr) && callIdStr != "") { callId = callIdStr.toLong(); }
 	automation.logAutomationEvent("handleCallOutcome", "Calls", ifnull(callId, "").toString(), "entry", "in_progress", null);

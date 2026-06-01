@@ -130,24 +130,116 @@ Hub → Functions) under the same name (`automation.<functionName>`).
 - [ ] **Action:** Function → `handleTaskCompletion(task_id)`
 - [ ] **Arg mapping:** `task_id` ← `${Tasks.id}`
 
-## WF009 — Email Event Handler
+## WF009 — Email Event Handler (5 sub-rules)
 
-- [ ] **Module:** Emails (via Email Insights / Workflow on email events)
-- [ ] **Trigger:** Where Zoho supports: `replied`, `bounced`,
-      `opened but not replied`, `clicked`, `not replied`
-- [ ] **Criteria:**
-      - Email belongs to a sequence-managed thread (Deal has non-empty `Sequence_Thread_Message_ID` or matches `Last_Email_Message_ID`)
-      - `Related_Deal` is resolvable
-- [ ] **Action:** Function → `handleEmailEvent(email_record_id, event_type, related_deal_id, related_contact_id)`
-- [ ] **Arg mapping:**
-      - `email_record_id` ← Zoho email record ID (may be 0 if unavailable)
-      - `event_type` ← the email event name string
-      - `related_deal_id` ← Deal record ID from the email Related Records context
-      - `related_contact_id` ← Contact record ID from the email Related Records context
-- [ ] **Implementation note:** Zoho email-event workflow plumbing varies by
-      module setup. If your org cannot supply Deal+Contact IDs directly in
-      the workflow context, configure a lightweight intermediate function
-      to resolve them from `Message_ID` before invoking `handleEmailEvent`.
+**Important:** WF009 cannot be created via the MCP/API. Email-event
+triggers (`mail_sent_replied`, `mail_sent_bounced`, `mail_sent_clicked`,
+`mail_sent_notreplied`, `mail_sent_opened_notreplied`) are NOT returned
+by `GET /workflow_configurations?module=Deals` or `?module=Contacts` on
+this org, and `postWorkflowRule` rejects `execute_on=mail_sent_replied`
+with `INVALID_DATA`. Additionally the API `functions` action only takes
+`{id, type}` — there is no way to pass per-rule static arguments via the
+API. Each sub-rule needs its own `handleEmailEvent` *function
+configuration* (Setup → Functions → Configure for Workflow) with a
+different `eventType` static value, and those config IDs aren't
+discoverable via Self Client scope.
+
+Configure each sub-rule in the Zoho UI as below.
+
+### Common setup (do once before the sub-rules)
+
+- [ ] In Setup → Functions, open `handleEmailEvent` and click
+      "Configure for Workflow" **five times** — once per sub-rule. Each
+      configuration binds a different `eventType` static value (see the
+      per-sub-rule sections). The other three function args bind to
+      merge fields and are identical across all five:
+      - `email_record_id` ← `${Emails.Message_Id}` (or the Email record
+        id merge field exposed by your Email module)
+      - `related_deal_id` ← Deal record id resolved from the email's
+        Related Records context (use the `What_Id` / "Related To" merge
+        field where `$se_module == Deals`)
+      - `related_contact_id` ← Contact record id from the email's
+        Recipient or `Who_Id` merge field
+      Record each configuration's display name so you can pick the right
+      one in step "Action" below; you'll see five entries like
+      `handleEmailEvent (replied)`, `handleEmailEvent (bounced)`, etc.
+
+- [ ] In Setup → Automation → Workflow Rules, choose the module the
+      Outgoing email is sent from. In practice this is **Deals** (sales
+      emails) or **Contacts** depending on where your sequence emails
+      originate. WORKFLOW_TRIGGER_MAP.md lists the trigger module as
+      `Emails`; the Zoho UI surfaces these event types when you create
+      a rule on the owning record's module via the "Email" trigger
+      category — confirm against your org's UI before wiring all five.
+
+### WF009a — Outgoing Email Replied
+
+- [ ] **Module:** Deals (or Contacts — see common setup)
+- [ ] **Trigger:** Email Notifications → Outgoing → `Replied`
+- [ ] **Criteria:** `Related Deal` is not empty
+- [ ] **Action:** Function → `handleEmailEvent (replied)`
+- [ ] **Static arg `eventType`:** `replied`
+- [ ] **Expected behavior:** Pauses sequence
+      (`Sequence_Status = Paused`), creates `Review Reply` Task. Does
+      NOT auto-advance the Deal.
+
+### WF009b — Outgoing Email Bounced
+
+- [ ] **Module:** Deals (or Contacts)
+- [ ] **Trigger:** Email Notifications → Outgoing → `Bounced`
+- [ ] **Criteria:** `Related Deal` is not empty
+- [ ] **Action:** Function → `handleEmailEvent (bounced)`
+- [ ] **Static arg `eventType`:** `bounced`
+- [ ] **Expected behavior:** Pauses sequence, creates `Data Repair`
+      Task, flags Contact `Profile_Completion_Status = Needs Enrichment`.
+
+### WF009c — Outgoing Email Unreplied
+
+- [ ] **Module:** Deals (or Contacts)
+- [ ] **Trigger:** Email Notifications → Outgoing → `Not Replied`
+      (Zoho UI will ask for a window, e.g. "Not replied within N days" —
+      set the threshold matching your sequence cadence; suggested 3
+      business days)
+- [ ] **Criteria:** `Related Deal` is not empty
+- [ ] **Action:** Function → `handleEmailEvent (not replied)`
+- [ ] **Static arg `eventType`:** `not replied`
+- [ ] **Expected behavior:** Passive log only. No state change. Regular
+      call/email cadence continues.
+
+### WF009d — Outgoing Email Opened and Unreplied
+
+- [ ] **Module:** Deals (or Contacts)
+- [ ] **Trigger:** Email Notifications → Outgoing →
+      `Opened and Unreplied` (set the window per WF009c)
+- [ ] **Criteria:** `Related Deal` is not empty
+- [ ] **Action:** Function → `handleEmailEvent (opened but not replied)`
+- [ ] **Static arg `eventType`:** `opened but not replied`
+- [ ] **Expected behavior:** Passive log only. Reserved for future
+      engagement-aware branching.
+
+### WF009e — Outgoing Email Clicked
+
+- [ ] **Module:** Deals (or Contacts)
+- [ ] **Trigger:** Email Notifications → Outgoing → `Clicked`
+- [ ] **Criteria:** `Related Deal` is not empty
+- [ ] **Action:** Function → `handleEmailEvent (clicked)`
+- [ ] **Static arg `eventType`:** `clicked`
+- [ ] **Expected behavior:** Passive log only. Reserved for future
+      engagement-aware branching.
+
+### WF009 implementation notes
+
+- The `eventType` literal values MUST match `handleEmailEvent`'s branch
+  strings exactly: `replied`, `bounced`, `not replied`,
+  `opened but not replied`, `clicked`. Mistyping breaks the handler
+  silently — it falls through to the `unknown_event_type` log line.
+- If your Zoho UI cannot supply Deal+Contact IDs directly in the email
+  workflow context, configure a lightweight intermediate function to
+  resolve them from `Message_ID` before invoking `handleEmailEvent`.
+- Sequence-managed gating, stale-call checks, and consent gating are
+  applied inside `handleEmailEvent` — keep the workflow-rule criteria
+  minimal (just `Related Deal` not empty) so the function gets reached
+  for every relevant event and can short-circuit itself.
 
 ## WF010 — Date-Based Follow-Up Router
 
@@ -186,7 +278,9 @@ Then add:
 
 7. WF007 — Event / Meeting Handler
 8. WF008 — Task Completion Handler
-9. WF009 — Email Event Handler
+9. WF009a–e — Email Event Handler (5 sub-rules: Replied,
+   Bounced, Not Replied, Opened and Unreplied, Clicked) — **UI only,
+   API does not support email-event triggers**
 10. WF010 — Date-Based Follow-Up Router
 
 ## Trigger-suppression matrix (workflow cascade safety)
