@@ -179,6 +179,26 @@ Grep across `v4/` found the same `zoho.currenttime`/`.toDateTime(...)` → datet
     3. **Post-create dedup inside createStageCall**: after creating the Call, re-search and if multiple open Calls exist for the same (What_Id, Sequence_Stage, Sequence_Attempt) mark all-but-first as `Stale=Yes`. Doesn't prevent the race but heals afterward.
   - **Cleanup performed:** deleted duplicate Call `991103000000733355`, kept `991103000000752299` for downstream test consistency.
 
+### T5 / T6 — SKIPPED (Lead-only constraint)
+
+T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → silencing) both require **direct creation of Deals** to test the duplicate-recovery silencing path. In Lead-only mode this is unreachable — same-Website Leads converge to one Account+Deal via the cascading dedup logic. Logged as a coverage gap for future rounds when a sandbox or relaxed-mode access is available.
+
+### T7 — Product attachment + Amount sum
+
+- **Status:** FAIL (mid-diagnosis)
+- **Action taken:** Created Lead `991103000000788047` with `Product_Interest=["Jurnii Cortex","Jurnii UX"]`. 3 active Products available in catalog (Jurnii Cortex £16k, Jurnii UX £12k, Jurnii 360 £10k). Waited 75s.
+- **Observed:**
+  - Deal `991103000000747390` created with Stage1/Stage/State/Sequence_Status correct (full graph cascade ran).
+  - **`Amount = 0`** ❌ (expected £28,000 = 16000 + 12000)
+  - **Deal's `Products` related list returned empty** ❌
+  - Lead's `Product_Interest` field correctly retained `["Jurnii Cortex","Jurnii UX"]` post-conversion.
+- **Diagnostic blocker:** REST-invoke of `processLead` returned `NOT_ACTIVE` — the function's "Configure for REST API" toggle is off. Without that I can't capture the `info` logs that would tell me whether `searchRecords("Products", "(Product_Active:equals:true)")` returned the catalog, whether the names matched, whether the `Product_Details` write returned success, or whether `processDeal`'s subsequent cascade pass cleared the field.
+- **Code analysis pending:**
+  - `processLead.deluge:725-890` does the catalog-lookup, name-match, build `mergedPDList`, write `Product_Details` + `Amount` via `updateRecord` with suppressTrigger. Has a pre-pass that sums existing line items first to avoid Amount=0 clobber on cascade re-runs.
+  - `processDeal.deluge:338-485` has the same product-resolution pipeline (catalog + name match + write) with the same pre-pass. Its `aggregatedPIList` is built from Contacts' `Products_Linked` (a separate multi-select-lookup field), NOT from the original Lead's `Product_Interest` text. After Lead conversion, Contact's `Products_Linked` is empty, so processDeal's aggregatedPIList would be empty unless existing Deal Products were already attached.
+  - **Working hypothesis:** processLead's write fails or returns success but Zoho silently rejects the `Product_Details` subform format. processDeal then runs (from Deal-create cascade), sees empty Product_Details + empty aggregatedPIList, writes Amount=0 (no-op).
+- **Republish-tier user action needed:** flip "Configure for REST API" → Active on `processLead` (and `processDeal` for follow-up diagnosis).
+
 
 
 
