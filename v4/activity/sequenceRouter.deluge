@@ -116,7 +116,8 @@ void automation.sequenceRouter(string dealIdStr)
 			{
 				chainUpd.put("Active_Email_Chain_Step", nextStep);
 				nextDueStr = automation.calculateBusinessDate(zoho.currenttime, 3, "calendar_days");
-				chainUpd.put("Next_Action_Due_Date", nextDueStr.toDateTime("yyyy-MM-dd HH:mm:ss"));
+				// Zoho requires ISO-8601 with 'T' separator for datetime fields.
+				chainUpd.put("Next_Action_Due_Date", nextDueStr.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 			}
 			triggerMap2 = Map();
 			triggerMap2.put("trigger", List());

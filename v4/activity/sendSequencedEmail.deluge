@@ -107,7 +107,8 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 
 	dealUpd = Map();
 	dealUpd.put("Last_Email_Template", templateName);
-	dealUpd.put("Last_Email_Sent_At", zoho.currenttime);
+	// Zoho requires ISO-8601 with 'T' separator; zoho.currenttime returns space-separated form.
+	dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 
 	sentMessageId = "";
 	if(!isNull(sendResp) && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)

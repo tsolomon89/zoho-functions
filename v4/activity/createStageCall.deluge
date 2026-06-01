@@ -58,12 +58,21 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	purposeMap.put("Renewal",           "Renewal");
 	callPurpose = ifnull(purposeMap.get(stage), "Data Completion").toString();
 
-	dueDate = zoho.currenttime;
+	// Zoho's createRecord rejects "yyyy-MM-dd HH:mm:ss" for datetime fields with
+	// INVALID_DATA expected_data_type=datetime; it strictly requires ISO-8601 with the
+	// 'T' separator and a timezone offset (e.g. "2026-06-01T11:42:09+01:00"). Both
+	// zoho.currenttime and calculateBusinessDate return the space-separated form, so
+	// we parse via .toDateTime then re-format with the ISO pattern.
+	dueDateBaseStr = "";
 	if(attempt > 1)
 	{
-		dueDateStr = automation.calculateBusinessDate(zoho.currenttime, 2, "business_days");
-		dueDate = dueDateStr.toDateTime("yyyy-MM-dd HH:mm:ss");
+		dueDateBaseStr = automation.calculateBusinessDate(zoho.currenttime, 2, "business_days");
 	}
+	else
+	{
+		dueDateBaseStr = zoho.currenttime;
+	}
+	dueDate = dueDateBaseStr.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	contactId = "";

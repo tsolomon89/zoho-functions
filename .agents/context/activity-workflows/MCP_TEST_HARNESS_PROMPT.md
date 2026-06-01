@@ -153,20 +153,437 @@ record state.
 
 ## §2 — Test plan
 
-Run in the order below. Each test depends on no prior test except
-where noted. Use a fresh `sessionPrefix + "_T<n>"` for each test's
-records.
+The test plan runs in two sections, in order:
 
-### T1 — sequenceRouter bootstraps a new Deal
+- **§2A — Core graph layer** (`v4/processLead.deluge`,
+  `v4/processContact.deluge`, `v4/processAccount.deluge`,
+  `v4/processDeal.deluge`). These are foundational and MUST pass before
+  the activity layer can be trusted. The four `processX` functions own:
+  Lead → Contact/Account/Deal conversion; Account_Key generation;
+  Contact-Role assignment from Job_Title; Product attachment + Amount;
+  duplicate detection and silencing; Account State/Status rollup; and
+  the hook line `automation.sequenceRouter(canonicalDealId.toLong())`
+  that bridges to the activity layer.
+- **§2B — Activity layer** (`v4/activity/*.deluge`).
+  `sequenceRouter`, `createStageCall`, the outcome handlers, etc.
 
-**What this tests:** WF002 (Deal create_or_edit, Sequence_Status = Not Started)
-calls `sequenceRouter`, which calls `createStageCall`, which creates a
-"Marketing Consent Call 1" Call related to the Deal.
+Run §2A in full before §2B. A failing graph-layer test usually masks
+or invalidates downstream activity-layer tests.
+
+Use a fresh `sessionPrefix + "_T<n>"` for each test's records.
+
+---
+
+## §2A — Core graph layer
+
+### T1 — `processLead` end-to-end conversion
+
+**What this tests:** WF001 fires `processLead` on Lead create_or_edit.
+The function should create or link a Contact, an Account, and a Deal,
+then call the activity-layer hook so Stage1 = Marketing Consent on the
+new Deal triggers WF002 → sequenceRouter → Call 1.
+
+**Action:** create a Lead via `createRecords` on Leads with:
+```
+Last_Name              = <sessionPrefix>_T1_Last
+First_Name             = MCPTest
+Email                  = mcp_t1_<timestamp>@example.com
+Phone                  = +44 7000 000001
+Company                = <sessionPrefix>_T1_Co
+Title                  = "Head of Marketing"
+Lead_Processing_Status = "Not Started"
+Ready_for_Conversion   = true
+```
+Wait 60s — Lead pipeline is heavier than Deal-only.
+
+**Assertions:**
+- A **Contact** exists with `Email` matching the Lead's email.
+  - `Account_Name` lookup points at the Account created/linked below.
+- An **Account** exists whose `Account_Name` was derived from the
+  Lead's `Company` and whose `Account_Key` is non-empty.
+- A **Deal** exists with:
+  - `Account_Name` = the new Account
+  - `Contact_Name` = the new Contact
+  - `Stage1` = `Marketing Consent`
+  - `State` = `Open`
+  - `Deal_Key` is non-empty and ends with `::active`
+- The Lead's `Lead_Processing_Status` reflects completion (e.g.
+  `Converted` or `Done`).
+- The Deal's **Contact_Roles** related list contains the Contact with
+  the role derived from `Title`. For `Head of Marketing` the role
+  should be **Decision Maker** (per the title → role lists in
+  `processAccount.deluge` ~lines 37-40 and `_util_resolveRoleFromTitle.deluge`).
+- The hook to `sequenceRouter` fired: within ~30s after Deal creation,
+  the Deal's `Sequence_Status` = `Waiting on Call` and a related Call
+  with `Subject` = `Marketing Consent Call 1` exists.
+
+**On failure:**
+- `v4/processLead.deluge` — full pipeline.
+- Check the Lead's logs for `info` lines indicating which step
+  early-returned (Contact lookup vs Account resolution vs Deal create).
+- If Deal exists but no `Marketing Consent Call 1`: the hook at
+  `v4/processLead.deluge:898` may have failed to fire — check the
+  `if(canonicalDealId != "" && State == "Open")` guard.
+
+### T2 — `processLead` idempotency
+
+**Depends on T1's Lead.**
+
+**Action:** Update the T1 Lead with a no-op edit (e.g. set
+`Phone = "+44 7000 000001 "` then back to the original). Each edit
+re-fires WF001. Wait 60s.
+
+**Assertions:**
+- No second Contact, Account, or Deal was created.
+- The Deal's `Sequence_Status` did not regress (still
+  `Waiting on Call` if T1's Call 1 hasn't been mutated yet).
+- The original Call 1 still exists; no `Marketing Consent Call 1`
+  duplicate appeared.
+
+**On failure:**
+- `v4/processLead.deluge` — duplicate check against existing Contact
+  by Email and existing Account by Account_Key.
+- `v4/activity/createStageCall.deluge` — the Call duplicate-prevention
+  search.
+
+### T3 — `processContact` standalone Contact creates an Account and a Deal
+
+**What this tests:** WF (Contacts/create_or_edit) fires `processContact`
+on a Contact that wasn't created via Lead conversion. The function
+should create or link an Account (by Email domain or explicit linkage)
+and ensure an open Deal exists for that Account.
+
+**Action:** `createRecords` on Contacts with:
+```
+Last_Name      = <sessionPrefix>_T3_Last
+First_Name     = MCPTest
+Email          = mcp_t3_<timestamp>@example.com
+Title          = "Product Manager"
+Account_Name   = (leave empty so processContact must resolve/create)
+```
+Wait 45s.
+
+**Assertions:**
+- The Contact's `Account_Name` lookup is now populated.
+- An Account exists, with a non-empty `Account_Key`.
+- A Deal exists under that Account with `Stage1` = `Marketing Consent`,
+  `State` = `Open`.
+- The Deal's `Contact_Roles` related list contains this Contact with
+  role **End User** (per the `euTitles` list — `Product Manager` is
+  classified End User).
+- The hook fired: `Sequence_Status` = `Waiting on Call` on the new
+  Deal, related Call `Marketing Consent Call 1` exists.
+
+**On failure:**
+- `v4/processContact.deluge` — Account resolution path, role
+  assignment, hook line `~712`.
+
+### T4 — `processContact` role precedence: End User > Influencer > Decision Maker
+
+**What this tests:** the role precedence rule documented in
+`processAccount.deluge` and `_util_resolveRoleFromTitle.deluge`.
+
+**Action:** create three Contacts under a single existing Account
+(use the test Account from §0 or create one in T3):
+```
+Contact A: Title = "Head of Marketing"          → Decision Maker
+Contact B: Title = "Product Manager"            → End User
+Contact C: Title = "Marketing Manager"          → Influencer
+```
+Wait 45s.
+
+**Assertions:**
+- Each Contact appears in the Account's open Deal's `Contact_Roles`
+  with the matching role.
+- If two Contacts have ambiguous titles, the precedence rule applies
+  (End User wins over Influencer wins over Decision Maker default).
+
+**On failure:**
+- `v4/processContact.deluge` and `v4/activity/_util_resolveRoleFromTitle.deluge`.
+- Check the title is in the right title list (`dmTitles`, `euTitles`,
+  `infTitles`) — these are duplicated in `processAccount.deluge` ~37-40
+  and `processLead.deluge`/`processContact.deluge`.
+
+### T5 — `processDeal` ignores "(Duplicate)" suffix Deals
+
+**What this tests:** a Deal with `Deal_Name` ending in `(Duplicate)`
+or `Reason_For_Loss__s` = `Duplicate / Test Record` is a recovery
+sentinel that automation must not revive.
+
+**Action:** create a Deal directly via `createRecords` with:
+```
+Deal_Name              = <sessionPrefix>_T5 (Duplicate)
+Account_Name           = <test account id>
+Contact_Name           = <test contact id>
+Stage1                 = "Marketing Consent"
+State                  = "Open"
+Reason_For_Loss__s     = "Duplicate / Test Record"
+Closing_Date           = <today + 60>
+```
+Wait 30s.
+
+**Assertions:**
+- The Deal exists but its `Stage1`, `State`, `Sequence_Status` were
+  NOT mutated by automation.
+- No `Marketing Consent Call 1` was created against this Deal.
+- The Deal's `Sequence_Status` is still its initial value (empty or
+  whatever was set on create).
+
+**On failure:**
+- `v4/processDeal.deluge` — the early-exit branch (~`if dealName ends
+  with "(Duplicate)" or reasonForLoss == "Duplicate / Test Record"
+  return;`, around line 44-48 of `processDeal.deluge`).
+
+### T6 — `processDeal` silences duplicate active Deals under one Account
+
+**What this tests:** two open Deals under the same Account should not
+co-exist. The newer one wins; the older one is silenced to
+`State = Lost`, `Status = Closed`,
+`Reason_For_Loss__s = "Duplicate / Test Record"`. The canonical Deal
+keeps a non-empty `Deal_Key`.
+
+**Action:**
+1. Create Deal A under `<test account id>`:
+   `Deal_Name = <sessionPrefix>_T6_A`, `Stage1 = Marketing Consent`,
+   `State = Open`.
+2. Wait 45s. Assert Deal A is the canonical one (Call 1 exists).
+3. Create Deal B under the same Account:
+   `Deal_Name = <sessionPrefix>_T6_B`, `Stage1 = Marketing Consent`,
+   `State = Open`.
+4. Wait 45s.
+
+**Assertions (after step 4):**
+- Exactly **one** Deal under the Account has `State = Open`.
+- The other Deal has `State = Lost`, `Status = Closed`,
+  `Reason_For_Loss__s = "Duplicate / Test Record"`.
+- The losing Deal does NOT have a fresh `Call 1` related to it.
+- The canonical Deal's `Sequence_Status` is still active.
+
+**On failure:**
+- `v4/processDeal.deluge` — duplicate Deal silence loop (~ section 3,
+  "Silence duplicate active Deals + identify canonical").
+- `v4/processAccount.deluge` and `v4/processContact.deluge` — same
+  dedup pattern (~lines 200, 686).
+
+### T7 — `processDeal` Product attachment + total `Amount` sum across multiple Products
+
+**What this tests:** when Contacts under the Account express Product
+Interest in **two or more** Products, `processDeal` resolves them by
+name, writes them all to the Deal's `Product_Details` subform, and
+sums per-line `Unit_Price × Quantity` (with Discount and Tax) into the
+Deal's `Amount`. The total is the load-bearing field that downstream
+forecasting relies on, so this test must exercise the sum across
+multiple products — a single-product check would pass even with broken
+aggregation.
+
+**Pre-flight:** Products module needs at least **2 active Products**
+with known, distinct `Unit_Price` values. Read them via `getRecords`
+on Products. Record their IDs, `Product_Name`, and `Unit_Price` for
+the assertion below. If fewer than 2 exist, SKIP and log.
+
+Let `P1 = (name1, price1)`, `P2 = (name2, price2)`, `expectedSum =
+price1 + price2` (assume Quantity = 1 each, no Discount/Tax for the
+baseline). Adjust expectedSum if your test products have non-zero
+Discount/Tax defaults.
+
+**Action:**
+1. Create a Contact `<sessionPrefix>_T7_C` with `Account_Name` =
+   `<test account id>`, `Title = "Head of Marketing"`, and set the
+   Contact's product-interest field to **both** product names
+   (`P1.name` and `P2.name`).
+2. Wait 45s.
+
+**Assertions on the Account's canonical Deal:**
+- `Product_Details` subform contains exactly **2 rows**, one per
+  product. The product IDs match `P1.id` and `P2.id`.
+- Each row has populated `Discount`, `Tax`, `total`, `net_total` (per
+  commit `f2812cc`).
+- The Deal's `Amount` equals `expectedSum` (within £0.01 / $0.01
+  rounding tolerance). Bug pattern to watch for: `Amount` =
+  `price1` only (last write wins) or `Amount` = `price1 × 2` (no
+  per-line distinction) — both indicate aggregation broke.
+- If `Currency` (or `Currency_Symbol`) is set on the Deal, the rate
+  matches expectations (multi-currency is out of scope but should not
+  silently corrupt the sum).
+
+**Then add a third product to stress aggregation:**
+3. Update the Contact's product-interest to include `P3` as well
+   (pick or create a third active Product). Wait 30s.
+- Assert `Product_Details` now has 3 rows and `Amount` =
+  `price1 + price2 + price3`.
+
+**On failure:**
+- `v4/processDeal.deluge` — Product resolution + subform write
+  (~step 6, "Resolve Products by name, attach to Deal Products related
+  list, sum Unit_Price into Deal.Amount").
+- Check recent commits (`git log --oneline v4/processDeal.deluge`) —
+  this code path was changed in `f2812cc`, `35e432d`, and `ca65f5a`.
+  Bug `ca65f5a` specifically fixed "amount inflation" from cascading
+  workflow triggers, so failures here may also indicate a
+  triggerMap regression.
+
+### T9 — `processDeal` links multiple Contacts via `Contact_Roles` related list
+
+**What this tests:** a Deal under an Account with multiple Contacts
+must end up with **all** Contacts attached to the Deal via the
+`Contact_Roles` related list, each with the correct role derived from
+`Title`. `Contact_Name` (the primary single-Contact lookup) holds one
+deterministic Contact (typically the canonical or first-Decision-Maker
+Contact); the rest live in `Contact_Roles`.
+
+**Action:**
+1. Pick or create a fresh Account `<sessionPrefix>_T9_Acc`.
+2. Under it, create three Contacts (in this order):
+   - Contact A: `Title = "Head of Marketing"`, `State = Open` →
+     expected role **Decision Maker**.
+   - Contact B: `Title = "Product Manager"`, `State = Open` →
+     expected role **End User**.
+   - Contact C: `Title = "Marketing Manager"`, `State = Open` →
+     expected role **Influencer**.
+3. After each Contact, wait 30s for `processContact` to run.
+
+**Assertions on the Account's canonical Deal:**
+- `Contact_Roles` related list has **exactly 3 entries**, one per
+  Contact, each with the matching role.
+- `Contact_Name` (primary single-Contact lookup) is set to a
+  deterministic value — confirm which one by reading and noting it
+  the first time (most likely the Decision Maker, Contact A).
+- Reading each Contact back individually, `Account_Name` lookup
+  points at the test Account on all three.
+- Reading the Account's related Contacts via `getRelatedRecords`
+  returns all 3.
+
+**Now mutate to test idempotency + role precedence:**
+4. Update Contact B's `Title` from `"Product Manager"` to
+   `"Senior Product Manager"` (still classified End User per
+   `euTitles`). Wait 30s.
+- Assert `Contact_Roles` still has 3 entries; B is still End User; A
+  and C are unchanged.
+5. Update Contact A's `Title` to `"Product Manager"` (now End User,
+   conflicts with B). Wait 30s.
+- Assert: role precedence rule (End User > Influencer > Decision
+  Maker) is applied per Contact; A is now End User; B is still End
+  User; C unchanged. The Deal's `Contact_Name` primary may or may
+  not flip — note actual behavior for the run log.
+
+**On failure:**
+- `v4/processContact.deluge` — Contact_Roles maintenance loop
+  (~lines 230-280 in v3; the equivalent block in v4).
+- `v4/processDeal.deluge` — step 5 in processDeal's pipeline:
+  "Maintain Contact_Roles related list (Decision Maker default,
+  never overwrite a manual role)".
+- `v4/activity/_util_resolveRoleFromTitle.deluge` — title-list
+  membership.
+
+### T10 — Deal Opportunity (`Stage`) follows the furthest **non-closed** Contact
+
+**What this tests:** when multiple Contacts are linked to a Deal, the
+Deal's `Stage1` and derived `Stage` (Opportunity bucket: MQL / SQL /
+FTP / RTP) reflect the **furthest-along Contact that is still Open**.
+If the furthest Contact is closed (`State = Lost` or equivalent), the
+Deal must fall back to the next-furthest **Open** Contact, not stay
+stuck at the closed Contact's progress.
+
+**Setup:** Use the T9 Account if available, or create a fresh Account
+`<sessionPrefix>_T10_Acc`. The Account should currently have a
+canonical Deal under it (created by T9 or a fresh `processX` run).
+Establish a starting baseline:
+1. Set Contact A's "progress hints" so processDeal computes the
+   Deal at, say, `Stage1 = Demo Attended` (`Stage` = `SQL`).
+2. Set Contact B at `Stage1 = Commercials Sent` (`Stage` = `FTP`) —
+   B is "furthest" so the Deal should reflect FTP.
+3. Wait 45s.
+
+> Exact mechanic: the way each Contact's progress is captured varies
+> between v3 and v4. Read `v4/processDeal.deluge` step 4 ("compute
+> furthest viable open") and `v4/processContact.deluge` to identify
+> whether progress is held on the Contact directly (e.g. a
+> `Contact_Stage` field), inferred from related Calls/Tasks, or
+> derived from the Account's history. Adapt the setup accordingly.
+> If the field model doesn't support per-Contact stage progression,
+> log this in the run log as a coverage gap and skip the test.
+
+**Phase A — baseline:**
+- Assert Deal `Stage1` = `Commercials Sent`, `Stage` = `FTP`
+  (Contact B's progress wins because B is Open and furthest).
+
+**Phase B — close the furthest Contact:**
+- Update Contact B's `State` to `Lost`. Wait 30s.
+
+**Assertions:**
+- Deal `Stage1` reverts to `Demo Attended`, `Stage` = `SQL` —
+  Contact A's progress now wins because A is the furthest Open
+  Contact.
+- Deal `State` stays `Open` (still has at least one open Contact).
+- The Deal does **not** stay at FTP just because Contact B was
+  there at some point — the recompute must drop closed Contacts.
+
+**Phase C — revive Contact B:**
+- Update Contact B's `State` back to `Open`. Wait 30s.
+- Assert Deal `Stage1` returns to `Commercials Sent`, `Stage` =
+  `FTP`.
+
+**Phase D — close all Contacts:**
+- Set both A and B to `State = Lost`. Wait 30s.
+- Assert Deal `State` = `Lost`, `Status` = `Closed`. (If no Open
+  Contact remains, the Deal itself should close — confirm against
+  spec.)
+
+**On failure:**
+- `v4/processDeal.deluge` — step 4 ("Gather Contacts under the
+  Account, compute furthest viable open"). The bug pattern is
+  "furthest ever" instead of "furthest currently open".
+- `v4/processContact.deluge` — Contact.State change should re-fire
+  `processDeal` (directly or via the Account rollup hook).
+- `v4/processAccount.deluge` — Account rollup must propagate the
+  Contact-state change to the Deal.
+
+### T8 — `processAccount` State/Status rollup
+
+**What this tests:** when Deals under an Account change State, the
+Account's own State/Status is recomputed:
+- Account `State = Open` if any related Deal has `State = Open`.
+- Account `State = Lost` only when ALL related Deals are `Lost`.
+- Account `Status = Closed` only when `State = Lost`.
+
+**Setup:**
+1. Use an existing test Account or create a new one
+   `<sessionPrefix>_T8_Acc`.
+2. Under it, create two Deals: `<sessionPrefix>_T8_D1` (Open) and
+   `<sessionPrefix>_T8_D2` (Open). Wait 45s.
+
+**Phase A — mixed:** Set Deal D1 to `State = Lost`. Wait 30s.
+- Assert Account `State = Open` (D2 is still Open).
+
+**Phase B — all Lost:** Set Deal D2 to `State = Lost`. Wait 30s.
+- Assert Account `State = Lost`, `Status = Closed`.
+
+**Phase C — revive:** Update Deal D1 back to `State = Open`. Wait 30s.
+- Assert Account `State = Open` again. `Status` should NOT be
+  `Closed` (per the rule: Closed only when State = Lost).
+
+**On failure:**
+- `v4/processAccount.deluge` — State/Status rollup (~lines 580-595).
+- `v4/processDeal.deluge` — Account rollup hook (~lines 540-548).
+- `v4/processContact.deluge` — same rollup pattern (~lines 727-741).
+
+---
+
+## §2B — Activity layer (run after §2A is fully green)
+
+### T11 — `sequenceRouter` bootstraps a new Deal
+
+**What this tests:** WF002 (Deal create_or_edit, Sequence_Status =
+Not Started) calls `sequenceRouter`, which calls `createStageCall`,
+which creates a "Marketing Consent Call 1" Call related to the Deal.
+
+This overlaps with T1's hook assertion but tests `sequenceRouter`
+directly on a Deal created via the data API (skipping the Lead path).
 
 **Action:**
 ```
 createRecords on Deals with:
-  Deal_Name        = <sessionPrefix>_T1
+  Deal_Name        = <sessionPrefix>_T11
   Account_Name     = <test account id>
   Contact_Name     = <test contact id>
   Stage1           = "Marketing Consent"
@@ -175,7 +592,6 @@ createRecords on Deals with:
   Closing_Date     = <today + 60 days>
   Amount           = 0
 ```
-
 Wait 30s.
 
 **Assertions (read the Deal back, then its related Calls):**
@@ -190,17 +606,17 @@ Wait 30s.
   - `Sequence_Attempt` == 1
   - `Stale` == `No`
 
-**On failure**, investigate in this order:
+**On failure:**
 1. WF002 active? (`getWorkflowRules` filter by `WF002`)
 2. `v4/activity/sequenceRouter.deluge` — bootstrap branch logic
 3. `v4/activity/createStageCall.deluge` — Call creation + duplicate
    prevention
 
-### T2 — Stage change supersedes the old sequence
+### T12 — Stage change supersedes the old sequence
 
-**Depends on T1's Deal.**
+**Depends on T11's Deal.**
 
-**Action:** Update the T1 Deal:
+**Action:** Update the T11 Deal:
 ```
 Stage1 = "Demo Booking"
 ```
@@ -210,7 +626,7 @@ Wait 30s.
 - `Active_Sequence_Stage` == `Demo Booking`
 - `Active_Sequence_Attempt` == 1
 - `Sequence_Status` == `Waiting on Call`
-- The old Marketing Consent Call from T1 is now `Stale = Yes` and
+- The old Marketing Consent Call from T11 is now `Stale = Yes` and
   `Status = Cancelled`.
 - Exactly **one** new open Call exists with `Subject` =
   `Demo Booking Call 1`, `Sequence_Stage = Demo Booking`, `Stale = No`.
@@ -220,9 +636,9 @@ Wait 30s.
 2. `v4/activity/sequenceRouter.deluge` — `stageChanged` branch
 3. `v4/activity/supersedeOldSequence.deluge`
 
-### T3 — Commercials_Status = Signed keeps the Deal Open (regression for the State=Won bug)
+### T13 — Commercials_Status = Signed keeps the Deal Open (regression for the State=Won bug)
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T3`, Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T13`, Stage1 =
 `Commercials Sent`, State = `Open`, Sequence_Status =
 `Waiting on Call`. Wait 15s for any incidental triggers to settle.
 
@@ -248,9 +664,9 @@ Wait 30s.
    code still writes `Won`, the user republished an old version of the
    function.
 
-### T4 — Commercials_Status = Rejected → Deal Lost
+### T14 — Commercials_Status = Rejected → Deal Lost
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T4` at Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T14` at Stage1 =
 `Commercials Sent`.
 
 **Action:** Update `Commercials_Status = "Rejected"`. Wait 30s.
@@ -265,9 +681,9 @@ Wait 30s.
 - `v4/activity/handleCommercialsStatusChange.deluge` — the `Rejected`
   branch
 
-### T5 — Demo_Outcome = Attended - Qualified
+### T15 — Demo_Outcome = Attended - Qualified
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T5` at Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T15` at Stage1 =
 `Demo Booked`.
 
 **Action:** Update `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
@@ -284,17 +700,16 @@ Wait 30s.
 - `v4/activity/handleDemoOutcome.deluge` — `Attended - Qualified`
   branch
 
-### T6 — Positive Call outcome advances the Deal
+### T16 — Positive Call outcome advances the Deal
 
-**Depends on T1 or T2's Deal having an open `Marketing Consent Call 1`
+**Depends on T11 or T12's Deal having an open `Marketing Consent Call 1`
 or `Demo Booking Call 1`.** Use whichever exists from prior tests, or
-create a new Deal `<sessionPrefix>_T6` with Stage1 =
+create a new Deal `<sessionPrefix>_T16` with Stage1 =
 `Marketing Consent`, wait 30s for Call 1 to appear, then proceed.
 
 **Action:** Update that Call:
 ```
 Call_Outcome = "Positive"
-Call_Result  = (optional, leave existing)
 ```
 Wait 30s.
 
@@ -308,9 +723,9 @@ Wait 30s.
 - `v4/activity/handleCallOutcome.deluge` — `Positive` branch + stage
   map.
 
-### T7 — Neutral / No Answer creates Call N+1
+### T17 — Neutral / No Answer creates Call N+1
 
-**Setup:** Use a fresh Deal `<sessionPrefix>_T7` with Stage1 =
+**Setup:** Use a fresh Deal `<sessionPrefix>_T17` with Stage1 =
 `Marketing Consent`. Wait 30s for Call 1.
 
 **Action:** Update Call 1:
@@ -327,7 +742,7 @@ Wait 30s.
 **On failure:**
 - `v4/activity/handleCallOutcome.deluge` — `Neutral`/`No Answer` branch
 
-### T8 — Idempotency: second update doesn't duplicate Calls
+### T18 — Idempotency: second update doesn't duplicate Calls
 
 Pick any Deal from prior tests that already has a Call 1. Update it
 with a no-op field change (e.g. add a trailing space to
@@ -338,54 +753,43 @@ with a no-op field change (e.g. add a trailing space to
 **On failure:**
 - `v4/activity/createStageCall.deluge` — duplicate search criteria.
 
-### T9 — Lead conversion creates Contact + Account + Deal
-
-**Action:** Create a Lead via `createRecords` on Leads with:
-```
-Last_Name              = <sessionPrefix>_T9_Last
-First_Name             = MCPTest
-Company                = <sessionPrefix>_T9_Co
-Email                  = mcp_t9@example.com
-Lead_Processing_Status = "Not Started"
-Ready_for_Conversion   = true
-```
-Wait 60s (Lead pipeline is heavier).
-
-**Assertions:**
-- A Contact exists with `Email` = `mcp_t9@example.com`.
-- An Account exists with `Account_Name` containing the Lead's
-  `Company`.
-- A Deal exists linked to that Account + Contact, with Stage1 =
-  `Marketing Consent`, State = `Open`.
-- The Lead's `Conversion_Outcome` (or equivalent) reflects success.
-
-**On failure:**
-- WF001 active?
-- `v4/processLead.deluge` — full pipeline; check the `info` logs.
-
 ---
 
 ## §3 — Optional / advanced tests
 
-Run only if §2 is all green and the user wants deeper coverage.
+Run only if §2A + §2B are all green and the user wants deeper coverage.
 
-### T10 — Stale Call guard
+### T20 — Stale Call guard
 
-After T2, attempt to set `Call_Outcome = Positive` on the *stale*
+After T12, attempt to set `Call_Outcome = Positive` on the *stale*
 Marketing Consent Call (the one that got marked `Stale = Yes`).
 Assert: the Deal's Stage1 does **not** change. The handler should drop
 the call as stale.
 
-### T11 — Bad data → Manual Review Task
+### T21 — Bad data → Manual Review Task
 
 Trigger via `Call_Outcome = "Bad Data"` on an open Call. Assert: Deal
 `Sequence_Status = Paused`, a `Data Repair` Task is created.
 
-### T12 — Suppression
+### T22 — Suppression
 
 Set `Automation_Suppressed = true` on a Deal. Then perform any of the
-state mutations from §2. Assert: no Calls, no emails, no state
+state mutations from §2B. Assert: no Calls, no emails, no state
 changes happen. The functions should early-return.
+
+### T23 — Cross-process consistency
+
+Pick a single canonical Deal that survived §2A. Trigger
+`processContact` on its primary Contact (no-op edit), then
+`processAccount` on its Account (no-op edit), then `processDeal` on
+the Deal itself. After each step, read the Deal back and assert that
+`Stage1`, `State`, `Status`, `Sequence_Status`, `Amount`,
+`Active_Sequence_Stage`, and `Active_Sequence_Attempt` are **unchanged
+across all three triggers**. This guards against any of the four
+process functions overwriting fields owned by another layer.
+
+**On failure:** look for cascading writes. Cross-process consistency
+is the most common regression site when adding a new field write.
 
 ---
 
@@ -444,6 +848,189 @@ Do NOT attempt to test:
   `mcp__zoho-crm-automation__ZohoCRM_updateWorkflowRuleById` to fix it
   — but log this in the run log as a configuration fix, not a code
   fix, and the user does not need to republish for it.
+
+---
+
+## §4 — Coverage gaps to flag (review before testing)
+
+Items the user explicitly named and items the user might not have
+thought to ask about. The Claude Code session should review this list
+at session start, decide which items apply to the current round, and
+either fold them into the test runs or note them in
+`MCP_TEST_RUN_LOG.md` as known gaps for future rounds.
+
+### Cross-module bidirectional link integrity
+
+Every record-to-record reference should be readable from both sides.
+Verify by spot-checking, not necessarily as a dedicated test:
+
+| Source → Target | Forward read (on source) | Reverse read (related list on target) |
+|---|---|---|
+| Lead → Contact (post-convert) | `Lead.Converted_Contact` lookup populated | Contact's audit shows the Lead conversion |
+| Contact → Account | `Contact.Account_Name` lookup | Account's related Contacts list |
+| Deal → Account | `Deal.Account_Name` lookup | Account's related Deals list |
+| Deal → primary Contact | `Deal.Contact_Name` lookup | Contact's related Deals list |
+| Deal ↔ multiple Contacts | Deal's `Contact_Roles` related list | Each Contact's related Deals list |
+| Deal → Products | `Product_Details` subform | Product's "where used" / related Deals |
+| Call/Task/Event → Deal | `What_Id` lookup (polymorphic) + `$se_module` = `Deals` | Deal's related Calls/Tasks/Events list |
+| Call/Task/Event → primary Contact | `Who_Id` lookup | Contact's related Activities list |
+
+If any forward reference exists but the reverse read returns empty
+(or vice versa), that's a broken bidirectional link — usually caused
+by writing the lookup with the wrong shape (string vs `{id, name}`
+map). Flag in the log.
+
+### Activities polymorphic `What_Id` linkage
+
+When `createStageCall` or the demo/draft Task creators run, the
+resulting Call/Task/Event must be linked to the Deal via:
+- `What_Id` = the Deal's record id
+- `$se_module` = `"Deals"` (literally that string — Zoho's polymorphic
+  marker)
+
+Common bug: writing `What_Id` as a lookup map `{id: ..., name: ...}`
+instead of the bare id, or omitting `$se_module`. Verify on at least
+one Call from T11 / T14 / T15 by reading the Call record raw.
+
+### Field model audit (pre-flight)
+
+Before running tests, optionally run a one-shot audit:
+1. For each module in {Deals, Contacts, Accounts, Leads, Calls,
+   Events, Tasks, Products}, call
+   `mcp__zoho-crm-module-customisation__ZohoCRM_getFields`.
+2. Diff the returned fields against
+   `.agents/context/activity-workflows/zoho_custom_fields_by_module.csv`.
+3. For each picklist field, diff the actual picklist values against
+   the CSV's `Picklist_Values` column.
+
+A missing field or picklist value here will cause an opaque
+`INVALID_DATA` failure deep inside a test, so catching it up front
+saves time.
+
+### Workflow rule configuration drift
+
+For each WF in `WORKFLOW_TRIGGER_MAP.md`, call
+`mcp__zoho-crm-automation__ZohoCRM_getWorkflowRules` with
+`include_inner_details=true` and verify:
+- Trigger type matches (`create_or_edit`, `field_update`, etc.).
+- Criteria match the spec (e.g. WF002 requires
+  `Sequence_Status = "Not Started"`).
+- Functions attached to each rule's instant_actions are the expected
+  ones. **Note:** the MCP `getWorkflowRules` endpoint historically did
+  not return inner action details despite `include_inner_details=true`.
+  If actions aren't in the response, this verification has to be
+  manual in the UI.
+
+### Owner / `Created_By` on automation-generated records
+
+When `createStageCall` creates a Call, who owns it? Should be the
+Deal's Owner, but is currently the executing user (the function's
+service user). Same for `handleDemoOutcome` → `Draft Commercials`
+Task and `handleEmailEvent` → `Review Reply` / `Data Repair` Tasks.
+
+Note for the run log: if Calls/Tasks are assigned to the service user
+and not the Deal Owner, users will not see them in their default views
+and the sequence will appear stuck.
+
+### Stage1 → Stage (Opportunity) derived value
+
+Every code path that writes `Stage1` should also write the matching
+`Stage` (Opportunity bucket). The mapping is:
+
+| Stage1 | Stage |
+|---|---|
+| Marketing Consent | MQL |
+| Demo Booking, Demo Booked, Demo Attended | SQL |
+| Commercials Sent | FTP |
+| Commercials Signed, Onboarding, Renewal | RTP |
+
+If a test ever finds `Stage1 = Commercials Signed` with `Stage = SQL`
+(or any other mismatch), the writing function has a bug. Spot-check
+this invariant after T12 (stage change), T13 (Signed), T15 (Demo
+Attended).
+
+### `Marketing_Consent_Status` (picklist) vs `Marketing_Consent` (legacy boolean)
+
+Both fields exist. The activity layer reads `Marketing_Consent_Status`;
+the boolean is retained for legacy filters. They should not drift —
+if `Marketing_Consent_Status = Consented` but `Marketing_Consent =
+false`, that's a divergence and someone will eventually wire a query
+to the wrong one. Optionally assert consistency on every Contact T1
+through T10 touches.
+
+### `Reason_For_Loss__s` vs `Lost_Reasons`
+
+Two distinct fields. Code today writes mostly to `Reason_For_Loss__s`
+(commercial reject, demo disqualified, duplicate). `Lost_Reasons` is a
+legacy multi-select. Confirm which one filters/reports actually use —
+if reports use `Lost_Reasons` and automation writes
+`Reason_For_Loss__s`, the loss reasons will silently never appear in
+reports.
+
+### Closing_Date defaulting
+
+Several tests set `Closing_Date = today + 60`. The production
+processX functions should ideally default `Closing_Date` when not
+provided. If a Deal is created without one, does `processDeal` set a
+sensible default, or does the Deal end up with `Closing_Date = null`
+(which breaks pipeline forecasting)? Worth asserting on T1.
+
+### Onboarding / Renewal stages (under-tested)
+
+The 8 Stage1 values include `Onboarding` and `Renewal`, but the test
+plan focuses on the pre-sign path. The post-sign path
+(`Commercials Signed → Onboarding → Renewal`) is exercised
+incidentally by T13 but not asserted end-to-end. If those stages have
+specific automation (e.g. onboarding kickoff email, renewal call
+cadence), add tests in a future round.
+
+### `Automation_Suppressed` honored across **all** function entry points
+
+T22 covers this for the activity layer. Worth verifying it also gates
+the graph layer — i.e. set `Automation_Suppressed = true` on a Deal,
+then trigger `processDeal` via a no-op edit, and assert no Stage1 /
+Account-rollup recompute happens. The graph layer should also
+short-circuit on the suppression flag, not just the activity layer.
+
+### `Account_Key` and `Deal_Key` uniqueness
+
+`Account_Key` and `Deal_Key` must be UNIQUE in Zoho (per
+`processDeal.deluge`'s header comment block). Verify the constraints
+are actually enforced in the field config via
+`getFields(module=Accounts, include=allowed_permissions_to_update)`.
+If uniqueness isn't enforced at field level, two parallel
+`processX` runs could create duplicate Accounts/Deals before the dedup
+logic catches up.
+
+### Rate limits / API quotas
+
+The test harness will burn through API calls quickly — each
+create+read+delete is 3 calls minimum, and a full §2A + §2B run is
+~150 calls. Zoho's standard daily quota is generous but not infinite.
+If a test fails with `LIMIT_EXCEEDED` or similar, back off and re-run
+the failed test only.
+
+### Multi-currency
+
+Deal `Amount` is currency-aware. The test products in T7 must all be
+in the same currency, or the sum assertion needs to apply currency
+multipliers. Skip multi-currency testing unless explicitly requested.
+
+### Layout completeness (UI-visible new fields)
+
+New custom fields created via MCP default to org-level access but
+aren't necessarily added to the page layout. Out of scope for MCP
+tests, but flag if tests pass yet the user can't see the field in the
+Zoho UI — that's a layout config issue, not a code issue.
+
+### `zoho_crm` connection availability
+
+`sendSequencedEmail` uses a named `zoho_crm` connection. The
+test harness can't directly verify the connection is configured,
+but if any test fails inside a function that runs `invokeurl ...
+connection : "zoho_crm"` with `AUTHENTICATION_FAILURE`, the connection
+isn't set up. Direct the user to Setup → Developer Space →
+Connections.
 
 ---
 
