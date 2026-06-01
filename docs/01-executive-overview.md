@@ -32,13 +32,10 @@ Traditional CRM systems fail due to "data rot"—duplicate records, isolated com
 
 Our new automation addresses these exact failures by implementing a strict database lifecycle model:
 
-```text
-       Lead Intake Layer                  Core Data Structure                 Automated Activity Cadence
-┌──────────────────────────────┐       ┌───────────────────────────────┐       ┌────────────────────────────────┐
-│   Leads = Staging Area Only  │ ───►  │  1 Canonical Account / Comp   │ ───►  │ Creates call-activity tasks    │
-│  - Instant, non-blocked      │       │  - Linked to Contacts         │       │ Sends stage-specific templates │
-│    conversion to Contact/Acc │       │  - 1 Active Deal per company  │       │ Auto-chases no-answers (7 step)│
-└──────────────────────────────┘       └───────────────────────────────┘       └────────────────────────────────┘
+```mermaid
+flowchart LR
+  Intake[Lead Intake Layer<br/>- Instant staging<br/>- Non-blocked conversion] --> Structure[Core Data Structure<br/>- 1 Canonical Account<br/>- Linked Contacts<br/>- 1 Active Deal per company]
+  Structure --> Cadence[Automated Cadence<br/>- Creates call activities<br/>- Sends stage-specific emails<br/>- Auto-chases no-answers]
 ```
 
 ### Leads are Staging Records, Not Commercial Objects

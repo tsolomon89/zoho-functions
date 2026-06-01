@@ -61,14 +61,10 @@ Each of the following stages requires **5 Call follow-up email templates** and *
 
 To prevent duplicate actions, race conditions, or infinite loops, the CRM workflows must be activated sequentially. Follow this order:
 
-```text
- PHASE 1: Intake & Conversion          PHASE 2: Deal Cadence Routing         PHASE 3: Intercepts & Scheduling
-┌─────────────────────────────┐       ┌─────────────────────────────┐       ┌──────────────────────────────┐
-│ 1. WF001 Lead Processor     │ ───►  │ 3. WF002 Deal Seq Router    │ ───►  │ 7. WF007 Meeting Handler     │
-│ 2. processLead published    │       │ 4. WF003 Deal Stage Router  │       │ 8. WF008 Task Completion     │
-│                             │       │ 5. WF006 Call Outcome Gate  │       │ 9. WF009a-e Email Intercepts │
-│                             │       │ 6. WF004/005 Outcomes       │       │ 10. WF010 Date Scheduler     │
-└─────────────────────────────┘       └─────────────────────────────┘       └──────────────────────────────┘
+```mermaid
+flowchart LR
+  Phase1[Phase 1: Intake & Conversion<br/>- WF001 Lead Processor<br/>- processLead published] --> Phase2[Phase 2: Cadence Routing<br/>- WF002 Deal Sequence Router<br/>- WF003 Deal Stage Router<br/>- WF006 Call Outcome Gate<br/>- WF004/005 Outcomes]
+  Phase2 --> Phase3[Phase 3: Intercepts & Scheduling<br/>- WF007 Meeting Handler<br/>- WF008 Task Completion<br/>- WF009a-e Email Intercepts<br/>- WF010 Date Scheduler]
 ```
 
 1.  **Verify Fields & Connection**: Ensure all custom activity picklists (Yes/No fields) are created and the `zoho_crm` integration connection is active.

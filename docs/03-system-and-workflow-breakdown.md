@@ -20,15 +20,11 @@ This document outlines the technical architecture of Jurnii.io's CRM system in b
 
 Our CRM does not rely on human memory to keep data accurate. Instead, four Deluge functions run automatically in the background to stage, link, and rollup data across our core objects:
 
-```text
- Leads Module                     Contacts Module                 Accounts Module                 Deals Module
-┌──────────────┐                 ┌──────────────┐                ┌──────────────┐                ┌──────────────┐
-│ processLead  │ ──────────────► │processContact│ ─────────────► │processAccount│ ─────────────► │ processDeal  │
-└──────────────┘                 └──────────────┘                └──────────────┘                └──────────────┘
-  Converts Lead,                   Resolves Account                Re-links stray                  Enforces one
-  resolves company                 re-links Contact                contacts, ensures               deal, merges
-  account, creates                 under Account &                 active deal exists              product lists
-  canonical Deal.                  rolls up stage.                 & rolls up status.              & updates value.
+```mermaid
+flowchart LR
+  Lead[processLead.deluge<br/>- Converts Lead<br/>- Resolves Account<br/>- Creates canonical Deal] --> Contact[processContact.deluge<br/>- Links Contact under Account<br/>- Enforces Stage rankings]
+  Contact --> Acc[processAccount.deluge<br/>- Resolves stray records<br/>- Creates missing Deals<br/>- Rolls up Account status]
+  Acc --> Deal[processDeal.deluge<br/>- Enforces one active Deal<br/>- Sums product prices]
 ```
 
 *   **Lead Intake & Zero-Block Conversion** (`v4/processLead.deluge`): When a Lead is marked ready, the system immediately converts it. If essential enrichment fields are missing, **conversion is never blocked**—data-hygiene is resolved post-conversion.
