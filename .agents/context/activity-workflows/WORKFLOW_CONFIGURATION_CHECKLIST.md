@@ -130,128 +130,114 @@ Hub → Functions) under the same name (`automation.<functionName>`).
 - [ ] **Action:** Function → `handleTaskCompletion(task_id)`
 - [ ] **Arg mapping:** `task_id` ← `${Tasks.id}`
 
-## WF009 — Email Event Handler (5 sub-rules)
+## WF009 — Email Event Handler (5 sub-rules, wrapper-function architecture)
 
-**Important:** WF009 cannot be created via the MCP/API. Email-event
-triggers (`mail_sent_replied`, `mail_sent_bounced`, `mail_sent_clicked`,
-`mail_sent_notreplied`, `mail_sent_opened_notreplied`) are NOT returned
-by `GET /workflow_configurations?module=Deals` or `?module=Contacts` on
-this org, and `postWorkflowRule` rejects `execute_on=mail_sent_replied`
-with `INVALID_DATA`. Additionally the API `functions` action only takes
-`{id, type}` — there is no way to pass per-rule static arguments via the
-API. Each sub-rule needs its own `handleEmailEvent` *function
-configuration* (Setup → Functions → Configure for Workflow) with a
-different `eventType` static value, and those config IDs aren't
-discoverable via Self Client scope.
+**Status:** The five workflow rule skeletons have already been created
+via MCP. Each currently has an `assign_owner` no-op placeholder action
+that needs to be swapped for the matching wrapper function.
 
-Configure each sub-rule in the Zoho UI as below.
+| Rule | Rule ID | Trigger | Wrapper to attach |
+|---|---|---|---|
+| WF009a | `991103000000790073` | `mail_sent_replied` | `handleEmailReplied` |
+| WF009b | `991103000000806019` | `mail_sent_bounced` | `handleEmailBounced` |
+| WF009c | `991103000000789167` | `mail_sent_notreplied` (3d) | `handleEmailNotReplied` |
+| WF009d | `991103000000796107` | `mail_sent_opened_notreplied` (3d) | `handleEmailOpenedNotReplied` |
+| WF009e | `991103000000799022` | `mail_sent_clicked` | `handleEmailClicked` |
 
-### Common setup (do once before the sub-rules)
+**Architecture note (why wrappers):** the Zoho UI makes argument
+mappings immutable after save, and the Emails module exposes no Id
+merge field — so binding `eventType` as a UI static literal forces
+typo-prone hand-typing in five places and is unfixable post-save. The
+wrappers move `eventType` into code; each WF009 sub-rule calls a
+purpose-built wrapper that has no static-literal args, only two
+auto-mappable merge fields.
 
-- [ ] In Setup → Functions, open `handleEmailEvent` and click
-      "Configure for Workflow" **five times** — once per sub-rule. Each
-      configuration binds a different `eventType` static value (see the
-      per-sub-rule sections). The other three function args bind to
-      merge fields and are identical across all five:
-      - `email_record_id` ← `${Emails.Message_Id}` (or the Email record
-        id merge field exposed by your Email module)
-      - `related_deal_id` ← Deal record id resolved from the email's
-        Related Records context (use the `What_Id` / "Related To" merge
-        field where `$se_module == Deals`)
-      - `related_contact_id` ← Contact record id from the email's
-        Recipient or `Who_Id` merge field
-      Record each configuration's display name so you can pick the right
-      one in step "Action" below; you'll see five entries like
-      `handleEmailEvent (replied)`, `handleEmailEvent (bounced)`, etc.
+The five wrapper Deluge files live in
+[v4/activity/](../../../v4/activity/):
+[handleEmailReplied.deluge](../../../v4/activity/handleEmailReplied.deluge),
+[handleEmailBounced.deluge](../../../v4/activity/handleEmailBounced.deluge),
+[handleEmailNotReplied.deluge](../../../v4/activity/handleEmailNotReplied.deluge),
+[handleEmailOpenedNotReplied.deluge](../../../v4/activity/handleEmailOpenedNotReplied.deluge),
+[handleEmailClicked.deluge](../../../v4/activity/handleEmailClicked.deluge).
+Each is ~10 lines and delegates to
+[handleEmailEvent.deluge](../../../v4/activity/handleEmailEvent.deluge)
+(the shared core, unchanged).
 
-- [ ] In Setup → Automation → Workflow Rules, choose **Emails** as the
-      module. The trigger picker (`Execute this workflow rule based on`)
-      offers two top-level options: `Incoming email` and
-      `Outgoing email`. All five WF009 sub-rules use `Outgoing email`.
+### Step 1 — Publish the 5 wrapper functions
 
-### WF009a — Outgoing Email Replied
+- [ ] Setup → Functions → New Function (×5). For each wrapper file
+      above, create a function with the matching name and paste the
+      file body verbatim. Leave the existing `handleEmailEvent`
+      function as-is.
+- [ ] Setup → Functions → `handleEmailEvent`: if you previously created
+      any `handleEmailEvent (replied)` / `(bounced)` / etc.
+      configurations, **delete them** — they're now unreachable.
 
-- [ ] **Module:** Emails
-- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Replied`
-- [ ] **Criteria:** `Related Deal` is not empty
-- [ ] **Action:** Function → `handleEmailEvent (replied)`
-- [ ] **Static arg `eventType`:** `replied`
-- [ ] **Expected behavior:** Pauses sequence
-      (`Sequence_Status = Paused`), creates `Review Reply` Task. Does
-      NOT auto-advance the Deal.
+### Step 2 — Configure each wrapper for workflow
 
-### WF009b — Outgoing Email Bounced
+For each of the 5 wrappers, open the function and click **Configure
+for Workflow**. Same recipe every time — no static literals:
 
-- [ ] **Module:** Emails
-- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Bounced`
-- [ ] **Criteria:** `Related Deal` is not empty
-- [ ] **Action:** Function → `handleEmailEvent (bounced)`
-- [ ] **Static arg `eventType`:** `bounced`
-- [ ] **Expected behavior:** Pauses sequence, creates `Data Repair`
-      Task, flags Contact `Profile_Completion_Status = Needs Enrichment`.
+- [ ] **Module to be associated:** Deal
+- [ ] **Configuration name:** match the wrapper name (e.g.
+      `handleEmailReplied`)
+- [ ] **Argument mapping** (both auto-mapped, no manual typing):
+      - `relatedDealIdStr` ← `Deals - Deal Id`
+      - `relatedContactIdStr` ← `Contacts - Contact Id`
+- [ ] Save and Associate.
 
-### WF009c — Outgoing Email Unreplied
+### Step 3 — Swap the placeholder action on each WF009 rule
 
-- [ ] **Module:** Emails
-- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Unreplied`
-      (Zoho UI prompts for a threshold window — set this to match your
-      sequence cadence; suggested 3 business days)
-- [ ] **Criteria:** `Related Deal` is not empty
-- [ ] **Action:** Function → `handleEmailEvent (not replied)`
-- [ ] **Static arg `eventType`:** `not replied`
-- [ ] **Expected behavior:** Passive log only. No state change. Regular
-      call/email cadence continues.
+For each rule in the table above:
 
-### WF009d — Outgoing Email Opened and Unreplied
+- [ ] Setup → Automation → Workflow Rules → open the rule (`Emails`
+      module).
+- [ ] Edit the Instant Actions, remove the `assign_owner` action
+      (assigned to Timothy Solomon as a no-op placeholder), and add a
+      Functions action pointing at the matching wrapper configuration
+      from Step 2.
+- [ ] Save.
 
-- [ ] **Module:** Emails
-- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Open and Unreplied`
-      (note: Zoho's UI says "Open and Unreplied", not "Opened and
-      Unreplied" — set the window per WF009c)
-- [ ] **Criteria:** `Related Deal` is not empty
-- [ ] **Action:** Function → `handleEmailEvent (opened but not replied)`
-- [ ] **Static arg `eventType`:** `opened but not replied`
-- [ ] **Expected behavior:** Passive log only. Reserved for future
-      engagement-aware branching.
+### Step 4 — Triggers and criteria (already set, verify only)
 
-### WF009e — Outgoing Email Clicked
+These were configured when the rule skeletons were created via MCP.
+Spot-check each rule matches:
 
-- [ ] **Module:** Emails
-- [ ] **Trigger:** `Execute this workflow rule based on` → `Outgoing email` → `Clicked`
-- [ ] **Criteria:** `Related Deal` is not empty
-- [ ] **Action:** Function → `handleEmailEvent (clicked)`
-- [ ] **Static arg `eventType`:** `clicked`
-- [ ] **Expected behavior:** Passive log only. Reserved for future
-      engagement-aware branching.
+| Sub-rule | Trigger (set by MCP) | Criteria (set by MCP) |
+|---|---|---|
+| WF009a | `Outgoing email` → `Replied` | `Related Deal` not empty |
+| WF009b | `Outgoing email` → `Bounced` | `Related Deal` not empty |
+| WF009c | `Outgoing email` → `Unreplied` within 3 days | `Related Deal` not empty |
+| WF009d | `Outgoing email` → `Open and Unreplied` within 3 days | `Related Deal` not empty |
+| WF009e | `Outgoing email` → `Clicked` | `Related Deal` not empty |
+
+Adjust the WF009c / WF009d thresholds in the UI if your sequence
+cadence differs from 3 business days.
 
 ### Other Outgoing trigger options (not wired by WF009)
 
 The `Outgoing email` picker also exposes `Sent`, `Opened`, and
-`Unopened`. None of these are part of the WF009 sub-rules — they're
-either too noisy (Sent fires on every send) or redundant with the
-engagement-aware branches above (Opened, Unopened). Skip them unless
-you're adding a new engagement signal to `handleEmailEvent`.
+`Unopened`. None of these are part of WF009 — `Sent` is too noisy
+(fires on every send), `Opened` / `Unopened` are redundant with the
+engagement-aware branches above. Skip unless adding a new signal.
 
 ### Incoming Email triggers (out of scope for WF009)
 
 The `Incoming email` branch exposes `Received`, `Unreplied`, and
 `Opened and Unreplied`. None of these map to WF009 — inbound email
-handling (e.g. unsolicited replies, support inbound) would need a
-separate handler function and a new WF.
+handling would need a separate handler function and a new WF.
 
-### WF009 implementation notes
+### Adding a new event type later
 
-- The `eventType` literal values MUST match `handleEmailEvent`'s branch
-  strings exactly: `replied`, `bounced`, `not replied`,
-  `opened but not replied`, `clicked`. Mistyping breaks the handler
-  silently — it falls through to the `unknown_event_type` log line.
-- If your Zoho UI cannot supply Deal+Contact IDs directly in the email
-  workflow context, configure a lightweight intermediate function to
-  resolve them from `Message_ID` before invoking `handleEmailEvent`.
-- Sequence-managed gating, stale-call checks, and consent gating are
-  applied inside `handleEmailEvent` — keep the workflow-rule criteria
-  minimal (just `Related Deal` not empty) so the function gets reached
-  for every relevant event and can short-circuit itself.
+1. Add a new wrapper file in `v4/activity/`, e.g.
+   `handleEmailUnopened.deluge`, calling
+   `automation.handleEmailEvent("0", "<new_event_type>", ...)`.
+2. Add a matching branch in `handleEmailEvent.deluge`.
+3. Publish + Configure for Workflow per Steps 1–2.
+4. Create a new workflow rule on the Emails module wired to the
+   wrapper.
+
+No edits to existing wrapper configurations or rules required.
 
 ## WF010 — Date-Based Follow-Up Router
 

@@ -26,8 +26,8 @@ The following actions must be completed before go-live:
 
 Workflows must be activated sequentially in this exact order to prevent race conditions or duplicate call creation:
 
-1.  **Phase 1 (Intake)**: Turn on `WF001` (Lead Processor). This converts new incoming leads into clean, non-automated Accounts, Contacts, and Deals.
-2.  **Phase 2 (Human Call Gates)**: Turn on `WF002`, `WF003`, `WF006` (Call Outcome), and outcome handlers `WF004` and `WF005`. This allows representatives to drive deals and schedule sequential call tasks manually.
+1.  **Phase 1 (Intake)**: Turn on `WF001` (Lead Processor). This converts Leads when marked ready into clean, non-automated Accounts, Contacts, and Deals.
+2.  **Phase 2 (Human Call Gates)**: Turn on `WF002`, `WF003`, `WF006` (Call Outcome), and outcome handlers `WF004` and `WF005`. This allows representatives to drive deals and schedule sequential Calls manually.
 3.  **Phase 3 (Outreach & Scheduling)**: Turn on `WF007` (Meetings), `WF008` (Tasks), the date scheduler `WF010`, and the email reply/bounce intercepts (`WF009`). This fully automates our email follow-up chaser sequences.
 
 ---

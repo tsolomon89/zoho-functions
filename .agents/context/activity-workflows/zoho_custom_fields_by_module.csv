@@ -2,7 +2,7 @@ Module,Label,API_Name,Type,Picklist_Values,Required,Reuse_Notes
 Deals,Stage,Stage1,Picklist,Marketing Consent;Demo Booking;Demo Booked;Demo Attended;Commercials Sent;Commercials Signed;Onboarding;Renewal,Yes,REUSE existing custom field Stage1 (already has the 8 spec values per v3 code)
 Deals,Stage Rank,(derived),Number,1-8,Yes,DO NOT CREATE - derive in Deluge from Stage1 via stageRanks map
 Deals,Opportunity,Stage,Picklist,MQL;SQL;FTP;RTP,Yes,REUSE default Zoho Stage field (renamed Opportunity in UI; already holds these values per v3 code)
-Deals,State,State,Picklist,Open;Lost;Won,Yes,REUSE existing State field
+Deals,State,State,Picklist,Open;Lost;Won,Yes,REUSE existing State field. Automation writes only Open or Lost; Won is a transition event and is never written by code.
 Deals,Status,Status,Picklist,New;Working;Closed,Yes,REUSE existing Status field
 Deals,Reason For Loss,Reason_For_Loss__s,Picklist,(existing),No,REUSE existing field
 Deals,Sequence Status,Sequence_Status,Picklist,Not Started;Initialized;Waiting on Call;Waiting on Meeting;Waiting on Email Trigger;Waiting on Internal Task;Paused;Deferred;Manual Only;Completed;Superseded;Suppressed,Yes,CREATE

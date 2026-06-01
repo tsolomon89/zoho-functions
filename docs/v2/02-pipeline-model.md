@@ -1,13 +1,16 @@
 # 02 — Pipeline Model
 
 ## TLDR
-The system uses four clear database fields to track sales progress. 
+The system uses four clear database fields to track sales progress.
 *   **Opportunity** = where it sits in the pipeline.
 *   **Stage** = what needs to happen next.
 *   **State** = whether the deal is still alive.
 *   **Status** = whether a rep is actively working it.
 
-Evidence: `spec.md`, `v4/processLead.deluge`, `v4/processContact.deluge`
+Evidence:
+*   `spec.md`
+*   `v4/processLead.deluge`
+*   `v4/processContact.deluge`
 
 ---
 
@@ -47,8 +50,13 @@ Evidence: `spec.md`, `v4/processLead.deluge`, `v4/processContact.deluge`
     *   *Evidence*: `v4/activity/handleCommercialsStatusChange.deluge`
 *   **`Commercials Signed` Starts RTP**: The signed contract moves the customer to onboarding.
     *   *Evidence*: `v4/processDeal.deluge`
-*   **`Won` is Not a Permanent State**: "Won" is just a gate event. When passed, the Deal advances into the next active phase (`RTP`) instead of being closed as Won.
-    *   *Evidence*: `spec.md` (lines 72–80)
+*   **Won is not a lasting State**: "Won" is just a gate event being passed. When commercials are signed, the Deal moves to:
+    *   `Stage1` = Commercials Signed
+    *   `Stage` = RTP
+    *   `State` = Open
+    *   `Sequence_Status` = Not Started (so the next RTP / onboarding sequence can begin)
+    *   This keeps onboarding, retention, and renewal active.
+    *   *Evidence*: `spec.md` (lines 72–80), `v4/activity/handleCommercialsStatusChange.deluge` (lines 95–117)
 *   **`State` is Only `Open` or `Lost`**: A deal is either active or lost.
     *   *Evidence*: `spec.md` (lines 57–72)
 *   **`Status = Closed` only when `State = Lost`**: You cannot close an active deal.
@@ -65,19 +73,19 @@ Evidence: `spec.md`, `v4/processLead.deluge`, `v4/processContact.deluge`
 Stage1 = Demo Booked
 Stage = SQL
 State = Open
-Status = Working (if a rep has logged a call or meeting manually)
+Status = Working if a rep has done real activity
 ```
 
 ### 2. Proposal Sent
 ```text
 Stage1 = Commercials Sent
 Stage = FTP
-sequenceRouter starts Commercials Sent Call 1
+sequenceRouter creates Commercials Sent Call 1
 ```
 
 ### 3. Deal Lost
 ```text
 State = Lost
 Status = Closed
-Automation stops immediately
+automation stops
 ```

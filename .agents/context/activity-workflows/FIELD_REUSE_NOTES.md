@@ -14,7 +14,7 @@ The authoritative current-org export is `.agents/context/api_field_names/*.csv`.
 |---|---|---|---|
 | Stage | `Stage1` | **REUSE** | Org's custom `Stage1` already holds the 8 spec values. v3 reads/writes it as the stage value. Do not create a second `Stage` field. |
 | Opportunity | `Stage` (default) | **REUSE** | Default Zoho `Stage` field has been renamed in the UI to "Opportunity" and holds `MQL/SQL/FTP/RTP`. v3 writes it via `dealMap.put("Stage", bestOpp)`. |
-| State | `State` | **REUSE** | Existing picklist (`Open/Lost/Won`). v3 already writes this. |
+| State | `State` | **REUSE** | Existing picklist (`Open/Lost/Won`). Automation writes only `Open` or `Lost`; `Won` is a gate event, not a durable State (see `docs/v2/02-pipeline-model.md`). v3/v4 already follow this rule. |
 | Status | `Status` | **REUSE** | Existing picklist (`New/Working/Closed`). v3 already writes this. |
 | Reason For Loss | `Reason_For_Loss__s` | **REUSE** | Existing system field. v3 writes "Duplicate / Test Record" on silenced duplicates. |
 | Stage Rank | — | **DO NOT CREATE** | Derive in Deluge from `Stage1` via the `stageRanks` map already defined in v3 (and in the shared util we are extracting in Phase 2). |

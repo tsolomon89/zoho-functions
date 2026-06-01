@@ -1,7 +1,7 @@
 # 01 — What This System Does
 
 ## TLDR
-The CRM should not run from Leads. Leads are messy, temporary intake records. The system converts them immediately into the records that actually matter for Jurnii.io:
+The CRM should not run from Leads. Leads are messy, temporary intake records. The system converts them when they are marked ready for conversion into the records that actually matter for Jurnii.io:
 *   **Account** = the company
 *   **Contact** = the person
 *   **Deal** = the active sales motion
@@ -9,7 +9,9 @@ The CRM should not run from Leads. Leads are messy, temporary intake records. Th
 
 This keeps Jurnii.io's pipeline clean, prevents duplicate work, and runs outreach automatically.
 
-Evidence: `spec.md`, `v4/processLead.deluge`
+Evidence:
+*   `spec.md`
+*   `v4/processLead.deluge`
 
 ---
 
@@ -19,9 +21,9 @@ This system fixes common CRM problems automatically:
 
 | Problem | What the system does | Why it matters to Jurnii.io |
 | :--- | :--- | :--- |
-| **Duplicate companies** | Finds or creates one Account per domain | Reps do not double-book or conflict on outreach |
+| **Duplicate companies** | Finds or creates one Account per real company | Reps do not double-book or conflict on outreach |
 | **Duplicate Deals** | Keeps exactly one active Deal per Account | Pipeline reports and forecasts are accurate |
-| **Missed follow-up** | Creates calls and sends emails automatically | No prospect goes cold or gets forgotten |
+| **Missed follow-up** | Creates Calls and sends emails automatically | No prospect goes cold or gets forgotten |
 | **Bad pipeline numbers** | Uses one Deal per Account instead of per Lead | The CEO sees real sales opportunities, not fluff |
 | **Manual Deal values** | Adds Product catalog prices into the Deal Amount | Stops reps from guessing or typing wrong deal values |
 
@@ -29,11 +31,11 @@ This system fixes common CRM problems automatically:
 
 ## How It Behaves
 
-*   **Leads are Intake Only**: Every Lead converts immediately. Missing information (like a phone number or website) never blocks conversion.
+*   **Leads are Intake Only**: Leads convert when they are marked ready for conversion. The conversion is gated by standard fields (Ready for Conversion checked, Email set, etc.) but missing enrichment data never blocks it once the gate is passed.
     *   *Evidence*: `v4/processLead.deluge`
-*   **One Company = One Account**: The system checks domains and clean company names to reuse existing Accounts before making new ones.
+*   **One Company = One Account**: The system uses domain, website, and cleaned company name to find the right Account before creating a new one.
     *   *Evidence*: `v4/processLead.deluge`
 *   **Deals Own the Process**: Once converted, the active Deal drives the commercial relationship.
     *   *Evidence*: `v4/processDeal.deluge`
-*   **Outreach is Call-Gated**: Sequences start with a call. Call outcomes recorded by reps decide the next automated action.
+*   **Outreach is Call-Gated**: Sequences start with a Call (in the `Calls` module). Call outcomes recorded by reps decide the next automated action. Tasks are used only for repair, review, enrichment, onboarding setup, and other manual work.
     *   *Evidence*: `v4/activity/handleCallOutcome.deluge`

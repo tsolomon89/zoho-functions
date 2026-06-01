@@ -16,7 +16,10 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
 	//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
 	//   Signed    → Stage1=Commercials Signed, Stage=RTP, Signed_At=now,
-	//               State=Won (only if currently Open), Sequence_Status=Not Started.
+	//               State=Open (Deal stays active for onboarding / retention /
+	//               renewal; "Won" is a transition event, not a durable State),
+	//               Status=Working if already Working else New,
+	//               Sequence_Status=Not Started.
 	//   Deferred  → Sequence_Status=Deferred,
 	//               Sequence_Paused_Until=Next_Commercial_Follow_Up_Date.
 	//   Rejected  → Deal Lost/Closed, Reason "Commercial Rejected".
@@ -95,7 +98,12 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		dealUpd.put("Stage1", "Commercials Signed");
 		dealUpd.put("Stage", "RTP");
 		if(isNull(deal.get("Signed_At"))) { dealUpd.put("Signed_At", now); }
-		if(ifnull(deal.get("State"), "").toString() == "Open") { dealUpd.put("State", "Won"); }
+		// "Won" is a transition event, not a durable State. Signed commercials open
+		// the next active commercial motion (onboarding / retention / renewal), so
+		// the Deal stays Open. See docs/v2/02-pipeline-model.md.
+		if(ifnull(deal.get("State"), "").toString() != "Open") { dealUpd.put("State", "Open"); }
+		currStatus = ifnull(deal.get("Status"), "").toString();
+		if(currStatus != "Working") { dealUpd.put("Status", "New"); }
 		dealUpd.put("Sequence_Status", "Not Started");
 		dealUpd.put("Active_Sequence_Stage", "");
 		dealUpd.put("Active_Sequence_Attempt", 0);

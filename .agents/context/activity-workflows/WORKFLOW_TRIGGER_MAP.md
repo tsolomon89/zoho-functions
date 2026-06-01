@@ -360,30 +360,44 @@ Handle non-call manual work, including enrichment, data repair, commercial draft
 # WF009 — Email Event Handler (5 sub-rules)
 
 WF009 fans out one workflow rule per Outgoing-email event type. The Zoho
-UI's Email Notifications trigger fires per event (`Replied`,
-`Bounced`, `Not Replied`, `Opened and Unreplied`, `Clicked`) and lets you
-choose only one event-type per rule, so the Zoho-side configuration is a
-1-to-1 mapping: one sub-rule = one event-type → one function call with
-the matching `eventType` static string passed to `handleEmailEvent`.
+UI's Email Notifications trigger fires per event (`Replied`, `Bounced`,
+`Unreplied`, `Open and Unreplied`, `Clicked`) and lets you choose only
+one event-type per rule, so the Zoho-side configuration is a 1-to-1
+mapping: one sub-rule = one event-type → one wrapper function (which
+internally calls the shared `handleEmailEvent` core with the matching
+`eventType` literal hardcoded in code).
 
 `Sequence_Managed`, `Stale`, and consent gating are validated *inside*
 `handleEmailEvent`; the criteria below are deliberately minimal so the
-function is reached for every relevant event and can short-circuit
-itself.
+core is reached for every relevant event and can short-circuit itself.
 
 ## Module
 
 All five sub-rules use the **Emails** module (Outgoing Email events).
 
-## Function (all sub-rules)
+## Functions
+
+Five thin wrappers, one per sub-rule, plus the shared core:
 
 ```text
-handleEmailEvent(email_id, eventType, related_deal_id, related_contact_id)
+handleEmailReplied(related_deal_id, related_contact_id)
+handleEmailBounced(related_deal_id, related_contact_id)
+handleEmailNotReplied(related_deal_id, related_contact_id)
+handleEmailOpenedNotReplied(related_deal_id, related_contact_id)
+handleEmailClicked(related_deal_id, related_contact_id)
+  └─ each delegates to → handleEmailEvent("0", "<eventType>", related_deal_id, related_contact_id)
 ```
 
-The Zoho UI lets you set static argument values per function action. Each
-sub-rule passes a different literal for `eventType`; the other three
-arguments come from merge fields on the Email record.
+Why wrappers: in the Zoho "Configure for Workflow" UI, argument mappings
+are **immutable after save**, and the Emails module has no Id merge
+field, so a single function with `eventType` as a UI-bound static arg
+forces you to type literal strings into each configuration (and you
+can't fix typos later). Wrappers move `eventType` into code where it's
+editable.
+
+Each wrapper takes only two args, both auto-mappable to merge fields
+(`Deals - Deal Id`, `Contacts - Contact Id`) — zero static literals in
+the UI.
 
 ## Sub-rules
 
@@ -393,7 +407,7 @@ arguments come from merge fields on the Email record.
 |---|---|
 | Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Replied` |
 | Criteria | `Related Deal` is not empty |
-| Function arg `eventType` | `replied` |
+| Function | `handleEmailReplied` |
 | Behavior | Pause sequence (`Sequence_Status = Paused`), create `Review Reply` Task. Reply does **not** auto-advance the Deal. |
 
 ### WF009b — Outgoing Email Bounced
@@ -402,16 +416,16 @@ arguments come from merge fields on the Email record.
 |---|---|
 | Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Bounced` |
 | Criteria | `Related Deal` is not empty |
-| Function arg `eventType` | `bounced` |
+| Function | `handleEmailBounced` |
 | Behavior | Pause sequence, create `Data Repair` Task, flag Contact `Profile_Completion_Status = Needs Enrichment`. |
 
-### WF009c — Outgoing Email Unreplied
+### WF009c — Outgoing Email Not Replied
 
 | Field | Value |
 |---|---|
 | Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Unreplied` (Zoho prompts for a threshold window; set per sequence cadence, suggested 3 business days) |
 | Criteria | `Related Deal` is not empty |
-| Function arg `eventType` | `not replied` |
+| Function | `handleEmailNotReplied` |
 | Behavior | Passive event. Log only. No state change; the regular call/email cadence continues to drive the sequence. |
 
 ### WF009d — Outgoing Email Opened and Unreplied
@@ -420,7 +434,7 @@ arguments come from merge fields on the Email record.
 |---|---|
 | Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Open and Unreplied` (note: Zoho UI says "Open", not "Opened") |
 | Criteria | `Related Deal` is not empty |
-| Function arg `eventType` | `opened but not replied` |
+| Function | `handleEmailOpenedNotReplied` |
 | Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
 
 ### WF009e — Outgoing Email Clicked
@@ -429,7 +443,7 @@ arguments come from merge fields on the Email record.
 |---|---|
 | Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Clicked` |
 | Criteria | `Related Deal` is not empty |
-| Function arg `eventType` | `clicked` |
+| Function | `handleEmailClicked` |
 | Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
 
 ## Purpose
@@ -439,8 +453,8 @@ Passive events (opened, clicked, not replied) are recorded so the
 automation log captures engagement without auto-advancing Stage.
 
 `handleEmailEvent` is the single source of truth for the per-event
-behavior; WF009a–e are dumb fanouts to it. Add a new sub-rule when a
-new Zoho Outgoing email-event type is needed.
+behavior; the five wrappers are 1-line delegations. Add a new event
+type by adding a new wrapper file + a new WF009-style rule.
 
 ---
 
