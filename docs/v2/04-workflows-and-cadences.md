@@ -78,7 +78,7 @@ When a representative logs a call in the Calls module, their **Call Outcome** se
 *   **Negative Outcome**: Closes Deal as `Lost` and status as `Closed`. Halts all automation.
 *   **Deferred**: Pauses sequence until Follow-Up Date is reached.
 *   **Bad Data**: Pauses sequence and creates a manual **Data Repair Task** for the rep.
-*   **Already Handled**: Pauses sequence. No email is sent, no next Call is created.
+*   **Already Handled**: Logs the step as handled. No email is sent and no next Call is created.
 *   **Not Relevant**: Pauses sequence and creates a manual **Review Task** for the rep.
 *   **Manual Only**: Pauses sequence and suppresses future automation.
 *   **Do Not Contact**: Pauses sequence and suppresses future automation.
@@ -96,7 +96,7 @@ Evidence:
 WF009 handles five email events:
 1.  **Replied**: Sequence is paused; a manual **Review Reply Task** is created.
 2.  **Bounced**: Sequence is paused; a manual **Data Repair Task** is created.
-3.  **Not Replied**: Standard sequence ticker; logged and flows into follow-up decision.
+3.  **Not Replied**: Logged only. No state change. The regular cadence continues separately.
 4.  **Opened but not replied**: Logged for rep visibility.
 5.  **Clicked**: Logged for rep visibility.
 

@@ -51,7 +51,7 @@ When a rep completes a call and logs a **Call Outcome** in the Zoho Calls module
 | **Negative** | Closes Deal as `Lost` and status as `Closed`. Halts all future automation. |
 | **Deferred** | Pauses sequence until the specified Follow-Up Date is reached. |
 | **Bad Data** | Pauses sequence and creates a manual **Data Repair Task** for the rep. |
-| **Already Handled** | Pauses sequence. No email is sent, no next Call is created. |
+| **Already Handled** | Logs the step as handled. No email is sent and no next Call is created. |
 | **Not Relevant** | Pauses sequence and creates a manual **Review Task** for the rep. |
 | **Manual Only** | Pauses sequence and suppresses future automation. |
 | **Do Not Contact** | Pauses sequence and suppresses future automation. |
@@ -64,13 +64,13 @@ Evidence:
 ## Email Templates
 
 What it is:
-A library of pre-written, highly-personalized follow-up emails that are automatically resolved and sent based on sales activities.
+A library of follow-up emails selected by stage, attempt, or event.
 
 How it is used:
 The system automatically selects the correct email template based on the current stage, the call attempt number, or a triggered event (like a meeting reminder or proposal delivery).
 
 Why it matters:
-Ensures timely, professional follow-up without manual rep effort. The email copy matches Jurnii's positioning and automatically chasers prospects who do not reply or answer.
+Ensures timely, professional follow-up without manual rep effort. The email copy matches Jurnii's positioning and automatically chases prospects who do not reply or answer.
 
 Evidence:
 - `.agents/context/activity-workflows/email_templates/Demo Booking/Demo Booking Email 1.md`
@@ -103,6 +103,6 @@ These are the exact email templates that must be configured inside Zoho CRM. The
 
 ### What the Sales Rep Actually Sees and Does
 1.  **View Call**: The sales rep sees a new `Call` record created automatically in their queue under the `Calls` module (e.g., `Demo Booking Call 1`).
-2.  **Read Script**: The script/talk track is visible directly in the description of the Call.
+2.  **Read Script**: If desired, the script text can be copied into the Call description setup, but the current function does not automatically inject Markdown script text into the Call record. The rep uses the matching script from the calls library or wherever it is surfaced in Zoho. The current Call record stores the stage, attempt, and purpose.
 3.  **Log Outcome**: The rep calls the prospect, selects the appropriate `Call_Outcome` from the picklist, and clicks Save.
-4.  **Hands-Free Follow-Up**: The system automatically runs the next step (sending the corresponding email template, updating dates, or scheduling the next call) without the rep needing to type or schedule anything manually.
+4.  **Hands-Free Follow-Up**: The system automatically runs the next step (sending the corresponding email template, updating dates, or scheduling the next Call) without the rep needing to type or schedule anything manually.
