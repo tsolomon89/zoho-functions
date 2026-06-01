@@ -1,50 +1,119 @@
-# 05 — Setup and Open Items
+# 05 — Testing, Imports, and Open Items
 
 ## TLDR
-This playbook outlines what is built, what requires manual setup in the Zoho UI, and the safe rollout order for commercial leadership.
+The core system is built. The remaining work is testing and controlled rollout. 
+
+The biggest risk is not whether the custom functions exist. The biggest risk is whether imports, workflows, emails, calls, and sequence logic behave correctly together with real CRM data. 
+
+This doc explains what still needs to be tested before the system can be trusted with live pipeline operations.
 
 ---
 
-## Launch Playbook Checklist
+## What Is Built vs What Still Needs Testing
 
-The following actions must be completed before go-live:
+The core Zoho Deluge functions have been built and partly tested through dry runs and the API connection. However, we must verify the system end-to-end under real conditions before launch.
 
-| Item | Status | Owner / Next action |
+| Area | Current Position | What Needs Testing |
 | :--- | :--- | :--- |
-| **Core Deluge functions** | Built / needs verification | Test in Zoho using sample data records. |
-| **Workflow rules** | Mapped | Enable in the Zoho UI (sequential activation). |
-| **Email templates** | Naming and routing mapped | Write actual template text copy inside Zoho. |
-| **Product catalog** | Required | Confirm active Products list and check unit prices. |
-| **Existing records** | Needs backfill decision | Mass-update `Sequence_Status = Not Started` to enroll. |
-| **Suppression rules** | Required | Set `Automation_Suppressed = true` on manual records. |
+| **Core Deluge functions** | Built and partly tested through MCP/API | Verify against real Zoho records to confirm field updates are stamped. |
+| **Bulk imports** | Possible, but must be controlled | Import as Leads, then manually check before conversion. |
+| **Lead conversion** | Base functionality tested / in testing | Confirm no duplicate Accounts, Contacts, or Deals are created. |
+| **Workflow triggers** | Mapped / partly configured | Confirm correct firing order in Zoho and no duplicate sequence actions. |
+| **Call sequence** | Built | Test Call 1 through Call 5 by Stage to check due date scheduling. |
+| **Email sequence** | Templates implemented in Zoho | Test template sends, dynamic operators, merge fields, and reply/bounce handling. |
+| **Post-call chase chain** | Built | Test 7-email chain timing, stop conditions on reply, and final completion. |
+| **Existing data** | Needs rollout decision | Decide which existing CRM records to enroll, suppress, or leave untouched. |
 
 ---
 
-## Safe Launch Order
+## Import Testing
 
-Workflows must be activated sequentially in this exact order to prevent race conditions or duplicate call creation:
+Bulk imports are possible, but they need controlled handling. The safe pattern is:
 
-1.  **Phase 1 (Intake)**: Turn on `WF001` (Lead Processor). This converts Leads when marked ready into clean, non-automated Accounts, Contacts, and Deals.
-2.  **Phase 2 (Human Call Gates)**: Turn on `WF002`, `WF003`, `WF006` (Call Outcome), and outcome handlers `WF004` and `WF005`. This allows representatives to drive deals and schedule sequential Calls manually.
-3.  **Phase 3 (Outreach & Scheduling)**: Turn on `WF007` (Meetings), `WF008` (Tasks), the date scheduler `WF010`, and the email reply/bounce intercepts (`WF009`). This fully automates our email follow-up chaser sequences.
+1. **Import as Leads**: Bring new records into the CRM as Leads first.
+2. **Review post-import**: Do not immediately convert everything blindly.
+3. **Manually check**: Perform a quick check on imported Leads to confirm details are clean.
+4. **Mark ready**: Check the `Ready_for_Conversion` field only after review.
+5. **Auto-convert**: Let the Lead Processor convert them into Accounts, Contacts, Deals, and Products automatically.
 
-```mermaid
-flowchart LR
-  Phase1["Phase 1: Intake<br>(WF001 Lead Processor)"] --> 
-  Phase2["Phase 2: Human Call Gates<br>(WF002, WF003, WF006, WF004, WF005)"] --> 
-  Phase3["Phase 3: Outreach & Scheduling<br>(WF007, WF008, WF009, WF010)"]
-```
+Concurrent imports can create duplicate or conflicting records if too many records are processed at once without review. The system is designed to clean records, but bulk import behavior needs testing before trusting it at scale. The system can support bulk imports, but the rollout should not assume bulk import equals bulk auto-conversion.
 
 ---
 
-## Open Technical Realities
+## Manual Review After Import
 
-Leadership must understand these system realities:
+After import, there must be a manual check before records are released into the automated conversion and sequence process. The check should verify:
+*   **Duplicate company risk**: Ensure no similar company already exists in the Accounts module.
+*   **Duplicate contact risk**: Ensure the person's email is not already associated with another Account or Contact.
+*   **Duplicate active Deal risk**: Verify the company does not already have an open Deal.
+*   **Product Interest mapping**: Confirm Lead product interests are entered correctly for Deal Amount calculation.
+*   **Email presence**: Ensure the email field is not blank.
+*   **Ready for Conversion status**: Confirm the checkbox is ticked only when lead qualification is complete.
+*   **Automation Suppressed status**: Ensure `Automation_Suppressed = true` is ticked for records that require purely manual handling.
+*   **Sequence entry**: Check whether the record should enter sequence automation at all.
 
-*   **Connection Dependency**: The automated email engine relies on a custom connection named **`zoho_crm`** in our Zoho Developer Hub. If the connection permissions expire, automated emails will fail to send.
-    *   *Required Scopes*: `ZohoCRM.modules.contacts.UPDATE`, `ZohoCRM.modules.contacts.READ`, `ZohoCRM.modules.contacts.send_mail`
-*   **Zoho UI Outgoing Email Trigger API Limitation**: Zoho's API does not support configuring outgoing email event rules (`WF009`). These rules **must be configured manually in the Zoho UI** following the exact parameters in our configuration checklist.
-*   **Activity Picklist Rule**: Because Zoho CRM prevents true checkbox fields on Activities (Calls, Tasks, Events), fields like `Sequence_Managed` are custom picklists set to `Yes` / `No`. Sales reps must not alter these values.
+---
+
+## Sequence Testing
+
+We must test that the sequence moves correctly through each Stage.
+*   **Initial Bootstrap**: Confirm that when `Sequence_Status` is updated to `Not Started`, the Deal creates Call 1 and updates the status to `Waiting on Call`.
+*   **Next Call Generation**: Verify that logging a Neutral or No Answer outcome on Call N creates Call N+1 and schedules it 2 business days out.
+*   **Trigger Date Resumption**: Test that date-based triggers (`WF010`) successfully wake up paused or scheduled records on the due date.
+
+---
+
+## Email Template Testing
+
+The email templates should already be implemented in Zoho CRM. The remaining work is testing that the templates:
+*   Have the exact expected names mapped in the template resolver (e.g. `Demo Booking Email 1`).
+*   Are successfully found and loaded by Jurnii's automation.
+*   Send from the correct Zoho function without connection errors.
+*   Render the dynamic operators / merge fields correctly in the email body.
+*   Preserve links, calendar URLs, and personalization fields without broken tags.
+*   Behave correctly across Neutral, No Answer, post-call chase, demo, commercials, onboarding, and renewal contexts.
+
+---
+
+## Call Workflow Testing
+
+We need to confirm that Calls logged by reps actually advance the system as intended:
+*   **Positive Outcome**: Confirm the Deal Stage immediately advances and bootstraps Call 1 of the new Stage.
+*   **Already Handled**: Verify that logging `Already Handled` completes the step without sending an email or creating a next Call.
+*   **Manual Task Pause**: Confirm that logging `Bad Data` or `Not Relevant` successfully pauses the sequence and creates a manual review/repair Task.
+
+---
+
+## Safe Rollout Plan
+
+To safely roll out the new automation, we will execute the following phase-by-phase testing plan:
+
+| Phase | What to test | Goal |
+| :---: | :--- | :--- |
+| **1** | Small test import | Confirm Leads import correctly into Zoho with correct custom fields. |
+| **2** | Manual review | Catch duplicate companies or contacts manually before conversion. |
+| **3** | Controlled conversion | Confirm Accounts, Contacts, and Deals are created correctly upon checkbox trigger. |
+| **4** | Product mapping | Confirm Product Interest maps correctly to products and sums into Deal Amount. |
+| **5** | Call sequence | Confirm Calls are created and outcomes route correctly without cascading loops. |
+| **6** | Email sends | Confirm templates, dynamic fields, and open/click/reply tracking work. |
+| **7** | Full sequence | Confirm the 5-call + 7-email chase chain behaves correctly and pauses on reply. |
+| **8** | Limited live rollout | Run a small real batch (10-20 records) before full production rollout. |
+
+---
+
+## Expected Testing Window
+
+*   **Estimate**: 1–2 weeks for controlled testing and confidence-building.
+*   This window is needed to see records move through the system, test staged imports, confirm workflow triggers, send test emails, check dynamic fields, and observe the full call/email sequence behavior.
+
+---
+
+## Open Decisions
+
+Before go-live, commercial leadership must decide:
+1.  **Backfill Strategy**: How should we handle existing deals? Should they be mass-enrolled into sequences, suppressed, or left untouched?
+2.  **Call Script Location**: Where should reps access the call scripts? Surfaced in Zoho descriptions, Notion, or internal quick-reference cards?
+3.  **Suppression Criteria**: What are the exact business rules that should mark a record as permanently `Automation_Suppressed = true`?
 
 ---
 

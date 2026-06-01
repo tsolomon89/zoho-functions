@@ -61,6 +61,17 @@ The system automatically selects the correct email template based on the current
 Why it matters:
 Ensures timely, professional follow-up without manual rep effort. The email copy matches Jurnii's positioning and automatically chases prospects who do not reply or answer.
 
+### Dynamic Operators / Merge Fields
+
+The Zoho email templates should already use dynamic operators / merge fields to pass key information into the email body. These need to be tested. The test is not just "does the email send?" The test is:
+*   **Template selection**: Does the right template get selected by the resolver?
+*   **Target contact**: Does the correct primary Contact receive the message?
+*   **Deal context**: Does the correct Deal context pass through?
+*   **Personalization fields**: Do fields like `${Contacts.First_Name}` render correctly?
+*   **Booking links**: Do custom calendar and demo booking links work?
+*   **Commercial/Demo details**: Do specific demo schedules or terms appear correctly?
+*   **Reply/bounce tracking**: Does tracking still connect back to the correct Deal?
+
 ### Email Template Groups and Triggers
 
 These are the exact email templates that must be configured inside Zoho CRM. The template names in Zoho must match these names exactly for the automation to locate and send them:
@@ -156,11 +167,27 @@ This section outlines Jurnii's active outreach library categorized by **Stage**.
 
 ---
 
-## Zoho UI and Sales Rep Experience
+## What Needs Testing in Zoho
 
-### What Needs Copying into Zoho UI
-*   **Email Templates**: The exact text copy from the email templates library must be copied into Zoho CRM's Email Templates setup page. The template names in Zoho **must match the folder and file names exactly** (e.g. `Demo Booking Email 1`).
-*   **Call Scripts**: The talk tracks and objective details from the calls library should be placed into Zoho CRM as quick reference cards or stored in the Call script description field for reps.
+### Email Templates
+
+The email templates should already be implemented in Zoho. The remaining work is to verify:
+*   **Resolver matching**: Confirm that the exact template names match the automation resolver.
+*   **Dynamic rendering**: Confirm that dynamic operators / merge fields render correctly.
+*   **Trigger mapping**: Confirm the correct template sends for each Stage and trigger context.
+*   **Target contact**: Confirm emails send to the correct primary Contact.
+*   **Reply/bounce link**: Confirm reply and bounce events link back to the correct Deal.
+*   **Schedule timing**: Confirm post-call chase emails send on the right schedule.
+
+### Call Scripts
+
+The call scripts exist in the repo content library. The remaining decision is where they should surface for reps:
+*   As Zoho call descriptions.
+*   As internal quick-reference cards.
+*   As Notion/SOP content.
+*   As sales enablement notes outside Zoho.
+
+The current functions create Call records with Stage, attempt, purpose, and timing. They do not automatically inject Markdown script text into the Call description unless that has been separately implemented.
 
 ### What the Sales Rep Actually Sees and Does
 1.  **View Call**: The sales rep sees a new `Call` record created automatically in their queue under the `Calls` module (e.g., `Demo Booking Call 1`).
