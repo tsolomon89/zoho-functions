@@ -52,12 +52,16 @@ Evidence:
 
 This path outlines how a prospect flows through a stage sequence:
 
-```text
-Stage starts
-→ Call 1 created automatically (Sequence Status = Waiting on Call)
-→ Rep logs Call Outcome in Calls module
-→ System evaluates outcome and chooses next action
-→ Call/email cadence continues, pauses, or completes
+```mermaid
+flowchart TD
+  Start([Stage starts]) --> Call1[Call N Created automatically]
+  Call1 --> RepCall[Rep logs Call Outcome in Calls Module]
+  
+  RepCall -->|Positive| NextStage[Advance Stage & restart sequence]
+  RepCall -->|Neutral / No Answer| Email[Send Template & schedule Call N+1]
+  RepCall -->|Negative| Lost[Close Deal as Lost & stop automation]
+  
+  Email -->|Wait time reached| Call1
 ```
 
 Normal sequence attempts create records in the **Calls** module. Tasks are used only for repair, review, enrichment, onboarding setup, and other manual work.

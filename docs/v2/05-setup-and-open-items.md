@@ -30,6 +30,13 @@ Workflows must be activated sequentially in this exact order to prevent race con
 2.  **Phase 2 (Human Call Gates)**: Turn on `WF002`, `WF003`, `WF006` (Call Outcome), and outcome handlers `WF004` and `WF005`. This allows representatives to drive deals and schedule sequential Calls manually.
 3.  **Phase 3 (Outreach & Scheduling)**: Turn on `WF007` (Meetings), `WF008` (Tasks), the date scheduler `WF010`, and the email reply/bounce intercepts (`WF009`). This fully automates our email follow-up chaser sequences.
 
+```mermaid
+flowchart LR
+  Phase1["Phase 1: Intake<br>(WF001 Lead Processor)"] --> 
+  Phase2["Phase 2: Human Call Gates<br>(WF002, WF003, WF006, WF004, WF005)"] --> 
+  Phase3["Phase 3: Outreach & Scheduling<br>(WF007, WF008, WF009, WF010)"]
+```
+
 ---
 
 ## Open Technical Realities

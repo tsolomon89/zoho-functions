@@ -39,6 +39,18 @@ After our background reconciler runs, the CRM always corrects itself to have:
 *   **Deal value** calculated from linked Product prices automatically.
 *   **Account status** rolled up from active Deals automatically.
 
+```mermaid
+flowchart TD
+  Lead[Staging Lead] -- Passes Gates --> Reconciler{Identity Reconciler}
+  Reconciler -->|Clean Website/Domain| Account[1 Canonical Account]
+  Reconciler --> Contact[Linked Contact]
+  Reconciler --> Deal[1 Active Deal]
+  
+  Account -.->|Has Many| Contact
+  Account -.->|Has One Active| Deal
+  Contact -.->|Linked via Contact Roles| Deal
+```
+
 ---
 
 ## Core Rules
