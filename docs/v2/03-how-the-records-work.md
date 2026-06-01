@@ -70,11 +70,29 @@ If multiple active Deals are found for the same Account:
 *   The system keeps the oldest Deal as the canonical active Deal.
 *   All other active Deals are immediately set to `State = Lost`, `Status = Closed`, marked `Duplicate / Test Record`, and their Deal Key is cleared.
 
-### Contact Roles Mapped from Job Titles
-All Contacts under the Account are linked to the Deal's `Contact_Roles` related list.
-*   Roles are mapped from `Job_Title` (e.g. Director $\rightarrow$ Decision Maker).
-*   **Seniority Wins**: Decision Maker > End User > Influencer.
-*   **Manual Protection**: The system **never** overwrites a role set manually by a rep.
+### Contact Roles Mapped From Job Titles
+
+Contacts are linked to the Deal through Contact Roles.
+
+The system uses the Contact’s Job Title to assign one of three roles:
+
+| Contact Role | Meaning |
+|---|---|
+| **Decision Maker** | Person likely to approve or own the buying decision |
+| **Influencer** | Person who can shape the decision but may not own it |
+| **End User** | Person likely to use or evaluate the product day-to-day |
+
+Default rule:
+*   If the Job Title matches the End User title list, assign **End User**
+*   Else if the Job Title matches the Influencer title list, assign **Influencer**
+*   Else assign **Decision Maker** (unknown, unmapped, or blank job titles default to Decision Maker)
+
+Manual protection:
+*   If a representative has manually set a Contact Role, the system **never** overwrites it.
+*   The automatic mapping only runs for missing or unassigned roles.
+
+Implementation note:
+The title mapping comes from the Jurnii job-title-to-role mapping and the role resolution logic in the Deluge functions. The docs explain the behavior, not list every job title.
 
 ### Product Interest and Deal Amount
 Reps enter product interests as text during intake. The system:

@@ -26,6 +26,22 @@ The core Zoho Deluge functions have been built and partly tested through dry run
 
 ---
 
+## Core Testing Questions
+
+These are the main behaviors that still need proving before the system can be trusted at scale.
+
+| Question | Why it matters | What needs testing |
+| :--- | :--- | :--- |
+| **How are Deals with multiple Contacts handled?** | A real Account can have several people involved. The system must not let one Contact incorrectly override the whole Deal. | Test Accounts with 2–5 Contacts at different Stages and States. |
+| **Which Contact controls the Deal Stage?** | The Deal should follow the furthest viable open Contact, not the newest Contact or the last edited Contact. | Confirm the Deal moves to the furthest open Contact’s Stage. |
+| **What happens when one Contact is Lost but another is Open?** | A single Lost Contact should not close the Deal if another Contact is still active. | Test mixed Contact states under one Account. |
+| **How does manual Stage movement interact with Contact rollups?** | Reps may update Stage manually, but the system also rolls up from Contacts. | Confirm manual updates do not cause bad regressions or overwrite correct furthest-stage logic. |
+| **How do workflow triggers behave after imports?** | Bulk imports can create timing/concurrency issues. | Import as Leads, manually review, then release controlled batches for conversion. |
+| **Does sequence automation start only when it should?** | Calls/emails should not start for suppressed, historical, duplicate, or unreviewed records. | Test Automation Suppressed, Ready for Conversion, and Sequence Status values. |
+| **Do email events attach to the right Deal?** | Replies/bounces must pause the correct sequence. | Test replied, bounced, not replied, opened/unreplied, and clicked events. |
+
+---
+
 ## Import Testing
 
 Bulk imports are possible, but they need controlled handling. The safe pattern is:
@@ -51,6 +67,71 @@ After import, there must be a manual check before records are released into the 
 *   **Ready for Conversion status**: Confirm the checkbox is ticked only when lead qualification is complete.
 *   **Automation Suppressed status**: Ensure `Automation_Suppressed = true` is ticked for records that require purely manual handling.
 *   **Sequence entry**: Check whether the record should enter sequence automation at all.
+
+---
+
+## Multi-Contact Deal Testing
+
+A Deal can have more than one Contact attached to it. This needs specific testing.
+
+The expected rule is:
+*   One Account can have many Contacts.
+*   One Account should have one active Deal.
+*   All relevant Contacts should be linked to that Deal.
+*   The Deal Stage should follow the furthest viable open Contact.
+*   Lost Contacts should not pull the Deal backward.
+*   One Lost Contact should not close the Deal while another Contact is still Open.
+
+Example scenario:
+
+| Contact | Contact Stage | Contact State | Expected Effect |
+| :--- | :--- | :--- | :--- |
+| **Contact A** | Demo Booking | Open | Lower-stage active Contact |
+| **Contact B** | Demo Attended | Open | Deal should move to Demo Attended |
+| **Contact C** | Commercials Sent | Lost | Should not control the Deal while open Contacts exist |
+
+Expected Deal result:
+*   **Stage** = Demo Attended
+*   **Opportunity** = SQL
+*   **State** = Open
+*   **Primary Contact** = Contact B, unless an existing valid primary Contact is already tied at the same furthest Stage.
+
+---
+
+## Stage Movement Testing
+
+There are two ways Stage can move:
+1. A representative or workflow updates the Deal Stage directly.
+2. The system recalculates the Deal Stage from the furthest open Contact.
+
+This needs testing to verify: when manual updates and Contact rollups both exist, does the Deal land in the correct Stage?
+
+Test cases:
+
+| Test | Expected Result |
+| :--- | :--- |
+| **Rep moves Deal forward** | Deal should move forward and start the correct sequence. |
+| **Contact is behind Deal** | Contact should not pull Deal backward incorrectly. |
+| **Contact is ahead of Deal** | Deal should move to the furthest open Contact's Stage. |
+| **Contact is Lost** | Lost Contact should not control the active Deal. |
+| **All Contacts are Lost** | Deal should close as Lost / Closed. |
+
+---
+
+## Contact Role Testing
+
+Contact role mapping needs testing because it affects how representatives read the Deal.
+
+Test cases:
+
+| Test | Expected Result |
+| :--- | :--- |
+| **Known End User title** | Contact Role = End User |
+| **Known Influencer title** | Contact Role = Influencer |
+| **Unknown title** | Contact Role = Decision Maker |
+| **Blank title** | Contact Role = Decision Maker |
+| **Manually changed role** | System does not overwrite it. |
+| **Multiple Contacts under one Account** | All relevant Contacts are linked to the Deal through Contact Roles. |
 
 ---
 
