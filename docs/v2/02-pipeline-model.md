@@ -1,68 +1,55 @@
 # 02 — Pipeline Model
 
 ## TLDR
-The system uses four clear database fields to track sales progress.
-*   **Opportunity** = where it sits in the pipeline.
-*   **Stage** = what needs to happen next.
-*   **State** = whether the deal is still alive.
-*   **Status** = whether a rep is actively working it.
+The system uses four clear Zoho fields to track sales progress from start to finish.
 
-Evidence:
-*   `spec.md`
-*   `v4/processLead.deluge`
-*   `v4/processContact.deluge`
+*   **Opportunity** answers: what broad pipeline bucket is this in? (MQL, SQL, FTP, RTP)
+*   **Stage** answers: what step are we trying to complete next? (Marketing Consent to Renewal)
+*   **State** answers: is this commercial motion still active? (Open or Lost)
+*   **Status** answers: is this record untouched, being worked, or closed? (New, Working, Closed)
 
 ---
 
-## Core Ontology Fields
+## Core Pipeline Fields
 
-| Field | API Field | Plain meaning | Allowed Values |
-| :--- | :--- | :--- | :--- |
-| **Opportunity** | `Stage` | Big pipeline bucket | `MQL`, `SQL`, `FTP`, `RTP` |
-| **Stage** | `Stage1` | Current operational step | `Marketing Consent` to `Renewal` |
-| **State** | `State` | Open or Lost | `Open`, `Lost` |
-| **Status** | `Status` | New, Working, or Closed | `New`, `Working`, `Closed` |
+*   **Opportunity**: The big pipeline bucket representing the commercial phase (`MQL`, `SQL`, `FTP`, `RTP`).
+*   **Stage**: The current operational step within the sales cadence.
+*   **State**: The commercial status showing if the Deal is still active (`Open`) or dead (`Lost`).
+*   **Status**: Indicates whether the record is untouched (`New`), has manual representative activity (`Working`), or has stopped (`Closed`).
 
 ---
 
 ## Pipeline Progression Map
 
-`Stage1` is the operational step. It automatically decides the `Stage` (Opportunity bucket):
+The Stage selection automatically decides the Opportunity bucket. Sales progression flows in this exact sequence:
 
-| Rank | Stage (`Stage1`) | Opportunity (`Stage`) | Plain meaning |
+| Rank | Stage | Opportunity | Meaning |
 | :---: | :--- | :--- | :--- |
-| **1** | `Marketing Consent` | `MQL` | Prospect has consented to marketing |
-| **2** | `Demo Booking` | `SQL` | Rep is actively trying to book a demo |
-| **3** | `Demo Booked` | `SQL` | Demo is booked on the calendar |
-| **4** | `Demo Attended` | `SQL` | Demo occurred; sales qualification is active |
-| **5** | `Commercials Sent` | `FTP` | **First-Time Purchase begins** (terms/proposal sent) |
-| **6** | `Commercials Signed` | `RTP` | **Retention Purchase begins** (signed; moving to onboarding) |
-| **7** | `Onboarding` | `RTP` | Customer technical setup and kickoff |
-| **8** | `Renewal` | `RTP` | Customer active phase; renewal or expansion |
+| **1** | Marketing Consent | MQL | Prospect has consented to marketing |
+| **2** | Demo Booking | SQL | Rep is trying to book a demo |
+| **3** | Demo Booked | SQL | Demo is booked |
+| **4** | Demo Attended | SQL | Demo happened; sales qualification is active |
+| **5** | Commercials Sent | FTP | **First-Time Purchase begins** (terms/proposal sent) |
+| **6** | Commercials Signed | RTP | **Retention Purchase begins** (signed; moving to onboarding) |
+| **7** | Onboarding | RTP | Customer setup |
+| **8** | Renewal | RTP | Renewal / expansion |
 
 ---
 
 ## Core Pipeline Rules
 
-*   **`Stage1` Decides `Stage`**: Operational steps drive the pipeline buckets automatically.
-    *   *Evidence*: `spec.md` (lines 103–128)
-*   **`Commercials Sent` Starts FTP**: FTP begins only when contract terms are sent. Up until then, the deal is `SQL`.
-    *   *Evidence*: `v4/activity/handleCommercialsStatusChange.deluge`
-*   **`Commercials Signed` Starts RTP**: The signed contract moves the customer to onboarding.
-    *   *Evidence*: `v4/processDeal.deluge`
-*   **Won is not a lasting State**: "Won" is just a gate event being passed. When commercials are signed, the Deal moves to:
-    *   `Stage1` = Commercials Signed
-    *   `Stage` = RTP
-    *   `State` = Open
-    *   `Sequence_Status` = Not Started (so the next RTP / onboarding sequence can begin)
+*   **Stage Decides Opportunity**: Operational steps drive the pipeline buckets automatically.
+*   **Commercials Sent Starts FTP**: First-Time Purchase begins only when proposal or contract terms are sent. Up until then, the Deal is SQL.
+*   **Commercials Signed Starts RTP**: The signed contract moves the customer to onboarding.
+*   **Won is not a lasting State**: "Won" is just a transition gate event being passed. When commercials are signed, the Deal moves to:
+    *   **Stage** = Commercials Signed
+    *   **Opportunity** = RTP
+    *   **State** = Open
+    *   **Sequence Status** = Not Started (so the next RTP / onboarding sequence can begin)
     *   This keeps onboarding, retention, and renewal active.
-    *   *Evidence*: `spec.md` (lines 72–80), `v4/activity/handleCommercialsStatusChange.deluge` (lines 95–117)
-*   **`State` is Only `Open` or `Lost`**: A deal is either active or lost.
-    *   *Evidence*: `spec.md` (lines 57–72)
-*   **`Status = Closed` only when `State = Lost`**: You cannot close an active deal.
-    *   *Evidence*: `spec.md` (lines 81–97)
-*   **What Makes a Record `Working`**: Only manual rep actions (calls, tasks, meetings) make a record `Working`. Automated background emails keep it `New` or `Waiting`.
-    *   *Evidence*: `spec.md` (lines 95–100)
+*   **State is Only Open or Lost**: A deal is either active or lost.
+*   **Status = Closed Only When State = Lost**: You cannot close an active deal.
+*   **What Makes a Record Working**: Only manual rep actions (calls, tasks, meetings) make a record `Working`. Automated background emails keep it `New` or `Waiting`.
 
 ---
 
@@ -70,22 +57,41 @@ Evidence:
 
 ### 1. Active Demo Stage
 ```text
-Stage1 = Demo Booked
-Stage = SQL
+Stage = Demo Booked
+Opportunity = SQL
 State = Open
-Status = Working if a rep has done real activity
+Status = Working (if a rep has done real activity)
 ```
 
 ### 2. Proposal Sent
 ```text
-Stage1 = Commercials Sent
-Stage = FTP
-sequenceRouter creates Commercials Sent Call 1
+Stage = Commercials Sent
+Opportunity = FTP
+System creates Commercials Sent Call 1
 ```
 
 ### 3. Deal Lost
 ```text
 State = Lost
 Status = Closed
-automation stops
+Automation stops
 ```
+
+---
+
+## Field Mapping for Implementation
+
+In the API, Zoho's user-facing names map to the following API fields:
+
+| In Zoho UI | API Name |
+| :--- | :--- |
+| **Opportunity** | `Stage` |
+| **Stage** | `Stage1` |
+| **State** | `State` |
+| **Status** | `Status` |
+
+### Relevant Repo Files
+
+- `v4/processLead.deluge`
+- `v4/processContact.deluge`
+- `v4/activity/handleCommercialsStatusChange.deluge`

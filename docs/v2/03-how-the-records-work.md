@@ -3,13 +3,6 @@
 ## TLDR
 This document explains the Jurnii.io customer record model and how our background scripts automatically link and clean them.
 
-Evidence:
-*   `spec.md`
-*   `v4/processLead.deluge`
-*   `v4/processContact.deluge`
-*   `v4/processAccount.deluge`
-*   `v4/processDeal.deluge`
-
 ---
 
 ## CRM Record Model
@@ -57,11 +50,10 @@ flowchart TD
 
 ### Canonical Account Lookup
 The system uses domain, website, and cleaned company name to find the right Account before creating a new one. It uses this 4-step priority tree:
-1.  **Unique Account_Key** (derived website domain like `acme.com` or email domain).
+1.  **Unique Account Key** (derived website domain like `acme.com` or email domain).
 2.  **Website** field exact matches.
 3.  **Company Name** exact match (stripped of punctuation and symbols).
 4.  **Create Account** fallback only if steps 1-3 find nothing.
-*   *Evidence*: `v4/processLead.deluge` (lines 103–183)
 
 ### One Active Deal Rule
 An Account should have one active Deal.
@@ -72,20 +64,17 @@ Do not create:
 *   one Deal per Product
 
 The Deal represents the current sales motion for the Account.
-*   *Evidence*: `spec.md` (lines 212–224)
 
 ### Duplicate Deal Silencing
 If multiple active Deals are found for the same Account:
 *   The system keeps the oldest Deal as the canonical active Deal.
-*   All other active Deals are immediately set to `State = Lost`, `Status = Closed`, marked `Duplicate / Test Record`, and their Deal_Key is cleared.
-*   *Evidence*: `v4/processDeal.deluge` (lines 73–114)
+*   All other active Deals are immediately set to `State = Lost`, `Status = Closed`, marked `Duplicate / Test Record`, and their Deal Key is cleared.
 
 ### Contact Roles Mapped from Job Titles
 All Contacts under the Account are linked to the Deal's `Contact_Roles` related list.
 *   Roles are mapped from `Job_Title` (e.g. Director $\rightarrow$ Decision Maker).
 *   **Seniority Wins**: Decision Maker > End User > Influencer.
 *   **Manual Protection**: The system **never** overwrites a role set manually by a rep.
-*   *Evidence*: `v4/processContact.deluge` (lines 441–547)
 
 ### Product Interest and Deal Amount
 Reps enter product interests as text during intake. The system:
@@ -94,14 +83,21 @@ Reps enter product interests as text during intake. The system:
 3.  Adds the Product to the Deal related list.
 4.  **Sums their Unit Prices** and writes the total to `Deal.Amount` automatically.
 5.  *Cascade Protection*: When recalculating, existing line-item prices are summed first, preventing accidental $0 rewrites on mid-stage updates.
-*   *Evidence*: `v4/processLead.deluge` (lines 725–845)
 
 ### Furthest Open Contact Rule
-A Deal's stage comes from the furthest open Contact under the Account.
-*   If Contact A is booking a demo but Contact B has attended, the Deal stage is set to `Demo Attended`.
+A Deal's Stage comes from the furthest open Contact under the Account.
+*   If Contact A is booking a demo but Contact B has attended, the Deal Stage is set to `Demo Attended`.
 *   The furthest open Contact is set as the primary Contact on the Deal.
-*   *Evidence*: `v4/processAccount.deluge` (lines 496–544)
 
 ### Lost Contact Handling
 A single "Lost" Contact does not pull the Deal backward or close it as long as another open Contact exists under the Account. The Deal only closes as `Lost` when **all** related Contacts are Lost.
-*   *Evidence*: `spec.md` (lines 251–266)
+
+---
+
+## Implementation reference
+
+Relevant repo files:
+- `v4/processLead.deluge`
+- `v4/processContact.deluge`
+- `v4/processAccount.deluge`
+- `v4/processDeal.deluge`

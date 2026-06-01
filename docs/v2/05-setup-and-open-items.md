@@ -3,8 +3,6 @@
 ## TLDR
 This playbook outlines what is built, what requires manual setup in the Zoho UI, and the safe rollout order for commercial leadership.
 
-Evidence: `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`, `.agents/context/activity-workflows/TEMPLATE_NAMING_MATRIX.md`
-
 ---
 
 ## Launch Playbook Checklist
@@ -46,6 +44,13 @@ Leadership must understand these system realities:
 *   **Connection Dependency**: The automated email engine relies on a custom connection named **`zoho_crm`** in our Zoho Developer Hub. If the connection permissions expire, automated emails will fail to send.
     *   *Required Scopes*: `ZohoCRM.modules.contacts.UPDATE`, `ZohoCRM.modules.contacts.READ`, `ZohoCRM.modules.contacts.send_mail`
 *   **Zoho UI Outgoing Email Trigger API Limitation**: Zoho's API does not support configuring outgoing email event rules (`WF009`). These rules **must be configured manually in the Zoho UI** following the exact parameters in our configuration checklist.
-    *   *Reference*: `activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md` (lines 133–147)
 *   **Activity Picklist Rule**: Because Zoho CRM prevents true checkbox fields on Activities (Calls, Tasks, Events), fields like `Sequence_Managed` are custom picklists set to `Yes` / `No`. Sales reps must not alter these values.
-    *   *Reference*: `activity-workflows/FIELD_REUSE_NOTES.md` (lines 60–68)
+
+---
+
+## Implementation reference
+
+Relevant setup files and configurations:
+- `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`
+- `.agents/context/activity-workflows/TEMPLATE_NAMING_MATRIX.md`
+- `.agents/context/activity-workflows/FIELD_REUSE_NOTES.md`

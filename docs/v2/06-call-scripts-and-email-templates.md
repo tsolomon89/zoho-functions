@@ -1,32 +1,24 @@
 # 06 — Call Scripts and Email Templates
 
 ## TLDR
-This document maps our standardized sales outreach library. It covers the call scripts and email templates that reps use and that the system sends automatically.
-
-Evidence:
-- `.agents/context/activity-workflows/calls`
-- `.agents/context/activity-workflows/email_templates`
+This document maps Jurnii's standardized sales outreach library. It covers the call scripts and email templates that reps use and that the system sends automatically.
 
 ---
 
 ## Call Scripts
 
 What it is:
-A standardized collection of stage-specific call scripts and talk tracks. Every sales stage starts with a Call to ensure professional, value-focused outreach.
+A standardized collection of stage-specific call scripts and talk tracks. Every sales Stage starts with a Call to ensure professional, value-focused outreach.
 
 How it is used:
-When a Deal enters a stage, the system automatically creates the Call record in the Calls module. The rep views the Call, reads the corresponding script/talk track, makes the call, and logs the Call Outcome.
+When a Deal enters a Stage, the system automatically creates the Call record in the Calls module. The rep views the Call, reads the corresponding script/talk track, makes the call, and logs the Call Outcome.
 
 Why it matters:
 Sales reps do not have to guess what to say or when to follow up. It standardizes Jurnii's message, ensures reps gather consistent qualification data, and guides the automated sequence based on logged outcomes.
 
-Evidence:
-- `.agents/context/activity-workflows/calls/Demo Booking/Demo Booking Call 1.md`
-- `v4/activity/createStageCall.deluge`
-
 ### Stage Call Attempts Inventory
 
-Each stage has a dedicated set of call scripts. The system automatically steps through these attempts until contact is made or the stage is completed:
+Each Stage has a dedicated set of call scripts. The system automatically steps through these attempts until contact is made or the Stage is completed:
 
 | Stage | Call Attempts | Purpose of Call Script |
 | :--- | :---: | :--- |
@@ -45,10 +37,10 @@ When a rep completes a call and logs a **Call Outcome** in the Zoho Calls module
 
 | Call Outcome | What happens |
 | :--- | :--- |
-| **Positive** | Advances Deal stage and Opportunity. Stops current sequence and creates Call 1 of the new stage. |
+| **Positive** | Advances Deal Stage and Opportunity. Stops current sequence and creates Call 1 of the new Stage. |
 | **Neutral** | Sends stage-specific email template and creates the next Call (Call N+1) after the delay. |
 | **No Answer** | Sends no-answer email template and creates the next Call (Call N+1) after the delay. |
-| **Negative** | Closes Deal as `Lost` and status as `Closed`. Halts all future automation. |
+| **Negative** | Closes Deal as `Lost` and Status as `Closed`. Halts all future automation. |
 | **Deferred** | Pauses sequence until the specified Follow-Up Date is reached. |
 | **Bad Data** | Pauses sequence and creates a manual **Data Repair Task** for the rep. |
 | **Already Handled** | Logs the step as handled. No email is sent and no next Call is created. |
@@ -56,25 +48,18 @@ When a rep completes a call and logs a **Call Outcome** in the Zoho Calls module
 | **Manual Only** | Pauses sequence and suppresses future automation. |
 | **Do Not Contact** | Pauses sequence and suppresses future automation. |
 
-Evidence:
-- `v4/activity/handleCallOutcome.deluge`
-
 ---
 
 ## Email Templates
 
 What it is:
-A library of follow-up emails selected by stage, attempt, or event.
+A library of follow-up emails selected by Stage, attempt, or event.
 
 How it is used:
-The system automatically selects the correct email template based on the current stage, the call attempt number, or a triggered event (like a meeting reminder or proposal delivery).
+The system automatically selects the correct email template based on the current Stage, the call attempt number, or a triggered event (like a meeting reminder or proposal delivery).
 
 Why it matters:
 Ensures timely, professional follow-up without manual rep effort. The email copy matches Jurnii's positioning and automatically chases prospects who do not reply or answer.
-
-Evidence:
-- `.agents/context/activity-workflows/email_templates/Demo Booking/Demo Booking Email 1.md`
-- `v4/activity/sequenceRouter.deluge`
 
 ### Email Template Groups and Triggers
 
@@ -98,11 +83,22 @@ These are the exact email templates that must be configured inside Zoho CRM. The
 ## Zoho UI and Sales Rep Experience
 
 ### What Needs Copying into Zoho UI
-*   **Email Templates**: The exact text copy from `.agents/context/activity-workflows/email_templates/` must be copied into Zoho CRM's Email Templates setup page. The template names in Zoho **must match the folder and file names exactly** (e.g. `Demo Booking Email 1`).
-*   **Call Scripts**: The talk tracks and objective details from `.agents/context/activity-workflows/calls/` should be placed into Zoho CRM as quick reference cards or stored in the Call script description field for reps.
+*   **Email Templates**: The exact text copy from the email templates library must be copied into Zoho CRM's Email Templates setup page. The template names in Zoho **must match the folder and file names exactly** (e.g. `Demo Booking Email 1`).
+*   **Call Scripts**: The talk tracks and objective details from the calls library should be placed into Zoho CRM as quick reference cards or stored in the Call script description field for reps.
 
 ### What the Sales Rep Actually Sees and Does
 1.  **View Call**: The sales rep sees a new `Call` record created automatically in their queue under the `Calls` module (e.g., `Demo Booking Call 1`).
 2.  **Read Script**: If desired, the script text can be copied into the Call description setup, but the current function does not automatically inject Markdown script text into the Call record. The rep uses the matching script from the calls library or wherever it is surfaced in Zoho. The current Call record stores the stage, attempt, and purpose.
 3.  **Log Outcome**: The rep calls the prospect, selects the appropriate `Call_Outcome` from the picklist, and clicks Save.
 4.  **Hands-Free Follow-Up**: The system automatically runs the next step (sending the corresponding email template, updating dates, or scheduling the next Call) without the rep needing to type or schedule anything manually.
+
+---
+
+## Implementation reference
+
+Relevant libraries and files:
+- `.agents/context/activity-workflows/calls`
+- `.agents/context/activity-workflows/email_templates`
+- `v4/activity/createStageCall.deluge`
+- `v4/activity/handleCallOutcome.deluge`
+- `v4/activity/sequenceRouter.deluge`
