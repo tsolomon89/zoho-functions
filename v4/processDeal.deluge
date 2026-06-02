@@ -502,8 +502,21 @@ void automation.processDeal(string deal_id)
 	else if(hasContacts)
 	{
 		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		if(ifnull(targetDeal.get("Stage1"), "") != bestStage) { dUpd.put("Stage1", bestStage); }
-		if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
+		// Never-regress Stage1: when the user edits a Deal field (e.g. Commercials_Status),
+		// WF001d fires processDeal in parallel with the field-specific handler (WF004 →
+		// handleCommercialsStatusChange). If we blindly write Stage1=bestStage (computed from
+		// Contacts whose Stage hasn't yet caught up to the activity-layer transition), we'd
+		// clobber the handler's Stage1 advance. So only ADVANCE Stage1 — never regress.
+		// Manual regress (e.g. user explicitly drops Stage1) still works because WF003 fires
+		// sequenceRouter on Stage1 field-update, not processDeal.
+		currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
+		currentStageRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+		bestStageRank    = ifnull(stageRanks.get(bestStage), 0).toLong();
+		if(bestStageRank > currentStageRank)
+		{
+			dUpd.put("Stage1", bestStage);
+			dUpd.put("Stage", bestOpp);
+		}
 	}
 
 	if(dUpd.size() > 0)

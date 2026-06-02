@@ -874,8 +874,18 @@ void automation.processLead(string lead_id)
 	else
 	{
 		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		if(ifnull(targetDeal.get("Stage1"), "") != bestStage) { dUpd.put("Stage1", bestStage); }
-		if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
+		// Never-regress Stage1: when this function fires in parallel with a field-specific
+		// activity-layer handler (e.g. handleCommercialsStatusChange.Signed advancing Stage1
+		// to "Commercials Signed"), the Contact-derived bestStage may still be at an earlier
+		// rank. Only ADVANCE Stage1, never regress.
+		currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
+		currentStageRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+		bestStageRank    = ifnull(stageRanks.get(bestStage), 0).toLong();
+		if(bestStageRank > currentStageRank)
+		{
+			dUpd.put("Stage1", bestStage);
+			dUpd.put("Stage", bestOpp);
+		}
 	}
 
 	if(dUpd.size() > 0)
