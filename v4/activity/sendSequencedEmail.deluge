@@ -96,19 +96,32 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	dataList.add(sendItem);
 	sendPayload.put("data", dataList);
 
-	sendResp = invokeurl
-	[
-		url    : "https://www.zohoapis.com/crm/v3/Contacts/" + contactId + "/actions/send_mail"
-		type   : POST
-		parameters : sendPayload.toString()
-		headers : {"Content-Type":"application/json"}
-		connection : "zoho_crm"
-	];
+	// Wrap the send_mail invokeurl in try/catch so an Invalid Domain (or any other send-time
+	// failure) doesn't throw out of this function and halt the caller mid-pipeline. The
+	// downstream code below tolerates a null sendResp (sentMessageId stays empty, Deal
+	// still gets timestamp + template name for audit).
+	sendResp = null;
+	try
+	{
+		sendResp = invokeurl
+		[
+			url    : "https://www.zohoapis.com/crm/v3/Contacts/" + contactId + "/actions/send_mail"
+			type   : POST
+			parameters : sendPayload.toString()
+			headers : {"Content-Type":"application/json"}
+			connection : "zoho_crm"
+		];
+	}
+	catch (e)
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "invokeurl_failed", {"error":e.toString(), "to":contactEmail, "template":templateName});
+		sendResp = null;
+	}
 
 	dealUpd = Map();
 	dealUpd.put("Last_Email_Template", templateName);
-	// Zoho requires ISO-8601 with 'T' separator; zoho.currenttime returns space-separated form.
-	dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+	// zoho.currenttime is already a DateTime; format directly as ISO-8601 with offset.
+	dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 
 	sentMessageId = "";
 	if(!isNull(sendResp) && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)

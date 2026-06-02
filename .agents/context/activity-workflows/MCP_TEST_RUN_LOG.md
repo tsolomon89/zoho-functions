@@ -358,6 +358,214 @@ Other branches in these three files already passed `triggerMap`, so no change ne
 - `processLead/Contact/Account/Deal` write Account fields (state rollup) via `updateRecord("Accounts", ..., updAcc)` without `triggerMap` so that WF001c fires `processAccount` for the rollup-propagation chain. This is intentional design per the trigger-suppression matrix (the WF001c cascade IS wanted), not the same bug class as the WF001d hijack.
 - Contact writes that pass `suppressTrigger` are intentional (avoid Contact-loop on Contact_Role1 stamping). Those that don't pass it are intentional Account-rollup chains.
 
+---
+
+## Round 2 — 2026-06-02 08:43
+
+**Setup:** Same production org, session prefix `MCP_TEST_20260602_R2`. Five additional functions REST-API-enabled by user: `processLead`, `processDeal`, `handleCommercialsStatusChange`, `handleDemoOutcome`, `handleCallOutcome` (in addition to the `createStageCall`/`sequenceRouter` toggled in Round 1).
+
+### T1-retest — fresh Lead end-to-end
+
+- **Status:** Graph layer PASS; race + timezone bugs unchanged (deferred).
+- Lead `991103000000797020` → Contact `991103000000768216`, Account `991103000000709313`, Deal `991103000000735175`. Full graph cascade healthy. `Marketing Consent Call 1` created via the workflow chain (proves all Round 1 datetime-format fixes still hold).
+- Pre-existing **sequenceRouter race bug** reproduced (2 `Marketing Consent Call 1`s ~1s apart) — unchanged from Round 1, expected.
+- Pre-existing **timezone bug** reproduced (`Call_Start_Time=07:43:57` for a Call created at `08:43:57`) — unchanged from Round 1, expected.
+
+### T13 first attempt — deeper bug surfaced
+
+- Set `Commercials_Status="Signed"` with `trigger=["workflow"]`. Observed result: `Stage1` reverted to `"Marketing Consent"` despite handleCommercialsStatusChange having written `"Commercials Signed"` first. Active_Sequence_Stage also reverted.
+- **Root cause:** the cascade-hijack fix prevents activity-layer INTERNAL cascades from reverting Stage1, but it does NOT prevent the user's INITIAL Deal edit from firing both WF004 (correct handler) AND WF001d (which re-runs processDeal in parallel). processDeal's `bestStage` computation from Contacts lags behind the activity-layer transition, so it clobbers Stage1.
+
+### Round 2 fix: "never-regress" Stage1 in 4 process functions
+
+Applied to the `else if(hasContacts)` block where Stage1/Stage are written from `bestStage`/`bestOpp`:
+
+| File:line | Block |
+|---|---|
+| [processDeal.deluge:502-519](../../../v4/processDeal.deluge#L502-L519) | Else-if branch |
+| [processLead.deluge:876-890](../../../v4/processLead.deluge#L876-L890) | Same |
+| [processContact.deluge:693-706](../../../v4/processContact.deluge#L693-L706) | Same |
+| [processAccount.deluge:542-555](../../../v4/processAccount.deluge#L542-L555) | Same |
+
+Logic: compute `currentStageRank` from `stageRanks.get(targetDeal.Stage1)` and `bestStageRank` from `stageRanks.get(bestStage)`. Only write Stage1/Stage if `bestStageRank > currentStageRank`. Manual Stage1 regress still works because WF003 (Stage1 field-update) fires `sequenceRouter` directly, not `processDeal`.
+
+### T13 retest — FULL PASS
+
+After the 4-file fix and republish, re-fired `Commercials_Status="Signed"`:
+
+| Field | Expected | Actual |
+|---|---|---|
+| Stage1 | Commercials Signed | **Commercials Signed** ✅ |
+| Stage | RTP | RTP ✅ |
+| State | Open | Open ✅ |
+| Status | New | New ✅ |
+| Signed_At | not empty | `2026-06-02T07:52:32+01:00` ✅ (still 1hr-off due to timezone bug) |
+| Sequence_Status | Not Started → Waiting on Call | Waiting on Call ✅ |
+| Active_Sequence_Stage | Commercials Signed | Commercials Signed ✅ |
+| Commercials_Status | Signed | Signed ✅ |
+| Commercials Signed Call 1 | exists | id `991103000000718272` ✅ |
+| **Race-induced duplicate Calls** | **0** | **0** ✅ |
+
+The never-regress fix has an unexpected bonus: when processDeal's `bestStageRank == currentStageRank` it skips the Stage1 write entirely, which shrinks the racing-write window and (in this trigger pattern) avoided the duplicate-Call race condition that's still present on the Lead-create cascade.
+
+### T16 — Positive Call outcome (workflow path) FAIL; handleCallOutcome direct invoke PASS
+
+- Set `Call_Outcome="Positive"` on Commercials Signed Call 1 → Deal didn't react. Same failure as Round 1.
+- REST-invoked `handleCallOutcome(callIdStr="991103000000718272")` directly. Function ran end-to-end successfully: supersedeOldSequence → createStageCall(Onboarding,1) → sequenceRouter bootstrap → Stage1 advanced to `Onboarding`, Stage=`RTP`. Confirmed Deal in `Onboarding`.
+- **Root cause isolated:** `handleCallOutcome` is correct. **WF006 trigger configuration is the bug** — pre-flight inventory showed WF006 type was `scheduled_call_createedit` which doesn't fire on Call_Outcome-only edits to logged/completed calls. Workflow-config fix (UI), not code.
+- Arg-name finding: function signature is `automation.handleCallOutcome(string callIdStr)`. The Trigger Map doc spec says `call_id`. The Zoho function-execute API uses parameter names from the function signature, so REST callers must pass `callIdStr`.
+
+### T14 — Commercials Rejected, FULL PASS
+
+| Field | Expected | Actual |
+|---|---|---|
+| State | Lost | **Lost** ✅ |
+| Status | Closed | **Closed** ✅ |
+| Sequence_Status | Completed | **Completed** ✅ |
+| **Lost_Reasons** | "Commercial Rejected" | **"Commercial Rejected"** ✅ |
+| Reason_For_Loss__s | null (read-only) | null ✅ (confirms field is system-only) |
+
+The Lost_Reasons swap (Round 1 cascade-hijack-sweep fix) works correctly.
+
+### T15 — Demo Outcome Attended-Qualified, PARTIAL PASS
+
+Fresh Lead `991103000000792038` → Deal `991103000000750242`. Set `Demo_Outcome="Attended - Qualified"`.
+
+| Field | Expected | Actual |
+|---|---|---|
+| Stage1 | Demo Attended | **Demo Attended** ✅ |
+| Stage | SQL | **SQL** ✅ |
+| Commercials_Status | Drafting | **Drafting** ✅ |
+| Demo_Status | Completed | Completed ✅ |
+| Active_Sequence_Stage | Demo Attended | Demo Attended ✅ |
+| `Draft Commercials` Task | exists | **NOT CREATED** ❌ |
+
+The Deal-state transition is correct. The Task creation step failed because `sendSequencedEmail` throws on invalid email domain (`acme-r2-t15.example`), and the exception **halts handleDemoOutcome's execution before reaching the Task createRecord call**.
+
+- REST diagnostic captured the error: `"Execution exception: 'Error due to - 'Invalid Domain'' Error in executing automation.sendSequencedEmail function. at line No.60"`
+- **Real-world impact:** with valid customer email domains in production, this would not throw. But the brittleness (uncaught exception halts caller) is a bug worth fixing.
+- **Fix shape:** wrap `sendSequencedEmail`'s `invokeurl` in try/catch, or validate the domain before calling, and return error rather than throw.
+
+### T7 — Product attachment, FULL PASS (both REST and workflow paths)
+
+Fresh Lead `991103000000795105` (workflows suppressed on Lead create) → REST-invoked processLead → captured complete info logs:
+
+```
+Lead Product_Interest raw=Jurnii Cortex,Jurnii UX
+Lead PI parsed string='Jurnii Cortex,Jurnii UX'
+Product catalog loaded: 3 products
+Queueing Product for Deal: Jurnii Cortex (id=...694087, price=16000.00)
+Queueing Product for Deal: Jurnii UX (id=...659965, price=12000.00)
+Products summary: newlyQueued=2 totalAmount=28000.00 totalLineItems=2
+Deal updateRecord payload: {Amount:28000.00, Product_Details:[2 rows]}
+Deal updateRecord resp: SUCCESS
+```
+
+Deal `991103000000754296` read back: `Amount=28000` ✅.
+
+Then fresh Lead `991103000000802028` with workflows enabled (mimics production path that failed in Round 1). Deal `991103000000762170` read back: `Amount=28000` ✅.
+
+**Round 1's T7 failure was a transient race**, no longer reproducing. The never-regress fix is likely partially responsible: now that `processDeal` writes far fewer fields (often `dUpd.size()==0` and skips the updateRecord entirely), the race window between `processLead`'s Product_Details write and any other write has shrunk.
+
+### Round 2 — End-of-session cleanup
+
+25 R2 test records deleted (4 Leads, 4 Contacts, 4 Accounts, 4 Deals, 9 Calls).
+
+### Round 2 — Final summary
+
+**Passing tests:** T1, T13, T14, T15 (Deal-state), T16 (handleCallOutcome via REST), T7 (REST + workflow).
+
+**Bugs identified for follow-up (NOT fixed Round 2):**
+
+1. **WF006 trigger configuration** — `scheduled_call_createedit` type doesn't fire on Call_Outcome edits to non-scheduled calls. UI fix: change to `create_or_edit` with criteria `Sequence_Managed=Yes AND Call_Outcome is not empty AND Stale != Yes`.
+2. **`sendSequencedEmail` throws on invalid email domain** — halts caller mid-function, blocks downstream Task / Deal-update logic. Wrap `invokeurl` in try/catch and return error rather than throw.
+3. **Timezone discrepancy (1-hour offset)** in all datetime stamps — `Signed_At`, `Call_Start_Time`, etc. all stamped 1hr behind actual instant. Still needs investigation into the correct `zoho.currenttime` → ISO-8601-with-offset incantation.
+4. **sequenceRouter race condition (duplicate Call 1)** — `processLead → sequenceRouter` and `processDeal → sequenceRouter` both fire on the initial Lead cascade and race past `createStageCall`'s dup-check (searchRecords lag). Fix: swap `searchRecords` for `getRelatedRecords` + client-side filter in `createStageCall`'s dup-check.
+
+**Fixed and republished this round (cumulative across Round 1 + Round 2):**
+
+| Function | Round 1 fixes | Round 2 fixes |
+|---|---|---|
+| `createStageCall` | Call_Start_Time ISO-8601 datetime format | — |
+| `sequenceRouter` | Next_Action_Due_Date ISO-8601 | — |
+| `handleCallOutcome` | Next_Action_Due_Date ISO-8601; cascade-hijack (Positive, Negative); Lost_Reasons swap | — |
+| `handleCommercialsStatusChange` | Datetime stamps ISO-8601; cascade-hijack (Sent, Signed, Rejected); Lost_Reasons swap | — |
+| `handleDemoOutcome` | Cascade-hijack (Attended-Qualified, Not Qualified); Lost_Reasons swap | — |
+| `handleMeetingEvent` | Demo_Reminder_Send_At ISO-8601; No Show triggerMap + explicit handler call | — |
+| `handleTaskCompletion` | Send Commercials triggerMap + explicit handler call | — |
+| `sendSequencedEmail` | Last_Email_Sent_At ISO-8601 | — |
+| `supersedeOldSequence` | Sequence_Superseded_At ISO-8601 | — |
+| `processLead` | Lost_Reasons swap (dup-silencing) | **Never-regress Stage1** |
+| `processDeal` | Lost_Reasons swap (dup-silencing + sentinel detection) | **Never-regress Stage1** |
+| `processContact` | Lost_Reasons swap (dup-silencing) | **Never-regress Stage1** |
+| `processAccount` | Lost_Reasons swap (dup-silencing) | **Never-regress Stage1** |
+
+**Coverage gaps (still unreachable in Lead-only mode):**
+- T5 (sentinel "(Duplicate)" Deal recovery)
+- T6 (direct duplicate-Deal silencing)
+- T10 (per-Contact Stage progression)
+- T8 multi-Deal (mixed/Lost rollup phases require 2+ Deals under one Account)
+
+---
+
+## Round 3 — Bug-fix pass
+
+Applied 3 code fixes targeting the 4 deferred bugs from Round 2. WF006 trigger-type change blocked by Zoho API (`NOT_ALLOWED: trigger cannot be changed` on `updateWorkflowRuleById`) — UI action required for that one.
+
+### Fix 1: Timezone offset (Bug 3) — direct `.toString()` on `zoho.currenttime`
+
+`zoho.currenttime` is already a Deluge `DateTime` per Zoho docs. The previous pattern `zoho.currenttime.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX")` round-trips through a TZ-naive string in the middle (`.toString()` flatten before re-parse), losing the runtime's original offset. The workflow runtime evidently ran in a different zone than `XXX` formatted with, producing 1-hour-off stamps.
+
+**Fix:** drop the intermediate parse; format the DateTime directly.
+
+| File:line | Change |
+|---|---|
+| [handleCommercialsStatusChange.deluge:53](../../../v4/activity/handleCommercialsStatusChange.deluge#L53) | `now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX")` |
+| [supersedeOldSequence.deluge:37-38](../../../v4/activity/supersedeOldSequence.deluge#L37-L38) | Same pattern |
+| [sendSequencedEmail.deluge:111](../../../v4/activity/sendSequencedEmail.deluge#L111) | `dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toString(...))` |
+| [createStageCall.deluge:60-74](../../../v4/activity/createStageCall.deluge#L60-L74) | Split the `attempt == 1` branch (use `zoho.currenttime.toString(...)` directly) from `attempt > 1` branch (still has to parse `calculateBusinessDate`'s string output). |
+
+`calculateBusinessDate`-derived datetimes (in createStageCall attempt>1, handleCallOutcome, sequenceRouter post-call chain, handleMeetingEvent) still go through `.toDateTime(format).toString(ISOformat)` because the helper returns a TZ-naive String — those datetimes are future-dated (reminders, due-dates) so a TZ-runtime mismatch is much less impactful than the "now" stamps we just fixed.
+
+### Fix 2: `sendSequencedEmail` try/catch (Bug 2)
+
+[sendSequencedEmail.deluge:99-121](../../../v4/activity/sendSequencedEmail.deluge#L99-L121) — wrapped the `invokeurl` to Zoho's `send_mail` API in try/catch. On exception (e.g. `Invalid Domain` for test email domains), the function now logs the error and continues with `sendResp = null`. The downstream code already tolerates `sendResp = null` (sentMessageId stays empty, Deal still gets the timestamp + template name for audit). This prevents the exception from halting the caller mid-function — fixes the T15 "Draft Commercials Task not created" issue.
+
+### Fix 3: `createStageCall` dup-check via `getRelatedRecords` (Bug 4)
+
+[createStageCall.deluge:33-58](../../../v4/activity/createStageCall.deluge#L33-L58) — swapped the `zoho.crm.searchRecords("Calls", criteria)` dup-check for `zoho.crm.getRelatedRecords("Calls", "Deals", dealId)` + client-side filter on `Sequence_Managed=Yes`, `Sequence_Stage=stage`, `Sequence_Attempt=attempt`, empty `Call_Outcome`, `Stale != Yes`. `getRelatedRecords` reads live data (no search-index lag), so the race condition between processLead/processDeal both calling sequenceRouter→createStageCall in parallel during Lead-create cascade will no longer produce duplicate Call 1s.
+
+### Fix 4: WF006 trigger type — BLOCKED (Zoho API), UI action required
+
+Tried `updateWorkflowRuleById` to change WF006's trigger from `scheduled_call_createedit` (which doesn't fire on Call_Outcome edits to logged calls) to `outgoing_call_edit`. Zoho rejected with `NOT_ALLOWED: trigger cannot be changed`. This is a permanent constraint of the Zoho workflow API — trigger types are immutable after creation.
+
+`getWorkflowConfigurations(module=Calls)` shows the deprecated triggers (`create_or_edit`, `edit`, `field_update`) are still listed but marked deprecated; current valid triggers are call-type-specific: `outgoing_call_edit`, `outgoing_call_field_update`, `scheduled_call_edit`, etc.
+
+**User UI action required:**
+1. Zoho → Setup → Automation → Workflow Rules → WF006 Handle Call Outcome.
+2. Either:
+   - **Delete** WF006 and **recreate** with trigger type **"Calls → On Record Action → Outgoing Call Edited"** (or similar non-deprecated variant). Set the function action to `handleCallOutcome` with `callIdStr ← ${Calls.id}`.
+   - **OR** edit the rule in the UI — the UI may still allow trigger-type changes that the API forbids.
+
+After that, `Call_Outcome="Positive"` edits on Calls (per T16) should trigger handleCallOutcome correctly.
+
+### Round 3 — Republish required
+
+1. `createStageCall` (dup-check + attempt==1 datetime)
+2. `sendSequencedEmail` (try/catch + Last_Email_Sent_At)
+3. `supersedeOldSequence` (Sequence_Superseded_At)
+4. `handleCommercialsStatusChange` (Commercials_*_At + Signed_At)
+
+(Plus the WF006 UI fix above, if you want T16 to work via workflow path.)
+
+### Round 3 — Open items
+
+- **Reason_For_Loss__s is read-only via API** (confirmed Round 1) — already worked around with `Lost_Reasons` swap.
+- **WF006 UI fix** — needed for T16 workflow path.
+- **`calculateBusinessDate`-derived datetimes** still go through `.toDateTime → .toString` round-trip and may be off by ~1hr in workflow runtime contexts. Future refactor: return DateTime from `calculateBusinessDate` instead of a TZ-naive String.
+
+
+
 **Open bugs deferred to Round 2 (NOT fixed this round):**
 
 1. **Timezone discrepancy (1-hour offset on datetime stamps):** Affects all ISO-8601 datetime writes added in the Round 1 batch fix. Needs a follow-up where `zoho.currenttime` is captured and formatted with a verified offset. Possible approach: use `.toString("yyyy-MM-dd HH:mm:ssZ")` (no `'T'` separator but with `Z` for RFC-822 offset that respects Zoho-runtime TZ) and test whether Zoho's createRecord accepts that — or use UTC throughout with explicit `+00:00` literal. Needs an experimental round.
@@ -386,5 +594,27 @@ Other branches in these three files already passed `triggerMap`, so no change ne
 
 
 
+---
 
+## Round 4 prep — 2026-06-02
+
+**WF006 fix completed via API.**
+
+- **WF006v2 created** — id `991103000000790084`. Trigger: `outgoing_call_createedit`. Action: `handleCallOutcome` (automation action id `991103000000780459`) wired directly via `functions` associate-action — no placeholder, the real function fires immediately. `criteria_details.relational_criteria.module_selection="all"` so the rule fires for any related-module context (Deals, Contacts, etc.).
+- **WF006 (original) deactivated** — id `991103000000780461`, renamed to `WF006 Handle Call Outcome DEPRECATED replaced by WF006v2`, `status.active=false`. Trigger `scheduled_call_createedit` was the wrong type for call-outcome edits, and Zoho prohibits changing trigger type on an existing rule (`NOT_ALLOWED: trigger cannot be changed`).
+- **API gotchas captured for future reference:**
+  - Workflow functions are listed at `/crm/v8/settings/automation/functions` — NOT `/crm/v8/settings/functions` (returns 400).
+  - Calls module rejects `assign_owner` and `field_updates` as workflow actions on POST/createFieldUpdates (`NOT_ALLOWED: module not supported`) — only `functions` (via existing function-action id) and `schedule_call` were viable for a Calls-module rule.
+  - `outgoing_call_createedit` requires `criteria_details.relational_criteria.module_selection` ∈ {`all`,`specific`,`unknown`}; `repeat=true` is rejected (`DEPENDENT_MISMATCH`); `status.active=false` is rejected on POST (`Can not create inactive rule`); deactivation requires both `status.active=false` AND `status.delete_schedule_action=false`.
+  - MCP tool `updateWorkflowRule` (no path variable) accepts `{id, status, name}` inside each workflow_rules entry. The `updateWorkflowRuleById` variant returned `Mandatory path variable id is not present in tool body` and was avoided.
+
+**Round 4 plan (ready to execute once user confirms):**
+1. Cleanup any lingering test records from Round 3 via `§9 cleanup`.
+2. T13 → T14 → T15 → T16 → T17 sequence on a single fresh Lead, verifying all four Round 2/3 fixes plus the new WF006v2 trigger:
+   - Cascade-hijack fix (triggerMap + explicit sequenceRouter) — confirm Stage1 doesn't revert after `handleCommercialsStatusChange`.
+   - Never-regress Stage1 guard (stageRanks) in processDeal / Lead / Contact / Account.
+   - `Reason_For_Loss__s` → `Lost_Reasons` swap (7 sites).
+   - ISO-8601 datetime + direct `.toString` (no `.toDateTime` round-trip).
+   - WF006v2 firing handleCallOutcome on outbound Call_Outcome edit (T16 positive, T17 no-answer).
+3. Note: `WF002 Deal Sequence Router` still has trigger `create_or_edit` placeholder — keep eye on whether WF003's `field_update` on Stage1 is actually firing handleStageChange (was failing via UI inspection earlier).
 
