@@ -118,7 +118,10 @@ void automation.handleCallOutcome(string callIdStr)
 			dealUpd = Map();
 			dealUpd.put("Stage1", nextStage);
 			dealUpd.put("Stage", ifnull(oppMap.get(nextStage), "MQL").toString());
-			zoho.crm.updateRecord("Deals", dealId, dealUpd);
+			// Suppress workflow cascade so WF001d/processDeal can't revert Stage1.
+			// Explicitly route the new stage's sequence via sequenceRouter.
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.sequenceRouter(dealId.toString());
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_positive", "advanced_stage", {"deal":dealId, "from":dealStage, "to":nextStage});
 		}
 		else
@@ -168,9 +171,10 @@ void automation.handleCallOutcome(string callIdStr)
 		dealUpd.put("State", "Lost");
 		dealUpd.put("Status", "Closed");
 		dealUpd.put("Sequence_Status", "Completed");
-		if(ifnull(deal.get("Reason_For_Loss__s"), "").toString() == "")
+		// Reason_For_Loss__s is read-only via API; write the writable companion Lost_Reasons.
+		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "")
 		{
-			dealUpd.put("Reason_For_Loss__s", "Disqualified - Call");
+			dealUpd.put("Lost_Reasons", "Disqualified - Call");
 		}
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_negative", "deal_lost", {"deal":dealId});

@@ -118,7 +118,11 @@ void automation.handleMeetingEvent(string eventIdStr)
 		dealUpd = Map();
 		dealUpd.put("Demo_Status", "No Show");
 		dealUpd.put("Demo_Outcome", "No Show");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+		// Suppress workflow cascade (WF001d/processDeal would consume resources unnecessarily;
+		// WF005 would normally invoke handleDemoOutcome on Demo_Outcome change). Explicitly
+		// invoke handleDemoOutcome to preserve the No Show recovery email + state changes.
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.handleDemoOutcome(dealId.toString());
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "no_show", "outcome_set", {"deal":dealId});
 		return;
 	}

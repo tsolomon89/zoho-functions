@@ -201,7 +201,8 @@ void automation.processAccount(string account_id)
 			dupUpdate = Map();
 			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
 			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
-			if(ifnull(origDeal.get("Reason_For_Loss__s"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
+			// Reason_For_Loss__s is read-only via API; write the writable companion Lost_Reasons.
+			if(ifnull(origDeal.get("Lost_Reasons"), "") != "Duplicate / Test Record") { dupUpdate.put("Lost_Reasons", "Duplicate / Test Record"); }
 			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
 			origName = ifnull(origDeal.get("Deal_Name"), "");
 			if(!origName.endsWith("(Duplicate)")) { dupUpdate.put("Deal_Name", origName + " (Duplicate)"); }

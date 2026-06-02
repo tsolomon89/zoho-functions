@@ -56,7 +56,10 @@ void automation.handleDemoOutcome(string dealIdStr)
 		dealUpd.put("Stage", "SQL");
 		dealUpd.put("Commercials_Status", "Drafting");
 		dealUpd.put("Demo_Status", "Completed");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1.
+		// Explicitly route the new stage's sequence (supersedes prior Demo Booking sequence).
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
 		automation.sendSequencedEmail(dealId.toString(), "Demo Attended", 1, "demo_attended_qualified");
 
 		draftTask = Map();
@@ -92,9 +95,10 @@ void automation.handleDemoOutcome(string dealIdStr)
 		dealUpd.put("Status", "Closed");
 		dealUpd.put("Sequence_Status", "Completed");
 		dealUpd.put("Demo_Status", "Completed");
-		if(ifnull(deal.get("Reason_For_Loss__s"), "").toString() == "")
+		// Reason_For_Loss__s is read-only via API; write the writable companion Lost_Reasons.
+		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "")
 		{
-			dealUpd.put("Reason_For_Loss__s", "Demo Disqualified");
+			dealUpd.put("Lost_Reasons", "Demo Disqualified");
 		}
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "not_qualified", "deal_lost", null);

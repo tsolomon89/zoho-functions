@@ -67,7 +67,10 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		dealUpd.put("Active_Sequence_Stage", "");
 		dealUpd.put("Active_Sequence_Attempt", 0);
 		dealUpd.put("Active_Email_Chain_Step", 0);
-		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1 via its
+		// "recompute from Contacts" logic. Explicitly route the new stage's sequence below.
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
 
 		automation.sendSequencedEmail(dealId, "Commercials Sent", 0, "commercials_terms");
 
@@ -109,7 +112,10 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		dealUpd.put("Active_Sequence_Stage", "");
 		dealUpd.put("Active_Sequence_Attempt", 0);
 		dealUpd.put("Active_Email_Chain_Step", 0);
-		zoho.crm.updateRecord("Deals", dealId, dealUpd);
+		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1/Stage via its
+		// "recompute from Contacts" logic. Explicitly route the new stage's sequence below.
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
 
 		automation.sendSequencedEmail(dealId, "Commercials Signed", 0, "commercials_signed_confirmation");
 
@@ -134,9 +140,12 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		dealUpd.put("State", "Lost");
 		dealUpd.put("Status", "Closed");
 		dealUpd.put("Sequence_Status", "Completed");
-		if(ifnull(deal.get("Reason_For_Loss__s"), "").toString() == "")
+		// Reason_For_Loss__s is a Zoho system field (read-only via API); write the
+		// writable companion field Lost_Reasons instead. processDeal reads both via
+		// hasLossReason = (Reason_For_Loss__s != "" || Lost_Reasons != "").
+		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "")
 		{
-			dealUpd.put("Reason_For_Loss__s", "Commercial Rejected");
+			dealUpd.put("Lost_Reasons", "Commercial Rejected");
 		}
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "rejected", "deal_lost", null);

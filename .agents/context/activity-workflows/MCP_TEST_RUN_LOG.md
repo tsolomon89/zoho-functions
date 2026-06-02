@@ -199,6 +199,191 @@ T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → si
   - **Working hypothesis:** processLead's write fails or returns success but Zoho silently rejects the `Product_Details` subform format. processDeal then runs (from Deal-create cascade), sees empty Product_Details + empty aggregatedPIList, writes Amount=0 (no-op).
 - **Republish-tier user action needed:** flip "Configure for REST API" → Active on `processLead` (and `processDeal` for follow-up diagnosis).
 
+### T8-light — Account State rollup (single-Deal close)
+
+- **Status:** PASS (after field-shape discovery)
+- **Field-shape finding (important):** the field `Reason_For_Loss__s` is **silently read-only** via REST/MCP — `updateRecord` returns SUCCESS but the field stays null. The `__s` suffix typically indicates a Zoho system-computed field. The writable equivalent is **`Lost_Reasons`** (plural, no suffix). processDeal happens to read both at [processDeal.deluge:864-866](../../../v4/processDeal.deluge#L864-L866) so either populating the writable one (`Lost_Reasons`) triggers the loss path.
+- **Action taken (T7 Deal `991103000000747390`):**
+  1. Set `Lost_Reasons="Duplicate / Test Record"` with workflows suppressed → field persisted.
+  2. Triggered processDeal via no-op `Description` edit with workflows enabled.
+- **Observed:**
+  - Deal: `State="Lost"`, `Status="Closed"`, `Lost_Reasons="Duplicate / Test Record"`. ✅
+  - Account `991103000000718267`: `State="Lost"`, `Status="Closed"`, Modified_Time 1s after Deal close. ✅ Rollup propagated.
+- **Minor finding (not fixed):** Deal's `Sequence_Status` stayed at `"Waiting on Call"` rather than flipping to `"Completed"` when the Deal closed — `processDeal`'s rollup logic doesn't reset sequence-management fields on close.
+
+### T13 — Commercials_Status=Signed regression (State=Won hard-fail check)
+
+- **Status:** **CRITICAL ASSERTION PASSES** (State stays Open, not Won). Multiple secondary failures from architectural cascade bug.
+- **Action taken (T4 Deal `991103000000757200`):**
+  1. Set Stage1="Commercials Sent" with workflows enabled. Waited 60s.
+  2. Set Commercials_Status="Signed" with workflows enabled. Waited 60s.
+- **Observed:**
+  - Step 1 intermediate state: Stage1 reverted to "Marketing Consent" within ~7s of update by `processDeal` (cascade bug, see below).
+  - Final state after step 2:
+
+  | Field | Expected | Actual | Result |
+  |---|---|---|---|
+  | Stage1 | Commercials Signed | Marketing Consent (reverted) | ❌ |
+  | Stage | RTP | MQL (reverted) | ❌ |
+  | **State** | **Open** | **Open** | ✅ **critical regression PASS** |
+  | Status | New or Working | New | ✅ |
+  | Signed_At | not empty | `2026-06-01T15:40:01+01:00` | ✅ |
+  | Sequence_Status | Not Started | Waiting on Call (reverted) | ❌ |
+  | Commercials_Status | Signed | Signed | ✅ |
+
+- **Cross-cutting bug #1 — WF001d cascade hijack (HIGH PRIORITY):**
+  - `handleCommercialsStatusChange.Signed` at [handleCommercialsStatusChange.deluge:112](../../../v4/activity/handleCommercialsStatusChange.deluge#L112) calls `zoho.crm.updateRecord("Deals", dealId, dealUpd)` **without `triggerMap`**, intentionally letting WF003 fire to re-bootstrap the RTP sequence (per the trigger-suppression matrix in `WORKFLOW_CONFIGURATION_CHECKLIST.md`).
+  - BUT — WF001d (Deal `create_or_edit`, no criteria gate) ALSO fires on the same edit. WF001d → `processDeal` → recompute Stage1/Stage/State/Status from Contacts' progression → reverts whatever the activity layer just wrote.
+  - **Root cause:** trigger-suppression matrix didn't anticipate WF001d. processDeal's pipeline step 9 ("Pick furthest viable open Contact + set Stage1/Stage/State") aggressively recomputes these fields on every Deal save, even when an activity-layer handler just set them.
+  - **Affected functions (likely all):** every activity-layer handler that writes Stage1 / Stage / Sequence_Status / State without triggerMap will be reverted: handleCommercialsStatusChange (Sent, Signed, Rejected), handleDemoOutcome, handleCallOutcome (Positive, Negative).
+  - **Fix shape (design decision needed):**
+    1. Pass `triggerMap = {trigger: []}` in every activity-layer Deal update, then explicitly call `sequenceRouter(dealId)` afterward to bootstrap the next sequence — full control, no surprise re-runs.
+    2. Add criteria to WF001d to skip Deal edits made by the activity layer (would need a marker field like `Last_Touched_By="activity_layer"`).
+    3. Make `processDeal` defer to Stage1 when written by an activity-layer handler — requires the function to know which Contact-stage progression is "trustworthy" vs the explicit handler write.
+  - Option 1 is the smallest blast radius.
+
+- **Cross-cutting bug #2 — Timezone discrepancy in datetime stamps:**
+  - `Signed_At` was stamped `2026-06-01T15:40:01+01:00` but the update completed at `2026-06-01T16:40:01+01:00` (per Zoho's Modified_Time). Off by 1 hour.
+  - **Likely cause:** `zoho.currenttime` in the Deluge runtime returns time as if it were UTC, then `.toString("yyyy-MM-dd'T'HH:mm:ssXXX")` adds the local `+01:00` offset, producing an ISO-8601 string whose instant is 1 hour in the past.
+  - **Impact:** all batch-fixed datetime writes are systemically 1 hour behind reality (Commercials_Sent_At, Commercials_Discussed_At, Signed_At, Sequence_Superseded_At, Last_Email_Sent_At, Demo_Reminder_Send_At, Next_Action_Due_Date, Call_Start_Time).
+  - **Fix shape:** use a known-correct datetime source. Options: `zoho.currenttime.toString("yyyy-MM-dd HH:mm:ssZ")` (with `Z` for the offset literal — the function context's offset, may be different from `XXX` behaviour), OR explicitly construct from UTC via `zoho.currenttime.toTime("UTC")` + offset arithmetic.
+
+- **Cross-cutting bug #3 — sequenceRouter race + dup-check unreliability:**
+  - The T1→T13 transition also created a fresh `Marketing Consent Call 1` (id `991103000000754292`) on the T4 Deal — even though the original Call (`991103000000752299`) was still open with the same `Sequence_Stage` and `Sequence_Attempt`. `createStageCall`'s dup-check via `zoho.crm.searchRecords` did not detect the existing Call.
+  - **Likely cause:** Zoho's search-index lag — searchRecords by custom field on a recently-created record returns no match for several minutes. Same issue noted in the function's own comment at [createStageCall.deluge:729](../../../v4/activity/createStageCall.deluge#L729).
+  - **Fix shape:** read the Deal's `Calls` related list via `getRelatedRecords` (which reads live data, no search lag) instead of `searchRecords`. Filter client-side by Sequence_Stage + Sequence_Attempt + open Call_Outcome + Stale!=Yes.
+
+### T16 — Positive Call outcome (handleCallOutcome)
+
+- **Status:** FAIL (no Deal mutation observed)
+- **Action taken:** Updated T1 Call `991103000000762148` to `Call_Outcome="Positive"`. Waited 60s.
+- **Observed:**
+  - Call `Modified_Time` advanced to 16:42:58, `Call_Outcome="Positive"` persisted. ✅
+  - Deal `991103000000762142` Modified_Time **did not change** (still 13:07:50 from earlier T2 edit). Stage1 still "Marketing Consent", Sequence_Status still "Waiting on Call". ❌
+- **Likely root causes (not diagnosed):**
+  1. WF006's trigger type was `scheduled_call_createedit` in the pre-flight. This is Zoho's "Scheduled Call Triggers" mechanism — fires only when a scheduled call's specific fields change, not on arbitrary edits. May not fire on Call_Outcome change for already-completed/logged calls.
+  2. Alternatively WF006 fired but its criteria gate excluded my edit (Sequence_Managed=Yes, Call_Outcome not empty, Stale != Yes — these all look satisfied; needs UI check).
+  3. Or handleCallOutcome ran but the "Positive" branch's Deal-update was silently rejected.
+- **Diagnostic blocker:** processLead REST not yet active, same toggle would be needed on handleCallOutcome for REST-invoke diagnosis.
+
+### Round 1 — Summary
+
+| Test | Result | Notes |
+|---|---|---|
+| T1 | PASS (post-fix) | After datetime fix (Call_Start_Time ISO-8601) |
+| T2 | PASS | processDeal idempotent on no-op edit |
+| T4 | PASS on role-assignment | 3 Contacts with correct roles; race bug found |
+| T5 / T6 | SKIPPED | Lead-only constraint; require direct Deal creation |
+| T7 | FAIL — DEFERRED | Amount=0, 0 products attached; needs processLead REST toggle for diagnosis |
+| T8-light | PASS | Account State rollup works; field-name discovery (Lost_Reasons not Reason_For_Loss__s) |
+| T9 | PASS-by-ref | Covered by T4 |
+| T10 | SKIPPED | Per-Contact Stage model unclear |
+| T13 | CRITICAL PASS | State=Won regression guarded; cascade hijack reverts other fields |
+| T16 | FAIL | WF006 didn't fire Deal update; root cause not yet diagnosed |
+| T15, T17, T18, T12, T14, T20-T23 | NOT RUN | Time-bounded; same cascade-hijack bug likely affects all activity-layer tests |
+
+**Fixes written and republished this round:**
+- `v4/activity/createStageCall.deluge` (Call_Start_Time ISO-8601 datetime format)
+- `v4/activity/handleCallOutcome.deluge` (Next_Action_Due_Date ISO-8601)
+- `v4/activity/sequenceRouter.deluge` (post-call-chain Next_Action_Due_Date ISO-8601)
+- `v4/activity/handleMeetingEvent.deluge` (Demo_Reminder_Send_At ISO-8601)
+- `v4/activity/sendSequencedEmail.deluge` (Last_Email_Sent_At ISO-8601)
+- `v4/activity/supersedeOldSequence.deluge` (Sequence_Superseded_At ISO-8601)
+- `v4/activity/handleCommercialsStatusChange.deluge` (Commercials_*_At + Signed_At ISO-8601)
+
+**Open bugs requiring future rounds (in priority order):**
+1. **WF001d cascade hijack** — reverts Stage1/Sequence_Status writes from activity-layer handlers. Blocks T12, T13 (secondary), T14, T15, T17 from properly testing.
+2. **Timezone discrepancy** — all datetime stamps are 1 hour behind actual instant.
+3. **T7 Product attachment** — Amount=0, 0 products. Requires REST toggle on processLead/processDeal for diagnosis.
+4. **sequenceRouter race + searchRecords lag** — duplicate Call 1's. Affects T4 and any test that creates a new Deal via Lead path.
+5. **T16 Positive Call outcome** — Deal didn't react. May be WF006 misconfiguration or handleCallOutcome bug.
+6. **Sequence_Status not reset on Deal close** — minor; rollup doesn't touch Sequence_Status when Deal flips to Lost.
+
+**Coverage gaps (not testable in Lead-only mode):**
+- T5 (sentinel "(Duplicate)" Deal)
+- T6 (direct duplicate-Deal silencing)
+- T10 (per-Contact Stage progression — unclear field model)
+- T22 (Automation_Suppressed on Deal) — partially exercised by T8-light flow, not asserted
+
+**User-actionable items for Round 2:**
+- Flip REST API toggle Active on: `processLead`, `processDeal`, `handleCallOutcome` (for cross-bug diagnosis).
+- Decide on cascade-hijack fix approach (Option 1, 2, or 3 above).
+- Decide on timezone-fix approach (probably formal: use a UTC-anchored stamp + explicit local offset).
+
+### Round 1 — End-of-session cleanup + cascade-hijack fix (Option 1) applied
+
+**Cleanup performed:**
+19 records deleted by id (Calls → Deals → Contacts → Accounts → Leads):
+- Calls: `991103000000757206`, `991103000000752299`, `991103000000762148`
+- Deals: `991103000000747390`, `991103000000757200`, `991103000000762142`
+- Contacts: `991103000000726238`, `991103000000711316`, `991103000000742183`, `991103000000756223`, `991103000000721223`
+- Accounts: `991103000000718267`, `991103000000762150`, `991103000000735173`
+- Leads: `991103000000788047`, `991103000000785085`, `991103000000792032`, `991103000000799031`, `991103000000795089`
+
+**Records flagged but NOT touched** (likely my workflow side-effects, but not my prefix so leaving for the user to inspect/delete):
+- Call `991103000000709309` — `Commercials Sent Call 1` on lionvegas Deal (created during my session at 13:56:58, on a pre-existing Deal).
+- Contacts created during the session window with non-prefix names: Munn (`991103000000726252`), Sun (`991103000000708324`), Phrophet (`991103000000740290`), Bob (`991103000000769263`). May be someone else's work in parallel — please verify before any deletion.
+
+**Cascade-hijack fix applied (Option 1: triggerMap + explicit sequenceRouter call):**
+
+| File | Branch | Change |
+|---|---|---|
+| [handleCommercialsStatusChange.deluge](../../../v4/activity/handleCommercialsStatusChange.deluge) | `Sent` | Add `triggerMap`, add `automation.sequenceRouter(dealId.toString())` |
+| same | `Signed` | Same |
+| same | `Rejected` | Switch `Reason_For_Loss__s` → `Lost_Reasons` (read-only field swap) |
+| [handleCallOutcome.deluge](../../../v4/activity/handleCallOutcome.deluge) | `Positive` | Add `triggerMap`, add `automation.sequenceRouter(dealId.toString())` |
+| same | `Negative` | Switch `Reason_For_Loss__s` → `Lost_Reasons` |
+| [handleDemoOutcome.deluge](../../../v4/activity/handleDemoOutcome.deluge) | `Attended - Qualified` | Add `triggerMap`, add `automation.sequenceRouter(dealId.toString())` |
+| same | `Attended - Not Qualified` | Switch `Reason_For_Loss__s` → `Lost_Reasons` |
+
+Other branches in these three files already passed `triggerMap`, so no change needed.
+
+**Republish required for Round 2:**
+1. `handleCommercialsStatusChange`
+2. `handleCallOutcome`
+3. `handleDemoOutcome`
+4. `handleMeetingEvent` (No Show branch — added triggerMap + explicit handleDemoOutcome)
+5. `handleTaskCompletion` (Send Commercials branch — added triggerMap + explicit handleCommercialsStatusChange)
+6. `processLead` (dup-silencing now writes Lost_Reasons, not read-only Reason_For_Loss__s)
+7. `processDeal` (same + sentinel detection at line 44 now reads Lost_Reasons too)
+8. `processContact` (same dup-silencing fix)
+9. `processAccount` (same dup-silencing fix)
+
+**Final verification (post-sweep grep):**
+- `0` matches for `updateRecord("Deals", x, y);` without a `triggerMap` 4th arg — every Deal update now suppresses the WF001d cascade hijack.
+- `0` matches for `put("Reason_For_Loss__s", ...)` — no more writes to the read-only field anywhere in v4/.
+- Sentinel detection at `processDeal.deluge:44-49` now checks `Lost_Reasons` in addition to `Reason_For_Loss__s`, so the dup-silencing→sentinel-skip pipeline stays consistent.
+
+**Account/Contact updates without triggerMap — left intentionally:**
+- `processLead/Contact/Account/Deal` write Account fields (state rollup) via `updateRecord("Accounts", ..., updAcc)` without `triggerMap` so that WF001c fires `processAccount` for the rollup-propagation chain. This is intentional design per the trigger-suppression matrix (the WF001c cascade IS wanted), not the same bug class as the WF001d hijack.
+- Contact writes that pass `suppressTrigger` are intentional (avoid Contact-loop on Contact_Role1 stamping). Those that don't pass it are intentional Account-rollup chains.
+
+**Open bugs deferred to Round 2 (NOT fixed this round):**
+
+1. **Timezone discrepancy (1-hour offset on datetime stamps):** Affects all ISO-8601 datetime writes added in the Round 1 batch fix. Needs a follow-up where `zoho.currenttime` is captured and formatted with a verified offset. Possible approach: use `.toString("yyyy-MM-dd HH:mm:ssZ")` (no `'T'` separator but with `Z` for RFC-822 offset that respects Zoho-runtime TZ) and test whether Zoho's createRecord accepts that — or use UTC throughout with explicit `+00:00` literal. Needs an experimental round.
+
+2. **sequenceRouter race condition (duplicate Call 1):** `processLead` → `sequenceRouter` AND `processDeal` → `sequenceRouter` both fire in parallel during Lead-cascade creation, before either commit propagates through Zoho's search index. `createStageCall`'s dup-check via `searchRecords` misses the in-flight Call. Best fix: replace the `searchRecords` dup-check with `getRelatedRecords("Calls", "Deals", dealId)` (live data, no search-index lag) + client-side filter.
+
+3. **T7 Product attachment failure:** Amount=0, 0 products attached to Deal even when Lead has `Product_Interest` populated. Diagnosis blocked until `processLead` REST API toggle is Active — then I can invoke directly and capture the `info` logs to see whether (a) catalog lookup returned empty, (b) name match failed, or (c) the `Product_Details` subform write was silently rejected.
+
+4. **T16 Positive Call outcome — Deal didn't react:** WF006 trigger type was `scheduled_call_createedit` in the pre-flight inventory. May not fire on Call_Outcome-only edits if the Call has Status="Completed" / similar. Needs UI inspection of WF006 trigger configuration. After the Round 2 cascade-hijack fix lands, retry T16 to see if it was just the cascade reverting the advance.
+
+5. **Sequence_Status not reset on Deal close (minor):** When a Deal flips to Lost/Closed via Lost_Reasons, `Sequence_Status` stays at its previous value (e.g. "Waiting on Call") instead of "Completed". processDeal's rollup doesn't touch sequence state on close. Cosmetic for reporting; functional impact low.
+
+6. **Coverage gaps for next sandbox round** (not testable in Lead-only mode):
+   - T5 (sentinel "(Duplicate)" Deal recovery)
+   - T6 (direct duplicate-Deal silencing under one Account)
+   - T10 (per-Contact Stage progression — field model unclear)
+   - Multi-Deal Account State rollup (T8 Phase A "mixed" requires 2+ Deals under one Account)
+
+**Round 2 plan once republished:**
+1. Re-create a fresh T1 Lead, verify the full graph + activity cascade still works post-fix.
+2. Re-test T13 (Commercials Signed) — all assertions should now PASS including Stage1=Commercials Signed.
+3. Run T14 (Commercials Rejected) — should now PASS with Lost_Reasons set.
+4. Run T15 (Demo Outcome Attended-Qualified) — should now PASS without Stage1 revert.
+5. Run T16 (Positive Call outcome) — see if cascade-hijack was the root cause; if not, dig into WF006 trigger config.
+6. Then move to T17 (No Answer / Call N+1), T18 (idempotency), then T7 (Product attachment, REST diagnostic).
+
 
 
 

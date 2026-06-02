@@ -39,9 +39,13 @@ void automation.processDeal(string deal_id)
 	infTitles = {"acquisition manager","bi manager","brand manager","campaign strategy manager","commercial finance manager","compliance manager","creative director","creative lead","customer operations manager","data analyst","engineering manager","finance business partner","fp&a manager","frontend lead","head of operations","head of vip","insight manager","legal counsel","lifecycle marketing manager","marketing manager","paid search manager","paid social manager","performance marketing manager","player operations manager","player protection lead","player value manager","regulatory affairs manager","responsible gambling manager","safer gambling analyst","safer gambling lead","vip manager"};
 
 	// ---- 1. Exit if duplicate ----
+	// Sentinel detection: silenced duplicates may have either Reason_For_Loss__s
+	// (read-only on most field configs; populated only by manual UI edits or imports)
+	// or Lost_Reasons (the writable field used by dup-silencing in this codebase).
 	dealName = ifnull(dealRecord.get("Deal_Name"), "").toString();
 	reasonForLoss = ifnull(dealRecord.get("Reason_For_Loss__s"), "").toString();
-	if(dealName.endsWith("(Duplicate)") || reasonForLoss == "Duplicate / Test Record")
+	lostReasons   = ifnull(dealRecord.get("Lost_Reasons"), "").toString();
+	if(dealName.endsWith("(Duplicate)") || reasonForLoss == "Duplicate / Test Record" || lostReasons == "Duplicate / Test Record")
 	{
 		info "Ignoring duplicate deal.";
 		return;
@@ -102,7 +106,8 @@ void automation.processDeal(string deal_id)
 			dupUpdate = Map();
 			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
 			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
-			if(ifnull(origDeal.get("Reason_For_Loss__s"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
+			// Reason_For_Loss__s is read-only via API; write the writable companion Lost_Reasons.
+			if(ifnull(origDeal.get("Lost_Reasons"), "") != "Duplicate / Test Record") { dupUpdate.put("Lost_Reasons", "Duplicate / Test Record"); }
 			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
 			origName = ifnull(origDeal.get("Deal_Name"), "");
 			if(!origName.endsWith("(Duplicate)")) { dupUpdate.put("Deal_Name", origName + " (Duplicate)"); }
