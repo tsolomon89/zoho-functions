@@ -902,12 +902,12 @@ void automation.processLead(string lead_id)
 	}
 
 	// ---- 12b. Activity layer hook ----
-	postState = ifnull(dUpd.get("State"), ifnull(targetDeal.get("State"), "Open")).toString();
-	if(canonicalDealId != "" && postState == "Open")
-	{
-		info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
-		automation.sequenceRouter(canonicalDealId.toLong());
-	}
+	// Removed: was calling automation.sequenceRouter(canonicalDealId.toLong()) here.
+	// Reason: dup-Call race on Lead conversion. processLead's createRecord("Deals",...)
+	// triggers WF001d (Deal create_or_edit, repeat=true), which fires processDeal, which
+	// calls sequenceRouter. Both paths landing on the same Deal in parallel produced two
+	// Marketing Consent Call 1 records because getRelatedRecords saw empty in both reads.
+	// processDeal is now the single entry point for sequenceRouter on any Deal-mutating path.
 
 	// ---- 13. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());

@@ -564,13 +564,10 @@ void automation.processAccount(string account_id)
 		}
 
 		// ---- 5b. Activity layer hook ----
-		// Initialize/advance the call-gated sequence only when the Deal is canonical and Open.
-		postState = ifnull(dUpd.get("State"), ifnull(targetDeal.get("State"), "Open")).toString();
-		if(canonicalDealId != "" && postState == "Open")
-		{
-			info "sequenceRouter hook (processAccount): canonicalDealId=" + canonicalDealId;
-			automation.sequenceRouter(canonicalDealId.toLong());
-		}
+		// Removed: was calling automation.sequenceRouter(canonicalDealId.toLong()) here.
+		// Reason: dup-Call race. processAccount's Deal write triggers WF001d → processDeal,
+		// which is the single entry point for sequenceRouter. See processLead.deluge for full
+		// rationale.
 	}
 
 	// ---- 6. Roll up Account State / Status ----

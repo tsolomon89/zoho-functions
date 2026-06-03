@@ -715,12 +715,10 @@ void automation.processContact(string contact_id)
 	}
 
 	// ---- 10b. Activity layer hook ----
-	postState = ifnull(dUpd.get("State"), ifnull(targetDeal.get("State"), "Open")).toString();
-	if(canonicalDealId != "" && postState == "Open")
-	{
-		info "sequenceRouter hook (processContact): canonicalDealId=" + canonicalDealId;
-		automation.sequenceRouter(canonicalDealId.toLong());
-	}
+	// Removed: was calling automation.sequenceRouter(canonicalDealId.toLong()) here.
+	// Reason: dup-Call race. processContact's Deal write triggers WF001d → processDeal,
+	// which is the single entry point for sequenceRouter. See processLead.deluge for full
+	// rationale.
 
 	// ---- 11. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());

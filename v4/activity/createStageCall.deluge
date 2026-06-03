@@ -78,7 +78,10 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	}
 	else
 	{
-		dueDate = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		// zoho.currenttime returns UTC; the XXX formatter naively appends the org-local
+		// offset (+01:00 BST) producing a string Zoho re-parses 1 hour earlier than
+		// wall-clock. Use 'Z' literal so Zoho parses as UTC explicitly.
+		dueDate = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'");
 	}
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
