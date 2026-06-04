@@ -590,7 +590,7 @@ void automation.processDeal(string deal_id)
 			syncAllIds.add(pK);
 			pp = zoho.crm.getRecordById("Products", pK.toLong());
 			if(isNull(pp) || isNull(pp.get("id"))) { continue; }
-			pdv = pp.get("Default_Deal_Value");
+			pdv = pp.get("Unit_Price");
 			if(isNull(pdv) || pdv.toString() == "") { continue; }
 			syncWith = syncWith + 1;
 			syncAmt = syncAmt + pdv.toDecimal();

@@ -219,7 +219,7 @@ Calculate Deal Amount from associated Products.
 ## Reads
 
 - Associated Products.
-- Default Deal Value.
+- Unit Price (the Zoho Products field that carries the per-product value; spec calls it "Default Deal Value", actual API name is `Unit_Price`).
 - Value Calculation Method.
 - Needs Manual Pricing.
 
@@ -835,7 +835,7 @@ deal_id — id of the Deal to recompute
 
 - All Product_Interest tokens / values from the source signal (if called from upsertDeal).
 - All Products linked to Deal via Product_Details subform.
-- Each Product's Default_Deal_Value.
+- Each Product's `Unit_Price` (the actual Zoho field — spec wording "Default Deal Value" maps to this).
 - Account.Account_Products linked list (where supported/configured).
 
 ## Logic
@@ -845,8 +845,8 @@ deal_id — id of the Deal to recompute
    first match (e.g., "Product A; Product B" → both resolved).
 2. Link every resolved Product to the Deal (Product_Details subform).
 3. Link Products to Account where supported/configured.
-4. Read Default_Deal_Value from each linked Product.
-5. Sum the values: deal_amount = SUM(Default_Deal_Value of all linked Products).
+4. Read `Unit_Price` from each linked Product (spec wording "Default Deal Value" → actual field `Products.Unit_Price`).
+5. Sum the values: `deal_amount = SUM(Unit_Price of all linked Products)`.
 6. Write deal_amount to Deal.Amount.
 7. Set Deal.Deal_Value_Source = "Product Derived".
 8. Set Deal.Product_Resolution_Status = "Resolved".
@@ -877,7 +877,7 @@ Maps to the `Deals.Product_Resolution_Status` picklist (verified picklist values
 
 | Condition                                                            | Status                     |
 | -------------------------------------------------------------------- | -------------------------- |
-| Every linked Product has a Default_Deal_Value                        | `Resolved`                 |
+| Every linked Product has a non-null `Unit_Price`                     | `Resolved`                 |
 | Some linked Products have values, some do not                        | `Manual Review`            |
 | No Products were linked at all                                       | `Missing Product Interest` |
 | Products were linked but all failed to load or had no value          | `Failed`                   |

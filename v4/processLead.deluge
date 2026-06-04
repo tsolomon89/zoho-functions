@@ -932,7 +932,7 @@ void automation.processLead(string lead_id)
 	// Collect resolved Product IDs from aggregatedPIList — syncDealProductsAndValue
 	// handles the Product_Details merge AND the Amount summation (FUNCTION_SPEC §20 +
 	// Test 25). No inline list_price → Amount calc anymore: the spec says Amount is
-	// SUM(Default_Deal_Value), not SUM(list_price), and the resolver enforces that.
+	// SUM(Product.Unit_Price), not SUM(line_item.list_price), and the inline sync enforces that.
 	incomingProductIds = List();
 	for each pName in aggregatedPIList
 	{
@@ -1060,7 +1060,7 @@ void automation.processLead(string lead_id)
 			syncAllIds.add(pK);
 			pp = zoho.crm.getRecordById("Products", pK.toLong());
 			if(isNull(pp) || isNull(pp.get("id"))) { continue; }
-			pdv = pp.get("Default_Deal_Value");
+			pdv = pp.get("Unit_Price");
 			if(isNull(pdv) || pdv.toString() == "") { continue; }
 			syncWith = syncWith + 1;
 			syncAmt = syncAmt + pdv.toDecimal();
