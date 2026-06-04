@@ -1,4 +1,4 @@
-# Demo Attended Call 1 — Gathering Commercial Requirements
+# Demo Hosted Call 1 — Gathering Commercial Requirements
 
 ## Objective
 Follow up after the demo, gather additional commercial requirements (user counts, specific integrations, preferred payment terms), and prepare for sending commercial terms.
@@ -21,6 +21,6 @@ To ensure the proposal is 100% accurate, I wanted to quickly verify:
 
 ## Call Outcomes
 - **Positive**: Requirements gathered. Update `Commercials_Status` = `Drafting` or `Ready to Send`.
-- **Neutral**: Customer is interested but needs to confirm details internally. Send `Demo Attended Email 1`.
-- **No Answer**: Voicemail left. Send `Demo Attended Email 1`.
+- **Neutral**: Customer is interested but needs to confirm details internally. Send `Demo Hosted Email 1`.
+- **No Answer**: Voicemail left. Send `Demo Hosted Email 1`.
 - **Negative**: Decided not to move forward. Mark Lost.

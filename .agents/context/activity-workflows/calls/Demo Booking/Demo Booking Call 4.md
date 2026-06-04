@@ -13,6 +13,6 @@ Provide proof of success, present the low friction of booking, and secure the de
 I'd love to share the exact dashboard layout we built for them. We can cover this in a quick, 15-minute call. Do you have a moment next Tuesday morning?"
 
 ## Call Outcomes
-- **Positive**: Demo booked.
+- **Positive**: Demo Confirmation.
 - **Neutral / No Answer**: Create next call. Send `Demo Booking Email 4`.
 - **Negative**: Mark Lost.

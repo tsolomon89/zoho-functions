@@ -107,8 +107,8 @@ Stage = Demo Booking
 ```
 
 ```text
-Stage = Commercials Sent
-→ create Commercials Sent Call 1
+Stage = Commercial Agreement
+→ create Commercial Agreement Call 1
 → Sequence Status = Waiting on Call
 ```
 
@@ -178,10 +178,10 @@ Important transition:
 
 ```text
 Commercials Status = Sent
-→ Stage = Commercials Sent
+→ Stage = Commercial Agreement
 → Opportunity = FTP
-→ Commercials Sent At = now if empty
-→ create Commercials Sent Call 1
+→ Commercial Agreement At = now if empty
+→ create Commercial Agreement Call 1
 ```
 
 FTP begins only after commercial terms have actually been sent.
@@ -218,7 +218,7 @@ Examples:
 
 ```text
 Demo Outcome = Attended - Qualified
-→ Stage = Demo Attended
+→ Stage = Demo Hosted
 → send post-demo email
 → Commercials Status = Drafting
 → create task: Draft Commercials
@@ -227,7 +227,7 @@ Demo Outcome = Attended - Qualified
 ```text
 Demo Outcome = No Show
 → create recovery Call
-→ keep/return Stage to Demo Booking or Demo Booked depending on process
+→ keep/return Stage to Demo Booking or Demo Confirmation depending on process
 ```
 
 ---
@@ -496,7 +496,7 @@ Demo Reminder Send At reached
 
 ```text
 Next Commercial Follow-Up Date reached
-→ create Commercials Sent Call
+→ create Commercial Agreement Call
 ```
 
 ---

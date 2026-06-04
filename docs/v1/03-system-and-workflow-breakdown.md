@@ -54,7 +54,7 @@ Each Account has exactly **one active Deal** representing the overall commercial
 
 ### 3. The "Furthest Contact" Progression
 A Deal’s pipeline stage comes from the furthest open Contact under the Account.
-*   If Contact A is in `Demo Booking` and Contact B is in `Demo Attended`, the Deal is automatically promoted to `Demo Attended`.
+*   If Contact A is in `Demo Booking` and Contact B is in `Demo Hosted`, the Deal is automatically promoted to `Demo Hosted`.
 *   The furthest open Contact is designated as the **primary Contact** (`Contact_Name`) on the Deal.
 *   **Lost Contacts Do Not Pull Deals Back**: A single "Lost" Contact never pulls a Deal backward as long as other open Contacts exist under the Account. The Deal only closes as `Lost` when **all** related Contacts are Lost.
 *   *Evidence*: `spec.md` (lines 226–266), `v4/processAccount.deluge` (lines 496–544)

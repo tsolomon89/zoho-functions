@@ -69,12 +69,12 @@ RTP
 ### Stage values
 
 ```text
-Marketing Consent
+Marketing Qualification
 Demo Booking
-Demo Booked
-Demo Attended
-Commercials Sent
-Commercials Signed
+Demo Confirmation
+Demo Hosted
+Commercial Agreement
+Onboarding
 Onboarding
 Renewal
 ```
@@ -83,12 +83,12 @@ Renewal
 
 | Stage | Opportunity |
 |---|---|
-| Marketing Consent | MQL |
+| Marketing Qualification | MQL |
 | Demo Booking | SQL |
-| Demo Booked | SQL |
-| Demo Attended | SQL |
-| Commercials Sent | FTP |
-| Commercials Signed | RTP / Onboarding |
+| Demo Confirmation | SQL |
+| Demo Hosted | SQL |
+| Commercial Agreement | FTP |
+| Onboarding | RTP / Onboarding |
 | Onboarding | RTP |
 | Renewal | RTP |
 
@@ -96,12 +96,12 @@ Renewal
 
 | Rank | Stage |
 |---:|---|
-| 1 | Marketing Consent |
+| 1 | Marketing Qualification |
 | 2 | Demo Booking |
-| 3 | Demo Booked |
-| 4 | Demo Attended |
-| 5 | Commercials Sent |
-| 6 | Commercials Signed |
+| 3 | Demo Confirmation |
+| 4 | Demo Hosted |
+| 5 | Commercial Agreement |
+| 6 | Onboarding |
 | 7 | Onboarding |
 | 8 | Renewal |
 
@@ -141,12 +141,12 @@ Emails should not sell the whole product by default.
 
 | Stage | Goal being sold |
 |---|---|
-| Marketing Consent | Complete profile/qualification data |
+| Marketing Qualification | Complete profile/qualification data |
 | Demo Booking | Book the demo |
-| Demo Booked | Attend the demo |
-| Demo Attended | Complete post-demo/commercial handoff |
-| Commercials Sent | Discuss/accept commercial terms |
-| Commercials Signed | Start onboarding |
+| Demo Confirmation | Attend the demo |
+| Demo Hosted | Complete post-demo/commercial handoff |
+| Commercial Agreement | Discuss/accept commercial terms |
+| Onboarding | Start onboarding |
 | Onboarding | Complete onboarding |
 | Renewal | Renew/expand/retain |
 
@@ -195,7 +195,7 @@ Do not allow old MQL/SQL/FTP emails or activities to continue after the record h
 
 ## Commercial Boundary Rule
 
-`Commercials Sent` is the boundary condition for FTP.
+`Commercial Agreement` is the boundary condition for FTP.
 
 SQL ends by sending commercial terms.
 
@@ -207,7 +207,7 @@ Do not start FTP chase until commercial terms have actually been sent.
 
 ## Demo Boundary Rule
 
-`Demo Attended` is not complete when the meeting ends.
+`Demo Hosted` is not complete when the meeting ends.
 
 It is complete only after:
 
@@ -219,7 +219,7 @@ It is complete only after:
 Only after commercial terms are sent should the record move to:
 
 ```text
-Stage = Commercials Sent
+Stage = Commercial Agreement
 Opportunity = FTP
 ```
 

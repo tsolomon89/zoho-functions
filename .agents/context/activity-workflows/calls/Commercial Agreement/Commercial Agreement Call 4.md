@@ -1,4 +1,4 @@
-# Commercials Sent Call 4 — Final Value-led Contract Pitch
+# Commercial Agreement Call 4 — Final Value-led Contract Pitch
 
 ## Objective
 Reiterate the commercial value, offer final flexibility (e.g. customized payment terms), and secure signature.
@@ -14,5 +14,5 @@ Every week we delay the launch, `${Contacts.Account_Name}` continues to spend ex
 
 ## Call Outcomes
 - **Positive**: Contract terms agreed.
-- **Neutral / No Answer**: Create next call. Send `Commercials Sent Email 4`.
+- **Neutral / No Answer**: Create next call. Send `Commercial Agreement Email 4`.
 - **Negative**: Mark Lost.

@@ -31,7 +31,7 @@ Mailing Address - Longitude,Mailing_Longitude,Decimal,
 Mailing Address - State / Province,Mailing_State,Pick List,
 Mailing Address - Street Address,Mailing_Street,Single Line,
 Mailing Address - Zip / Postal Code,Mailing_Zip,Single Line,
-Marketing Consent,Marketing_Consent,Boolean,Yes
+Marketing Qualification,Marketing_Consent,Boolean,Yes
 Mobile,Mobile,Phone,
 Modified By,Modified_By,Single Line,
 Most Recent Visit,Last_Visited_Time,DateTime,

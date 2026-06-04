@@ -20,7 +20,7 @@ This document serves as the operational launch plan for Jurnii.io's commercial l
 
 Before we turn on automation, leadership must align on the following three operational rules:
 
-1.  **Stage Mapping Approval**: Confirm that the 8 stages (`Stage1`) and 4 opportunities (`Stage`) perfectly match our sales lifecycle. Pay special attention to the transition of `Commercials Sent` into the **FTP** (First-Time Purchase) bucket.
+1.  **Stage Mapping Approval**: Confirm that the 8 stages (`Stage1`) and 4 opportunities (`Stage`) perfectly match our sales lifecycle. Pay special attention to the transition of the FTP (First-Time Purchase) progression stages.
 2.  **Job Title Mappings**: Confirm the job-title-to-role mappings defined in the persona CSV. This determines which prospects are automatically designated as **Decision Makers**, **End Users**, and **Influencers** on our Deals.
     *   *Reference*: `field_mapping/Jurnii Personas - Job Tile to Contact Role Mapping.csv`
 3.  **Suppression Gating Criteria**: Approve the suppression reasons (e.g., existing client, partner-managed) that allow a representative to permanently disable automation on a Deal by checking the `Automation_Suppressed` flag.
@@ -36,21 +36,21 @@ The code namespaces and automations look up templates dynamically based on a str
 
 | Template Name | Staging Trigger | Required Copy Purpose |
 | :--- | :--- | :--- |
-| **Demo Booked Confirmation Email** | Demo Booking Call Positive / Event Created | Confirms demo calendar booking, time, and agenda. |
-| **Demo Booked Reminder Email** | 1 Business Day before Demo | Protects meeting attendance (sent automatically). |
-| **Demo Booked No-Show Email** | Demo Outcome set to `No Show` | Chases and recovers a prospect who missed their demo. |
-| **Demo Attended Post-Demo Email** | Demo Outcome set to `Attended - Qualified` | Thanks prospect, outlines next steps, and requests proposal data. |
-| **Commercials Sent Terms Email** | Commercials Status set to `Sent` | Transmits formal contract proposal and terms. |
-| **Commercials Signed Confirmation Email**| Commercials Status set to `Signed` | Confirms contract signature, outlines handoff. |
+| **Demo Confirmation Email** | Demo Booking Call Positive / Event Created | Confirms demo calendar booking, time, and agenda. |
+| **Demo Confirmation Reminder Email** | 1 Business Day before Demo | Protects meeting attendance (sent automatically). |
+| **Demo Confirmation No-Show Email** | Demo Outcome set to `No Show` | Chases and recovers a prospect who missed their demo. |
+| **Demo Hosted Post-Demo Email** | Demo Outcome set to `Attended - Qualified` | Thanks prospect, outlines next steps, and requests proposal data. |
+| **Commercial Agreement Terms Email** | Commercials Status set to `Sent` | Transmits formal contract proposal and terms. |
+| **Commercial Agreement Confirmation Email**| Commercials Status set to `Signed` | Confirms contract signature, outlines handoff. |
 | **Onboarding Kickoff Email** | Onboarding Call 1 initialized | Welcomes client and provides kickoff setup steps. |
 
 ### 2. Stage-Specific Cadence Templates
 Each of the following stages requires **5 Call follow-up email templates** and **7 post-call chase email templates** (created in Zoho under the exact format `{Stage1} Email {Attempt}` and `{Stage1} Post-Call Email Chain {Step}`):
-*   `Marketing Consent` (e.g. `Marketing Consent Email 1` to `5`, and `Marketing Consent Post-Call Email Chain 1` to `7`)
+*   `Marketing Qualification` (e.g. `Marketing Qualification Email 1` to `5`, and `Marketing Qualification Post-Call Email Chain 1` to `7`)
 *   `Demo Booking`
-*   `Demo Attended` (outreach before commercials are sent)
-*   `Commercials Sent`
-*   `Commercials Signed` (onboarding handoff)
+*   `Demo Confirmation`
+*   `Demo Hosted`
+*   `Commercial Agreement`
 *   `Onboarding`
 *   `Renewal`
 *   *Reference*: `activity-workflows/TEMPLATE_NAMING_MATRIX.md`

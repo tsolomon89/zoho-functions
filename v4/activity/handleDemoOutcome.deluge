@@ -6,19 +6,19 @@ void automation.handleDemoOutcome(string dealIdStr)
 	// Triggered by WF005 when Deal.Demo_Outcome changes. Implements
 	// FUNCTION_SPEC.md §11 outcome branches.
 	//
-	//   Attended - Qualified      → Stage1=Demo Attended, send Post-Demo email,
+	//   Attended - Qualified      → Stage1=Proposal Preparation, send Post-Demo email,
 	//                               Commercials_Status=Drafting, create
 	//                               "Draft Commercials" Task.
-	//   Attended - Needs Follow-up→ Stage1=Demo Attended, createStageCall.
+	//   Attended - Needs Follow-up→ Stage1=Demo Hosted, createStageCall.
 	//   Attended - Not Qualified  → Deal Lost/Closed, Reason "Demo Disqualified".
 	//   No Show                   → send No-Show recovery email, create recovery
-	//                               Call at Demo Booked stage.
+	//                               Call at Demo Confirmation stage.
 	//   Rescheduled               → recompute Demo_Reminder_Send_At from Event
 	//                               (handleMeetingEvent owns the calculation).
 	//   Cancelled                 → Stage1=Demo Booking, supersede current.
 	//   Commercials Requested     → Commercials_Status=Drafting + task (same as
 	//                               Attended - Qualified path without auto email).
-	//   Follow-up Required        → createStageCall Demo Attended attempt 1.
+	//   Follow-up Required        → createStageCall Demo Hosted attempt 1.
 	// =========================================================================
 
 	dealId = 0;
@@ -52,15 +52,15 @@ void automation.handleDemoOutcome(string dealIdStr)
 	if(demoOutcome == "Attended - Qualified")
 	{
 		dealUpd = Map();
-		dealUpd.put("Stage1", "Demo Attended");
-		dealUpd.put("Stage", "SQL");
+		dealUpd.put("Stage1", "Proposal Preparation");
+		dealUpd.put("Stage", "FTP");
 		dealUpd.put("Commercials_Status", "Drafting");
 		dealUpd.put("Demo_Status", "Completed");
 		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1.
 		// Explicitly route the new stage's sequence (supersedes prior Demo Booking sequence).
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.sequenceRouter(dealId.toString());
-		automation.sendSequencedEmail(dealId.toString(), "Demo Attended", 1, "demo_attended_qualified");
+		automation.sendSequencedEmail(dealId.toString(), "Proposal Preparation", 1, "demo_attended_qualified");
 
 		draftTask = Map();
 		draftTask.put("Subject", "Draft Commercials for Deal " + dealId);
@@ -79,12 +79,12 @@ void automation.handleDemoOutcome(string dealIdStr)
 	if(demoOutcome == "Attended - Needs Follow-up" || demoOutcome == "Follow-up Required")
 	{
 		dealUpd = Map();
-		dealUpd.put("Stage1", "Demo Attended");
+		dealUpd.put("Stage1", "Demo Hosted");
 		dealUpd.put("Stage", "SQL");
 		dealUpd.put("Demo_Status", "Completed");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.createStageCall(dealId.toString(), "Demo Attended", 1);
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "needs_follow_up", "demo_attended_call_1", null);
+		automation.createStageCall(dealId.toString(), "Demo Hosted", 1);
+		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "needs_follow_up", "demo_hosted_call_1", null);
 		return;
 	}
 
@@ -111,10 +111,10 @@ void automation.handleDemoOutcome(string dealIdStr)
 		dealUpd.put("Demo_Status", "No Show");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 
-		automation.sendSequencedEmail(dealId.toString(), "Demo Booked", 1, "demo_no_show");
+		automation.sendSequencedEmail(dealId.toString(), "Demo Confirmation", 1, "demo_no_show");
 		
-		// Re-create the Demo Booked call for attempt 1
-		automation.createStageCall(dealId.toString(), "Demo Booked", 1);
+		// Re-create the Demo Confirmation call for attempt 1
+		automation.createStageCall(dealId.toString(), "Demo Confirmation", 1);
 
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "no_show", "recovery_started", null);
 		return;

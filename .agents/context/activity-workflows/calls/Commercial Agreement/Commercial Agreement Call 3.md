@@ -1,4 +1,4 @@
-# Commercials Sent Call 3 — Timeline Alignment & Follow-up
+# Commercial Agreement Call 3 — Timeline Alignment & Follow-up
 
 ## Objective
 Re-align on the commercial timeline, identify procurement or board-level blockers, and expedite review.
@@ -14,5 +14,5 @@ Since we last spoke, our engineering team has finalized several onboarding slots
 
 ## Call Outcomes
 - **Positive**: Terms accepted / timeline confirmed.
-- **Neutral / No Answer**: Create next call. Send `Commercials Sent Email 3`.
+- **Neutral / No Answer**: Create next call. Send `Commercial Agreement Email 3`.
 - **Negative**: Mark Lost.

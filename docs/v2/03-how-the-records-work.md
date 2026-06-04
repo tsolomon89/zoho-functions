@@ -104,7 +104,7 @@ Reps enter product interests as text during intake. The system:
 
 ### Furthest Open Contact Rule
 A Deal's Stage comes from the furthest open Contact under the Account.
-*   If Contact A is booking a demo but Contact B has attended, the Deal Stage is set to `Demo Attended`.
+*   If Contact A is booking a demo but Contact B has attended, the Deal Stage is set to `Demo Hosted`.
 *   The furthest open Contact is set as the primary Contact on the Deal.
 
 ### Lost Contact Handling

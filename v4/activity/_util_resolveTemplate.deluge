@@ -11,12 +11,12 @@ string automation.resolveTemplate(string stage, int attemptOrChainStep, string t
 	//   "call_neutral" / "call_no_answer" → {Stage} Email {Attempt}
 	//   "post_call_chain"                  → {Stage} Post-Call Email Chain {Step}
 	//   Named specials (Stage-agnostic):
-	//     "demo_confirmation"              → Demo Booked Confirmation Email
-	//     "demo_reminder"                  → Demo Booked Reminder Email
-	//     "demo_no_show"                   → Demo Booked No-Show Email
-	//     "demo_post_demo"                 → Demo Attended Post-Demo Email
-	//     "commercials_terms"              → Commercials Sent Terms Email
-	//     "commercials_signed_confirmation"→ Commercials Signed Confirmation Email
+	//     "demo_confirmation"              → Demo Confirmation Email
+	//     "demo_reminder"                  → Demo Confirmation Reminder Email
+	//     "demo_no_show"                   → Demo Confirmation No-Show Email
+	//     "demo_post_demo"                 → Demo Hosted Post-Demo Email
+	//     "commercials_terms"              → Commercial Agreement Terms Email
+	//     "commercials_signed_confirmation"→ Commercial Agreement Confirmation Email
 	//     "onboarding_kickoff"             → Onboarding Kickoff Email
 	//
 	// Source of truth: TEMPLATE_NAMING_MATRIX.md.
@@ -26,12 +26,12 @@ string automation.resolveTemplate(string stage, int attemptOrChainStep, string t
 
 	tc = ifnull(triggerContext, "").toString();
 
-	if(tc == "demo_confirmation")              { return "Demo Booked Confirmation Email"; }
-	if(tc == "demo_reminder")                  { return "Demo Booked Reminder Email"; }
-	if(tc == "demo_no_show")                   { return "Demo Booked No-Show Email"; }
-	if(tc == "demo_post_demo")                 { return "Demo Attended Post-Demo Email"; }
-	if(tc == "commercials_terms")              { return "Commercials Sent Terms Email"; }
-	if(tc == "commercials_signed_confirmation"){ return "Commercials Signed Confirmation Email"; }
+	if(tc == "demo_confirmation")              { return "Demo Confirmation Email"; }
+	if(tc == "demo_reminder")                  { return "Demo Confirmation Reminder Email"; }
+	if(tc == "demo_no_show")                   { return "Demo Confirmation No-Show Email"; }
+	if(tc == "demo_post_demo")                 { return "Demo Hosted Post-Demo Email"; }
+	if(tc == "commercials_terms")              { return "Commercial Agreement Terms Email"; }
+	if(tc == "commercials_signed_confirmation"){ return "Commercial Agreement Confirmation Email"; }
 	if(tc == "onboarding_kickoff")             { return "Onboarding Kickoff Email"; }
 
 	stageName = ifnull(stage, "").toString();

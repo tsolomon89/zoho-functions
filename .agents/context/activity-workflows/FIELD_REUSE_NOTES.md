@@ -25,7 +25,7 @@ The Deal already uses `Account_Name`, `Contact_Name`, `Amount`, `Deal_Key`, `Clo
 
 | Spec label | Existing API name | Action | Reason |
 |---|---|---|---|
-| Marketing Consent Status | `Marketing_Consent` (Boolean) | **CREATE NEW** `Marketing_Consent_Status` (Picklist) | The existing Boolean cannot represent the 4 spec values (`Consented/Not Consented/Unknown/Withdrawn`). Keep the Boolean live for legacy filters, populate the new picklist alongside, deprecate the Boolean after migration. |
+| Marketing Qualification Status | `Marketing_Consent` (Boolean) | **CREATE NEW** `Marketing_Consent_Status` (Picklist) | The existing Boolean cannot represent the 4 spec values (`Consented/Not Consented/Unknown/Withdrawn`). Keep the Boolean live for legacy filters, populate the new picklist alongside, deprecate the Boolean after migration. |
 | Contact Role | `Contact_Role1` | partially reused via Contact_Roles junction | v3 stamps `Contact_Role1` on the Contact directly. The activity layer uses the `Contact_Roles` sub-module (deal-scoped roles) — different surface, both kept. |
 | Products Linked | `Products_Linked` | — | Existing aggregation field used by v3 for product interest rollup. Not in spec but read by `processX`. |
 

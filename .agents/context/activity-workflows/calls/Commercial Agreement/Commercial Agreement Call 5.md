@@ -1,4 +1,4 @@
-# Commercials Sent Call 5 — Final Outbound Commercial Attempt
+# Commercial Agreement Call 5 — Final Outbound Commercial Attempt
 
 ## Objective
 Final phone check-in to confirm contract interest before removing the deal from the active outbound sales queue.
@@ -14,5 +14,5 @@ We want to make sure we are respect your time. If this initiative has been postp
 
 ## Call Outcomes
 - **Positive**: Terms revived / agreed.
-- **Neutral / No Answer**: Transition to Post-Call Email Chain 1. Send `Commercials Sent Email 5`.
+- **Neutral / No Answer**: Transition to Post-Call Email Chain 1. Send `Commercial Agreement Email 5`.
 - **Negative**: Mark Lost.

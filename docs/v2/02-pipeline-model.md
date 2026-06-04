@@ -25,13 +25,13 @@ The Stage selection automatically decides the Opportunity bucket. Sales progress
 
 | Rank | Stage | Opportunity | Meaning |
 | :---: | :--- | :--- | :--- |
-| **1** | Marketing Consent | MQL | Prospect has consented to marketing |
+| **1** | Marketing Qualification | MQL | Marketing consent and required profile data obtained |
 | **2** | Demo Booking | SQL | Rep is trying to book a demo |
-| **3** | Demo Booked | SQL | Demo is booked |
-| **4** | Demo Attended | SQL | Demo happened; sales qualification is active |
-| **5** | Commercials Sent | FTP | **First-Time Purchase begins** (terms/proposal sent) |
-| **6** | Commercials Signed | RTP | **Retention Purchase begins** (signed; moving to onboarding) |
-| **7** | Onboarding | RTP | Customer setup |
+| **3** | Demo Confirmation | SQL | Demo is booked, confirming attendance |
+| **4** | Demo Hosted | SQL | Demo completed |
+| **5** | Proposal Preparation | FTP | Proposal/commercials are being prepared |
+| **6** | Commercial Agreement | FTP | Proposal/commercials sent, chasing agreement/signature |
+| **7** | Onboarding | RTP | **Retention Purchase begins** (signed; customer setup) |
 | **8** | Renewal | RTP | Renewal / expansion |
 
 ---
@@ -39,10 +39,10 @@ The Stage selection automatically decides the Opportunity bucket. Sales progress
 ## Core Pipeline Rules
 
 *   **Stage Decides Opportunity**: Operational steps drive the pipeline buckets automatically.
-*   **Commercials Sent Starts FTP**: First-Time Purchase begins only when proposal or contract terms are sent. Up until then, the Deal is SQL.
-*   **Commercials Signed Starts RTP**: The signed contract moves the customer to onboarding.
+*   **Proposal Preparation Starts FTP**: First-Time Purchase begins after a positive demo outcome, when we enter proposal preparation.
+*   **Onboarding Starts RTP**: The signed contract moves the customer to onboarding.
 *   **Won is not a lasting State**: "Won" is just a transition gate event being passed. When commercials are signed, the Deal moves to:
-    *   **Stage** = Commercials Signed
+    *   **Stage** = Onboarding
     *   **Opportunity** = RTP
     *   **State** = Open
     *   **Sequence Status** = Not Started (so the next RTP / onboarding sequence can begin)
@@ -57,7 +57,7 @@ The Stage selection automatically decides the Opportunity bucket. Sales progress
 
 ### 1. Active Demo Stage
 ```text
-Stage = Demo Booked
+Stage = Demo Confirmation
 Opportunity = SQL
 State = Open
 Status = Working (if a rep has done real activity)
@@ -65,9 +65,9 @@ Status = Working (if a rep has done real activity)
 
 ### 2. Proposal Sent
 ```text
-Stage = Commercials Sent
+Stage = Commercial Agreement
 Opportunity = FTP
-System creates Commercials Sent Call 1
+System creates Commercial Agreement Call 1
 ```
 
 ### 3. Deal Lost

@@ -1,7 +1,7 @@
-# Marketing Consent Call 3 — Profile & Qualification Check-in
+# Marketing Qualification Call 3 — Profile & Qualification Check-in
 
 ## Objective
-Re-engage the prospect, resolve missing profile fields, and secure marketing consent.
+Re-engage the prospect, resolve missing profile fields, and secure Marketing Qualification.
 
 ## Call Script
 "Hi `${Contacts.First_Name}`, `${User.First_Name}` from Jurnii. I hope you're having a good day."

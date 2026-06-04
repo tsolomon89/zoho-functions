@@ -1,7 +1,7 @@
-# Marketing Consent Call 2 — Follow-up & Details Gathering
+# Marketing Qualification Call 2 — Follow-up & Details Gathering
 
 ## Objective
-Follow up on initial contact to verify details, obtain marketing consent, and complete profile fields.
+Follow up on initial contact to verify details, obtain Marketing Qualification, and complete profile fields.
 
 ## Prep Checklist
 - Review Call 1 notes (if any).

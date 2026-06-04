@@ -1,4 +1,4 @@
-# Demo Booked Call 1 — No-Show recovery call script
+# Demo Confirmation Call 1 — No-Show recovery call script
 
 ## Objective
 Establish contact after a demo no-show, understand the reason, reschedule the demo, and protect future attendance.
@@ -19,5 +19,5 @@ I know how hectic things get in operations. Would you be open to quickly finding
 
 ## Call Outcomes
 - **Positive**: Rescheduled successfully. Create new Event, set `Demo_Outcome` = `Rescheduled`.
-- **Neutral / No Answer**: Send `Demo Booked No-Show Email`. Create next attempt/email chain step.
+- **Neutral / No Answer**: Send `Demo Confirmation No-Show Email`. Create next attempt/email chain step.
 - **Negative**: Customer cancelled project. Mark Lost.

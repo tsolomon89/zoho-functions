@@ -32,7 +32,7 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 
 	// Dup-check: use getRelatedRecords (live data, no search-index lag) rather than
 	// searchRecords. searchRecords misses Calls created seconds earlier (Zoho's search
-	// index can lag minutes), which was producing duplicate Marketing Consent Call 1's
+	// index can lag minutes), which was producing duplicate Marketing Qualification Call 1's
 	// when processLead+processDeal both fired sequenceRouter in parallel on Lead creation.
 	// Client-side filter on Sequence_Managed/Stage/Attempt/Outcome/Stale.
 	existing = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
@@ -56,14 +56,14 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	}
 
 	purposeMap = Map();
-	purposeMap.put("Marketing Consent", "Data Completion");
-	purposeMap.put("Demo Booking",      "Book Demo");
-	purposeMap.put("Demo Booked",       "Confirm Attendance");
-	purposeMap.put("Demo Attended",     "Post-Demo Follow-Up");
-	purposeMap.put("Commercials Sent",  "Commercial Discussion");
-	purposeMap.put("Commercials Signed","Commercial Discussion");
-	purposeMap.put("Onboarding",        "Onboarding");
-	purposeMap.put("Renewal",           "Renewal");
+	purposeMap.put("Marketing Qualification", "Data Completion");
+	purposeMap.put("Demo Booking",            "Book Demo");
+	purposeMap.put("Demo Confirmation",       "Confirm Attendance");
+	purposeMap.put("Demo Hosted",             "Post-Demo Follow-Up");
+	purposeMap.put("Proposal Preparation",    "Commercial Discussion");
+	purposeMap.put("Commercial Agreement",    "Commercial Discussion");
+	purposeMap.put("Onboarding",              "Onboarding");
+	purposeMap.put("Renewal",                 "Renewal");
 	callPurpose = ifnull(purposeMap.get(stage), "Data Completion").toString();
 
 	// Zoho's createRecord rejects "yyyy-MM-dd HH:mm:ss" for datetime fields with

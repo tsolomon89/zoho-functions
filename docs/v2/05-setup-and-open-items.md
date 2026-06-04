@@ -87,11 +87,11 @@ Example scenario:
 | Contact | Contact Stage | Contact State | Expected Effect |
 | :--- | :--- | :--- | :--- |
 | **Contact A** | Demo Booking | Open | Lower-stage active Contact |
-| **Contact B** | Demo Attended | Open | Deal should move to Demo Attended |
-| **Contact C** | Commercials Sent | Lost | Should not control the Deal while open Contacts exist |
+| **Contact B** | Demo Hosted | Open | Deal should move to Demo Hosted |
+| **Contact C** | Commercial Agreement | Lost | Should not control the Deal while open Contacts exist |
 
 Expected Deal result:
-*   **Stage** = Demo Attended
+*   **Stage** = Demo Hosted
 *   **Opportunity** = SQL
 *   **State** = Open
 *   **Primary Contact** = Contact B, unless an existing valid primary Contact is already tied at the same furthest Stage.

@@ -1,4 +1,4 @@
-# Demo Attended Call 2 — Chasing Missing Commercial Details
+# Demo Hosted Call 2 — Chasing Missing Commercial Details
 
 ## Objective
 Progress the commercial prep path by chasing missing details required for the proposal.
@@ -16,5 +16,5 @@ We just need a couple of quick details—specifically, the confirmed start date 
 
 ## Call Outcomes
 - **Positive**: Details gathered.
-- **Neutral / No Answer**: Create next call. Send `Demo Attended Email 2`.
+- **Neutral / No Answer**: Create next call. Send `Demo Hosted Email 2`.
 - **Negative**: Mark Lost.

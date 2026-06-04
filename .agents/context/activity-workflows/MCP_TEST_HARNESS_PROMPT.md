@@ -180,7 +180,7 @@ Use a fresh `sessionPrefix + "_T<n>"` for each test's records.
 
 **What this tests:** WF001 fires `processLead` on Lead create_or_edit.
 The function should create or link a Contact, an Account, and a Deal,
-then call the activity-layer hook so Stage1 = Marketing Consent on the
+then call the activity-layer hook so Stage1 = Marketing Qualification on the
 new Deal triggers WF002 → sequenceRouter → Call 1.
 
 **Action:** create a Lead via `createRecords` on Leads with:
@@ -204,7 +204,7 @@ Wait 60s — Lead pipeline is heavier than Deal-only.
 - A **Deal** exists with:
   - `Account_Name` = the new Account
   - `Contact_Name` = the new Contact
-  - `Stage1` = `Marketing Consent`
+  - `Stage1` = `Marketing Qualification`
   - `State` = `Open`
   - `Deal_Key` is non-empty and ends with `::active`
 - The Lead's `Lead_Processing_Status` reflects completion (e.g.
@@ -215,13 +215,13 @@ Wait 60s — Lead pipeline is heavier than Deal-only.
   `processAccount.deluge` ~lines 37-40 and `_util_resolveRoleFromTitle.deluge`).
 - The hook to `sequenceRouter` fired: within ~30s after Deal creation,
   the Deal's `Sequence_Status` = `Waiting on Call` and a related Call
-  with `Subject` = `Marketing Consent Call 1` exists.
+  with `Subject` = `Marketing Qualification Call 1` exists.
 
 **On failure:**
 - `v4/processLead.deluge` — full pipeline.
 - Check the Lead's logs for `info` lines indicating which step
   early-returned (Contact lookup vs Account resolution vs Deal create).
-- If Deal exists but no `Marketing Consent Call 1`: the hook at
+- If Deal exists but no `Marketing Qualification Call 1`: the hook at
   `v4/processLead.deluge:898` may have failed to fire — check the
   `if(canonicalDealId != "" && State == "Open")` guard.
 
@@ -237,7 +237,7 @@ re-fires WF001. Wait 60s.
 - No second Contact, Account, or Deal was created.
 - The Deal's `Sequence_Status` did not regress (still
   `Waiting on Call` if T1's Call 1 hasn't been mutated yet).
-- The original Call 1 still exists; no `Marketing Consent Call 1`
+- The original Call 1 still exists; no `Marketing Qualification Call 1`
   duplicate appeared.
 
 **On failure:**
@@ -266,13 +266,13 @@ Wait 45s.
 **Assertions:**
 - The Contact's `Account_Name` lookup is now populated.
 - An Account exists, with a non-empty `Account_Key`.
-- A Deal exists under that Account with `Stage1` = `Marketing Consent`,
+- A Deal exists under that Account with `Stage1` = `Marketing Qualification`,
   `State` = `Open`.
 - The Deal's `Contact_Roles` related list contains this Contact with
   role **End User** (per the `euTitles` list — `Product Manager` is
   classified End User).
 - The hook fired: `Sequence_Status` = `Waiting on Call` on the new
-  Deal, related Call `Marketing Consent Call 1` exists.
+  Deal, related Call `Marketing Qualification Call 1` exists.
 
 **On failure:**
 - `v4/processContact.deluge` — Account resolution path, role
@@ -315,7 +315,7 @@ sentinel that automation must not revive.
 Deal_Name              = <sessionPrefix>_T5 (Duplicate)
 Account_Name           = <test account id>
 Contact_Name           = <test contact id>
-Stage1                 = "Marketing Consent"
+Stage1                 = "Marketing Qualification"
 State                  = "Open"
 Reason_For_Loss__s     = "Duplicate / Test Record"
 Closing_Date           = <today + 60>
@@ -325,7 +325,7 @@ Wait 30s.
 **Assertions:**
 - The Deal exists but its `Stage1`, `State`, `Sequence_Status` were
   NOT mutated by automation.
-- No `Marketing Consent Call 1` was created against this Deal.
+- No `Marketing Qualification Call 1` was created against this Deal.
 - The Deal's `Sequence_Status` is still its initial value (empty or
   whatever was set on create).
 
@@ -344,11 +344,11 @@ keeps a non-empty `Deal_Key`.
 
 **Action:**
 1. Create Deal A under `<test account id>`:
-   `Deal_Name = <sessionPrefix>_T6_A`, `Stage1 = Marketing Consent`,
+   `Deal_Name = <sessionPrefix>_T6_A`, `Stage1 = Marketing Qualification`,
    `State = Open`.
 2. Wait 45s. Assert Deal A is the canonical one (Call 1 exists).
 3. Create Deal B under the same Account:
-   `Deal_Name = <sessionPrefix>_T6_B`, `Stage1 = Marketing Consent`,
+   `Deal_Name = <sessionPrefix>_T6_B`, `Stage1 = Marketing Qualification`,
    `State = Open`.
 4. Wait 45s.
 
@@ -489,8 +489,8 @@ stuck at the closed Contact's progress.
 canonical Deal under it (created by T9 or a fresh `processX` run).
 Establish a starting baseline:
 1. Set Contact A's "progress hints" so processDeal computes the
-   Deal at, say, `Stage1 = Demo Attended` (`Stage` = `SQL`).
-2. Set Contact B at `Stage1 = Commercials Sent` (`Stage` = `FTP`) —
+   Deal at, say, `Stage1 = Demo Hosted` (`Stage` = `SQL`).
+2. Set Contact B at `Stage1 = Commercial Agreement` (`Stage` = `FTP`) —
    B is "furthest" so the Deal should reflect FTP.
 3. Wait 45s.
 
@@ -504,14 +504,14 @@ Establish a starting baseline:
 > log this in the run log as a coverage gap and skip the test.
 
 **Phase A — baseline:**
-- Assert Deal `Stage1` = `Commercials Sent`, `Stage` = `FTP`
+- Assert Deal `Stage1` = `Commercial Agreement`, `Stage` = `FTP`
   (Contact B's progress wins because B is Open and furthest).
 
 **Phase B — close the furthest Contact:**
 - Update Contact B's `State` to `Lost`. Wait 30s.
 
 **Assertions:**
-- Deal `Stage1` reverts to `Demo Attended`, `Stage` = `SQL` —
+- Deal `Stage1` reverts to `Demo Hosted`, `Stage` = `SQL` —
   Contact A's progress now wins because A is the furthest Open
   Contact.
 - Deal `State` stays `Open` (still has at least one open Contact).
@@ -520,7 +520,7 @@ Establish a starting baseline:
 
 **Phase C — revive Contact B:**
 - Update Contact B's `State` back to `Open`. Wait 30s.
-- Assert Deal `Stage1` returns to `Commercials Sent`, `Stage` =
+- Assert Deal `Stage1` returns to `Commercial Agreement`, `Stage` =
   `FTP`.
 
 **Phase D — close all Contacts:**
@@ -575,7 +575,7 @@ Account's own State/Status is recomputed:
 
 **What this tests:** WF002 (Deal create_or_edit, Sequence_Status =
 Not Started) calls `sequenceRouter`, which calls `createStageCall`,
-which creates a "Marketing Consent Call 1" Call related to the Deal.
+which creates a "Marketing Qualification Call 1" Call related to the Deal.
 
 This overlaps with T1's hook assertion but tests `sequenceRouter`
 directly on a Deal created via the data API (skipping the Lead path).
@@ -586,7 +586,7 @@ createRecords on Deals with:
   Deal_Name        = <sessionPrefix>_T11
   Account_Name     = <test account id>
   Contact_Name     = <test contact id>
-  Stage1           = "Marketing Consent"
+  Stage1           = "Marketing Qualification"
   State            = "Open"
   Sequence_Status  = "Not Started"
   Closing_Date     = <today + 60 days>
@@ -596,13 +596,13 @@ Wait 30s.
 
 **Assertions (read the Deal back, then its related Calls):**
 - `Sequence_Status` == `Waiting on Call`
-- `Active_Sequence_Stage` == `Marketing Consent`
+- `Active_Sequence_Stage` == `Marketing Qualification`
 - `Active_Sequence_Attempt` == 1
 - `Active_Email_Chain_Step` == 0
 - Related Calls: exactly **one** Call with:
-  - `Subject` == `Marketing Consent Call 1`
+  - `Subject` == `Marketing Qualification Call 1`
   - `Sequence_Managed` == `Yes`
-  - `Sequence_Stage` == `Marketing Consent`
+  - `Sequence_Stage` == `Marketing Qualification`
   - `Sequence_Attempt` == 1
   - `Stale` == `No`
 
@@ -626,7 +626,7 @@ Wait 30s.
 - `Active_Sequence_Stage` == `Demo Booking`
 - `Active_Sequence_Attempt` == 1
 - `Sequence_Status` == `Waiting on Call`
-- The old Marketing Consent Call from T11 is now `Stale = Yes` and
+- The old Marketing Qualification Call from T11 is now `Stale = Yes` and
   `Status = Cancelled`.
 - Exactly **one** new open Call exists with `Subject` =
   `Demo Booking Call 1`, `Sequence_Stage = Demo Booking`, `Stale = No`.
@@ -639,7 +639,7 @@ Wait 30s.
 ### T13 — Commercials_Status = Signed keeps the Deal Open (regression for the State=Won bug)
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T13`, Stage1 =
-`Commercials Sent`, State = `Open`, Sequence_Status =
+`Commercial Agreement`, State = `Open`, Sequence_Status =
 `Waiting on Call`. Wait 15s for any incidental triggers to settle.
 
 **Action:** Update:
@@ -649,7 +649,7 @@ Commercials_Status = "Signed"
 Wait 30s.
 
 **Assertions:**
-- `Stage1` == `Commercials Signed`
+- `Stage1` == `Onboarding`
 - `Stage` == `RTP`
 - `State` == `Open`  ← critical, NOT `Won`
 - `Status` is one of `New` or `Working` — NOT `Closed`
@@ -667,7 +667,7 @@ Wait 30s.
 ### T14 — Commercials_Status = Rejected → Deal Lost
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T14` at Stage1 =
-`Commercials Sent`.
+`Commercial Agreement`.
 
 **Action:** Update `Commercials_Status = "Rejected"`. Wait 30s.
 
@@ -684,12 +684,12 @@ Wait 30s.
 ### T15 — Demo_Outcome = Attended - Qualified
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T15` at Stage1 =
-`Demo Booked`.
+`Demo Confirmation`.
 
 **Action:** Update `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
 
 **Assertions:**
-- `Stage1` == `Demo Attended`
+- `Stage1` == `Demo Hosted`
 - `Stage` == `SQL`
 - `Commercials_Status` == `Drafting`
 - One related Task exists with `Subject` containing
@@ -702,10 +702,10 @@ Wait 30s.
 
 ### T16 — Positive Call outcome advances the Deal
 
-**Depends on T11 or T12's Deal having an open `Marketing Consent Call 1`
+**Depends on T11 or T12's Deal having an open `Marketing Qualification Call 1`
 or `Demo Booking Call 1`.** Use whichever exists from prior tests, or
 create a new Deal `<sessionPrefix>_T16` with Stage1 =
-`Marketing Consent`, wait 30s for Call 1 to appear, then proceed.
+`Marketing Qualification`, wait 30s for Call 1 to appear, then proceed.
 
 **Action:** Update that Call:
 ```
@@ -714,8 +714,8 @@ Call_Outcome = "Positive"
 Wait 30s.
 
 **Assertions:**
-- Deal `Stage1` advanced one step (Marketing Consent →
-  `Demo Booking`, Demo Booking → `Demo Booked`, etc.)
+- Deal `Stage1` advanced one step (Marketing Qualification →
+  `Demo Booking`, Demo Booking → `Demo Confirmation`, etc.)
 - Deal `Stage` updated accordingly (`MQL` → `SQL`, etc.)
 
 **On failure:**
@@ -726,7 +726,7 @@ Wait 30s.
 ### T17 — Neutral / No Answer creates Call N+1
 
 **Setup:** Use a fresh Deal `<sessionPrefix>_T17` with Stage1 =
-`Marketing Consent`. Wait 30s for Call 1.
+`Marketing Qualification`. Wait 30s for Call 1.
 
 **Action:** Update Call 1:
 ```
@@ -736,7 +736,7 @@ Wait 30s.
 
 **Assertions:**
 - Deal `Active_Sequence_Attempt` == 2
-- A second open Call exists with `Subject` = `Marketing Consent Call 2`,
+- A second open Call exists with `Subject` = `Marketing Qualification Call 2`,
   `Sequence_Attempt` = 2, `Stale` = `No`.
 
 **On failure:**
@@ -762,7 +762,7 @@ Run only if §2A + §2B are all green and the user wants deeper coverage.
 ### T20 — Stale Call guard
 
 After T12, attempt to set `Call_Outcome = Positive` on the *stale*
-Marketing Consent Call (the one that got marked `Stale = Yes`).
+Marketing Qualification Call (the one that got marked `Stale = Yes`).
 Assert: the Deal's Stage1 does **not** change. The handler should drop
 the call as stale.
 
@@ -939,12 +939,12 @@ Every code path that writes `Stage1` should also write the matching
 
 | Stage1 | Stage |
 |---|---|
-| Marketing Consent | MQL |
-| Demo Booking, Demo Booked, Demo Attended | SQL |
-| Commercials Sent | FTP |
-| Commercials Signed, Onboarding, Renewal | RTP |
+| Marketing Qualification | MQL |
+| Demo Booking, Demo Confirmation, Demo Hosted | SQL |
+| Commercial Agreement | FTP |
+| Onboarding, Onboarding, Renewal | RTP |
 
-If a test ever finds `Stage1 = Commercials Signed` with `Stage = SQL`
+If a test ever finds `Stage1 = Onboarding` with `Stage = SQL`
 (or any other mismatch), the writing function has a bug. Spot-check
 this invariant after T12 (stage change), T13 (Signed), T15 (Demo
 Attended).
@@ -979,7 +979,7 @@ sensible default, or does the Deal end up with `Closing_Date = null`
 
 The 8 Stage1 values include `Onboarding` and `Renewal`, but the test
 plan focuses on the pre-sign path. The post-sign path
-(`Commercials Signed → Onboarding → Renewal`) is exercised
+(`Onboarding → Onboarding → Renewal`) is exercised
 incidentally by T13 but not asserted end-to-end. If those stages have
 specific automation (e.g. onboarding kickoff email, renewal call
 cadence), add tests in a future round.

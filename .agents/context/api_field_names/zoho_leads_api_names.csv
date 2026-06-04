@@ -36,7 +36,7 @@ Lead Owner,Owner,Lookup,
 Lead Source,Lead_Source,Pick List,
 Lead Status,Lead_Status,Pick List,
 Lost Reasons,Lost_Reasons,Pick List,Yes
-Marketing Consent,Marketing_Consent,Boolean,Yes
+Marketing Qualification,Marketing_Consent,Boolean,Yes
 Mobile,Mobile,Phone,
 Modified By,Modified_By,Single Line,
 Most Recent Visit,Last_Visited_Time,DateTime,

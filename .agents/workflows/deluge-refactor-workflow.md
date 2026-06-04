@@ -48,7 +48,7 @@ graph TD
 After applying all modifications, verify the pipeline using the 5-Row test suite:
 
 1.  **Row 1 (Deduplication)**: 2 Leads with the same company/domain $\to$ Converted successfully, **1 Account** reused, no duplicates.
-2.  **Row 2 (Consent Gap)**: Lead with missing Marketing Consent $\to$ Converted to `MQL` / `Marketing Consent` stage without errors.
+2.  **Row 2 (Consent Gap)**: Lead with missing Marketing Consent $\to$ Converted to `MQL` / `Marketing Qualification` stage without errors.
 3.  **Row 3 (Consent Captured)**: Lead with captured Marketing Consent $\to$ Converted and automatically advanced to `SQL` / `Demo Booking`.
-4.  **Row 4 (No Product Staging)**: Lead at `Commercials Sent` stage with blank product interests $\to$ Converted successfully, Deal Stage preserved, Deal Amount remains `0.0` or empty.
+4.  **Row 4 (No Product Staging)**: Lead at `Proposal Preparation` stage with blank product interests $\to$ Converted successfully, Deal Stage preserved, Deal Amount remains `0.0` or empty.
 5.  **Row 5 (Product Value Calculation)**: Lead with Product Interest names matching Products in catalog $\to$ Converted successfully, Deal Amount calculated and updated.

@@ -81,7 +81,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		dealUpd.put("Commercials_Status", "Sent");
 		// Suppress workflow cascade (WF001d/processDeal would revert Stage1; WF004 would
 		// normally invoke handleCommercialsStatusChange). Explicitly invoke
-		// handleCommercialsStatusChange to perform the Stage1=Commercials Sent transition.
+		// handleCommercialsStatusChange to perform the Stage1=Commercial Agreement transition.
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.handleCommercialsStatusChange(dealId.toString());
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "status_to_sent", {"deal":dealId});

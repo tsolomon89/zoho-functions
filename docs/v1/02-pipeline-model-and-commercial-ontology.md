@@ -23,7 +23,7 @@ Our CRM uses four core fields to track every stage of the customer lifecycle. Th
 | Concept | API Field | Question It Answers | Allowed Values / Notes |
 | :--- | :--- | :--- | :--- |
 | **Opportunity** | `Stage` | **What broad commercial motion is this record in?** | `MQL`, `SQL`, `FTP`, `RTP` |
-| **Stage** | `Stage1` | **What specific step are we trying to complete next?** | `Marketing Consent`, `Demo Booking`, `Demo Booked`, `Demo Attended`, `Commercials Sent`, `Commercials Signed`, `Onboarding`, `Renewal` |
+| **Stage** | `Stage1` | **What specific step are we trying to complete next?** | `Marketing Qualification`, `Demo Booking`, `Demo Confirmation`, `Demo Hosted`, `Proposal Preparation`, `Commercial Agreement`, `Onboarding`, `Renewal` |
 | **State** | `State` | **Is this commercial motion still active or lost?** | `Open` (active motion), `Lost` (motion closed unsuccessfully) |
 | **Status** | `Status` | **Is this active record untouched, being worked, or closed?** | `New` (no manual activity), `Working` (meaningful manual activity exists), `Closed` (only when `State = Lost`) |
 
@@ -33,18 +33,18 @@ Our CRM uses four core fields to track every stage of the customer lifecycle. Th
 
 ## The Stage-to-Opportunity Mapping
 
-The specific operational `Stage` (`Stage1`) dynamically drives the broad `Opportunity` bucket (`Stage`). As a prospect passes operational milestones, they automatically progress through Jurnii.io's commercial buckets:
+The specific operational `Stage` (`Stage1`) dynamically drives the broad `Opportunity` bucket (`Stage`). As a prospect progresses through operational milestones, they automatically transition through Jurnii.io's commercial buckets:
 
 | Stage Rank | Stage / Current Step | Opportunity Bucket | Commercial Meaning |
 | :---: | :--- | :--- | :--- |
-| **1** | `Marketing Consent` | `MQL` | Prospect has consented to marketing and entered our intake queue. |
+| **1** | `Marketing Qualification` | `MQL` | Prospect has consented to marketing and entered our qualification queue. |
 | **2** | `Demo Booking` | `SQL` | Sales reps are actively trying to schedule an initial demo. |
-| **3** | `Demo Booked` | `SQL` | A demo has been successfully scheduled on the calendar. |
-| **4** | `Demo Attended` | `SQL` | The demo has occurred, and the sales qualification is still active. |
-| **5** | `Commercials Sent` | `FTP` | **First-Time Purchase (FTP)** motion begins. The prospect has received contract terms and is reviewing a proposal. |
-| **6** | `Commercials Signed` | `RTP` | **Retention Purchase (RTP)** motion begins. The contract is signed, shifting the prospect into client status. |
-| **7** | `Onboarding` | `RTP` | The customer is being technically activated and integrated. |
-| **8** | `Renewal` | `RTP` | The customer is in a active subscription phase, approaching renewal or expansion. |
+| **3** | `Demo Confirmation` | `SQL` | A demo has been successfully scheduled on the calendar, protecting attendance. |
+| **4** | `Demo Hosted` | `SQL` | The demo has occurred, and the sales qualification is still active. |
+| **5** | `Proposal Preparation` | `FTP` | **First-Time Purchase (FTP)** motion begins. The proposal/commercial terms are being prepared. |
+| **6** | `Commercial Agreement` | `FTP` | Proposal/commercials have been sent, and we are negotiating or chasing signature. |
+| **7** | `Onboarding` | `RTP` | **Retention Purchase (RTP)** motion begins. The contract is signed, shifting the prospect into client status. |
+| **8** | `Renewal` | `RTP` | The customer is in an active subscription phase, approaching renewal or expansion. |
 
 *   *Evidence*: `spec.md`, `v4/processLead.deluge` (lines 327–333), `v4/processContact.deluge` (lines 398–401)
 
@@ -57,11 +57,11 @@ Understanding these three principles is essential to interpreting Jurnii.io's pi
 ### 1. "Won" is a Gate Event, Not a Stable State
 In standard CRM systems, deals are marked "Closed Won" and archived. This isolates historical customers and breaks communication tracking.
 *   **Our Model**: We do not use "Won" as a permanent state. When a gate is passed, the Deal is **promoted** to the next commercial phase. 
-*   **Example**: Signing the contract does not close the Deal; it moves the Deal from `FTP / Commercials Sent` into the `RTP / Onboarding` phase, keeping the record active and monitored by customer success workflows.
+*   **Example**: Signing the contract does not close the Deal; it moves the Deal from `FTP / Commercial Agreement` into the `RTP / Onboarding` phase, keeping the record active and monitored by customer success workflows.
 *   *Evidence*: `spec.md` (lines 68–79)
 
-### 2. Commercials Sent is the FTP Boundary
-A prospect is only counted in the **First-Time Purchase (FTP)** pipeline after commercial terms have actually been generated and sent to them. Up until that exact moment, they remain in the qualification phase (`SQL`).
+### 2. Proposal Preparation is the FTP Boundary
+A prospect is only counted in the **First-Time Purchase (FTP)** pipeline after they enter the proposal preparation stage following a viable demo. Up until that exact moment, they remain in the qualification phase (`SQL`).
 *   *Evidence*: `spec.md` (lines 110–116), `v4/activity/handleCommercialsStatusChange.deluge`
 
 ### 3. Status Represents True Manual Engagement
@@ -80,7 +80,7 @@ The commercial ontology operates slightly differently depending on the module, e
     *   These act strictly as temporary staging inputs. When the Lead is converted, the reconciler reads these fields to bootstrap the permanent Contact and Deal records.
     *   *Evidence*: `v4/processLead.deluge`
 *   **Contacts (Individual Layer)**:
-    *   Each Contact has a `Stage` and `State` (e.g., Contact A is booking a demo, while Contact B has attended).
+    *   Each Contact has a `Stage` and `State` (e.g., Contact A is booking a demo, while Contact B has had a demo hosted).
     *   These fields track the progress of **individual stakeholders** within a prospect company.
     *   *Evidence*: `v4/processContact.deluge`
 *   **Deals (Deal Pipeline Layer)**:

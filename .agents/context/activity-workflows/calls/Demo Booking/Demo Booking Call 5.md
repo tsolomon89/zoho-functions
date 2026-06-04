@@ -13,6 +13,6 @@ Final phone outreach attempt to book a demo before moving to automated email-onl
 If this isn't a priority right now, I completely understand and will pause my calls. Would you like to schedule a quick slot before I step back, or should we keep your project on hold?"
 
 ## Call Outcomes
-- **Positive**: Demo booked.
+- **Positive**: Demo Confirmation.
 - **Neutral / No Answer**: Create Post-Call Email Chain 1.
 - **Negative**: Mark Lost.

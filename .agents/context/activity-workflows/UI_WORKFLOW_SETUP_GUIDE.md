@@ -82,7 +82,7 @@ Run the smoke test from [VERIFICATION_PLAN.md §1](VERIFICATION_PLAN.md):
    - `sequenceRouter hook (processLead): canonicalDealId=...`
    - `automation_event func=sequenceRouter ... action=bootstrap outcome=success`
    - `automation_event func=createStageCall ... action=create outcome=success`
-4. Confirm a `Marketing Consent Call 1` Call appears with `Sequence_Managed=Yes`, `Sequence_Stage=Marketing Consent`, `Sequence_Attempt=1`.
+4. Confirm a `Marketing Qualification Call 1` Call appears with `Sequence_Managed=Yes`, `Sequence_Stage=Marketing Qualification`, `Sequence_Attempt=1`.
 
 If any step fails, check the rule's Audit Log in Zoho UI.
 

@@ -1,7 +1,7 @@
-# Marketing Consent Call 1 — Qualification & Profiling
+# Marketing Qualification Call 1 — Qualification & Profiling
 
 ## Objective
-Establish initial contact, verify details, obtain marketing consent, and gather missing profile data (Company, Role, and Business Needs).
+Establish initial contact, verify details, obtain Marketing Qualification, and gather missing profile data (Company, Role, and Business Needs).
 
 ## Prep Checklist
 - Verify contact name: `${Contacts.Full_Name}`

@@ -38,8 +38,8 @@ Ten core workflow rules connect Zoho CRM events to our Deluge logic layer:
 | **WF001** | `Leads` | Created or Edited (Ready for Convert) | `processLead` | Converted Lead, stages Contact + Account + Deal, and initializes Deal sequence. |
 | **WF002** | `Deals` | Created or Edited (`Sequence_Status = Not Started`) | `sequenceRouter` | Bootstraps the active sequence and generates `Call 1` for the current stage. |
 | **WF003** | `Deals` | Field Update (`Stage1` changed) | `sequenceRouter` | Supersedes active sequences, cancels stale tasks, and bootstraps the new stage. |
-| **WF004** | `Deals` | Field Update (`Commercials_Status` changed) | `handleCommercialsStatusChange` | Detects when commercials are `Sent` to advance the stage to `Commercials Sent` (FTP). |
-| **WF005** | `Deals` | Field Update (`Demo_Outcome` changed) | `handleDemoOutcome` | Processes demo results (e.g., `Attended - Qualified` advances stage to `Demo Attended`). |
+| **WF004** | `Deals` | Field Update (`Commercials_Status` changed) | `handleCommercialsStatusChange` | Detects when commercials are `Sent` to advance the stage to `Commercial Agreement` (FTP). |
+| **WF005** | `Deals` | Field Update (`Demo_Outcome` changed) | `handleDemoOutcome` | Processes demo results (e.g., `Attended - Qualified` advances stage to `Proposal Preparation`). |
 | **WF006** | `Calls` | Created or Edited (Managed Call Outcome logged) | `handleCallOutcome` | Evaluates rep call results to trigger emails, queue next calls, or advance stages. |
 | **WF007** | `Events` | Created or Edited (Managed Meeting) | `handleMeetingEvent` | Calculates calendar events, sets reminder dates, and updates demo statuses. |
 | **WF008** | `Tasks` | Field Update (`Status = Completed` or Outcome set) | `handleTaskCompletion` | Evaluates completed enrichment, data repair, or proposal tasks to resume sequences. |
@@ -73,7 +73,7 @@ When a sequence is initialized, the system creates a **Call Activity** for the s
 
 ### 2. The Call-Outcome Gate
 When the rep logs a call, their **Call Outcome** selection dictates the next system action:
-*   **Positive Outcome**: The sequence advances the Deal stage (e.g., `Demo Booking` to `Demo Booked`). This trips `WF003` to reset attempt counts and bootstrap Call 1 for the new stage.
+*   **Positive Outcome**: The sequence advances the Deal stage (e.g., `Demo Booking` to `Demo Confirmation`). This trips `WF003` to reset attempt counts and bootstrap Call 1 for the new stage.
 *   **Neutral / No Answer**: The system automatically triggers the stage-specific email template (e.g., `Demo Booking Email 1`) and creates the next Call Task (Call N+1), setting `Active_Sequence_Attempt = N+1`.
 *   **Negative Outcome**: Halts all automation. Updates Deal to `State = Lost` and `Status = Closed`.
 *   **Deferred**: Pauses the sequence until the specified `Next_Follow_Up_Date`.

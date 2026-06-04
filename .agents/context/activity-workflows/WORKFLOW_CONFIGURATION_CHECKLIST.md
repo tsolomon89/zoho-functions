@@ -76,9 +76,9 @@ Hub → Functions) under the same name (`automation.<functionName>`).
 - [ ] **Criteria:** none beyond the field-change trigger
 - [ ] **Action:** Function → `handleCommercialsStatusChange(deal_id)`
 - [ ] **Arg mapping:** `deal_id` ← `${Deals.id}`
-- [ ] **Watch:** `Sent` advances Stage to `Commercials Sent` (Opportunity = FTP)
+- [ ] **Watch:** `Sent` advances Stage to `Commercial Agreement` (Opportunity = FTP)
       and writes `Sequence_Status = Not Started`, which causes WF003 to fire
-      `sequenceRouter` and create `Commercials Sent Call 1`. Test for the
+      `sequenceRouter` and create `Commercial Agreement Call 1`. Test for the
       double-fire scenario in Test 10.
 
 ## WF005 — Deal Demo Outcome Handler
@@ -88,7 +88,7 @@ Hub → Functions) under the same name (`automation.<functionName>`).
 - [ ] **Criteria:** none beyond the field-change trigger
 - [ ] **Action:** Function → `handleDemoOutcome(deal_id)`
 - [ ] **Arg mapping:** `deal_id` ← `${Deals.id}`
-- [ ] **Watch:** `Attended - Qualified` writes Stage1=Demo Attended and
+- [ ] **Watch:** `Attended - Qualified` writes Stage1=Demo Hosted and
       Commercials_Status=Drafting; the second write does NOT re-trigger WF004
       because Drafting is not the FTP boundary value.
 
@@ -118,7 +118,7 @@ Hub → Functions) under the same name (`automation.<functionName>`).
 - [ ] **Action:** Function → `handleMeetingEvent(event_id)`
 - [ ] **Arg mapping:** `event_id` ← `${Events.id}`
 - [ ] **Watch:** Sets `Demo_Reminder_Send_At` on the Deal. WF010
-      (date-based) reads that field to send the Demo Booked Reminder Email.
+      (date-based) reads that field to send the Demo Confirmation Reminder Email.
 
 ## WF008 — Task Completion Handler
 
@@ -291,7 +291,7 @@ Exceptions — these intentionally let workflows fire:
 | Function | Update | Cascading rule that should fire |
 |---|---|---|
 | `handleCallOutcome` (Positive) | `Stage1` change | WF003 (re-bootstrap next stage) |
-| `handleDemoOutcome` (Attended-Qualified) | `Stage1`=Demo Attended + Commercials_Status=Drafting | WF003 (Stage1 change); WF004 does NOT trip because Drafting != Sent |
+| `handleDemoOutcome` (Attended-Qualified) | `Stage1`=Demo Hosted + Commercials_Status=Drafting | WF003 (Stage1 change); WF004 does NOT trip because Drafting != Sent |
 | `handleCommercialsStatusChange` (Sent / Signed) | `Stage1` change + Sequence_Status=Not Started | WF003 (re-bootstrap) and WF002 (only if Stage1 change didn't already fire WF003 first) |
 
 If you observe duplicate Call 1 creation on transitions, suppress one

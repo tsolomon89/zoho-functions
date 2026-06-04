@@ -1,7 +1,7 @@
-# Marketing Consent Call 5 — Final Outbound Qualification Attempt
+# Marketing Qualification Call 5 — Final Outbound Qualification Attempt
 
 ## Objective
-Final call attempt to establish contact, obtain marketing consent, and verify company data.
+Final call attempt to establish contact, obtain Marketing Qualification, and verify company data.
 
 ## Call Script
 "Hi `${Contacts.First_Name}`, `${User.First_Name}` from Jurnii. I hope you're having a productive week."

@@ -43,12 +43,12 @@ API field:
 
 Values:
 
-- `Marketing Consent`
+- `Marketing Qualification`
 - `Demo Booking`
-- `Demo Booked`
-- `Demo Attended`
-- `Commercials Sent`
-- `Commercials Signed`
+- `Demo Confirmation`
+- `Demo Hosted`
+- `Proposal Preparation`
+- `Commercial Agreement`
 - `Onboarding`
 - `Renewal`
 
@@ -75,7 +75,7 @@ Rules:
 
 Example:
 
-- `Commercials Signed` moves the Deal into `RTP` / `Onboarding`.
+- `Commercial Agreement` moves the Deal into `FTP` / `Onboarding`.
 - It does not close the Deal as `Won`.
 
 ### Status
@@ -106,21 +106,21 @@ Automated workflow emails do not make a record `Working`.
 
 Mapping:
 
-- `Marketing Consent` → `MQL`
+- `Marketing Qualification` → `MQL`
 - `Demo Booking` → `SQL`
-- `Demo Booked` → `SQL`
-- `Demo Attended` → `SQL`
-- `Commercials Sent` → `FTP`
-- `Commercials Signed` → `RTP`
+- `Demo Confirmation` → `SQL`
+- `Demo Hosted` → `SQL`
+- `Proposal Preparation` → `FTP`
+- `Commercial Agreement` → `FTP`
 - `Onboarding` → `RTP`
 - `Renewal` → `RTP`
 
 Examples:
 
-- `Stage1 = Demo Booked`
+- `Stage1 = Demo Confirmation`
 - `Stage = SQL`
 
-- `Stage1 = Commercials Sent`
+- `Stage1 = Commercial Agreement`
 - `Stage = FTP`
 
 - `Stage1 = Onboarding`
@@ -229,12 +229,12 @@ The Deal stage comes from the furthest viable open Contact under the Account.
 
 Rank:
 
-1. `Marketing Consent`
+1. `Marketing Qualification`
 2. `Demo Booking`
-3. `Demo Booked`
-4. `Demo Attended`
-5. `Commercials Sent`
-6. `Commercials Signed`
+3. `Demo Confirmation`
+4. `Demo Hosted`
+5. `Proposal Preparation`
+6. `Commercial Agreement`
 7. `Onboarding`
 8. `Renewal`
 

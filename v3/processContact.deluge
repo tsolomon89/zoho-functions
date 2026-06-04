@@ -30,7 +30,7 @@ void automation.processContact(string contact_id)
 	contactRecord = zoho.crm.getRecordById("Contacts", cleanId.toLong());
 	if(contactRecord.get("id") == null) { return; }
 
-	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
+	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 
 	// ---- 1. Read Contact ----
 	accountId = "";
@@ -127,7 +127,7 @@ void automation.processContact(string contact_id)
 	{
 		updConInit.put("Account_Name", accountId);
 	}
-	if(ifnull(contactRecord.get("Stage"), "") == "") { updConInit.put("Stage", "Marketing Consent"); }
+	if(ifnull(contactRecord.get("Stage"), "") == "") { updConInit.put("Stage", "Marketing Qualification"); }
 	if(ifnull(contactRecord.get("State"), "") == "") { updConInit.put("State", "Open"); }
 
 	// Resolve and populate custom Contact_Role field if empty (inlined — no cross-function call)
@@ -173,7 +173,7 @@ void automation.processContact(string contact_id)
 		dealMap.put("Deal_Key", dealKey);
 		dealMap.put("State", "Open");
 		dealMap.put("Status", "New");
-		dealMap.put("Stage1", "Marketing Consent");
+		dealMap.put("Stage1", "Marketing Qualification");
 		dealMap.put("Stage", "MQL");
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", cleanId);
@@ -256,7 +256,7 @@ void automation.processContact(string contact_id)
 	lowercasePIList = List();
 
 	maxRank = 0;
-	bestStage = "Marketing Consent";
+	bestStage = "Marketing Qualification";
 	bestOpp = "MQL";
 	anyContactOpen = false;
 	openContactIdsAtMax = List();
@@ -312,7 +312,7 @@ void automation.processContact(string contact_id)
 			if(fullC != null && fullC.get("id") != null)
 			{
 				cState = ifnull(fullC.get("State"), "Open").toString();
-				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId, ifnull(fullC.get("Job_Title"), "").toString().trim());
 
 				cPI = fullC.get("Products_Linked");
@@ -373,7 +373,7 @@ void automation.processContact(string contact_id)
 	// Process the trigger contact if related-list lagged
 	if(!processedContactIds.contains(cleanId.toString()))
 	{
-		cStage = ifnull(contactRecord.get("Stage"), "Marketing Consent").toString();
+		cStage = ifnull(contactRecord.get("Stage"), "Marketing Qualification").toString();
 		cState = ifnull(contactRecord.get("State"), "Open").toString();
 		contactJobTitleMap.put(cleanId.toString(), ifnull(contactRecord.get("Job_Title"), "").toString().trim());
 		if(cState == "Open")
@@ -395,8 +395,8 @@ void automation.processContact(string contact_id)
 		processedContactIds.add(cleanId.toString());
 	}
 
-	if(maxRank >= 6) { bestOpp = "RTP"; }
-	else if(maxRank == 5) { bestOpp = "FTP"; }
+	if(maxRank >= 7) { bestOpp = "RTP"; }
+	else if(maxRank >= 5) { bestOpp = "FTP"; }
 	else if(maxRank >= 2) { bestOpp = "SQL"; }
 	else { bestOpp = "MQL"; }
 

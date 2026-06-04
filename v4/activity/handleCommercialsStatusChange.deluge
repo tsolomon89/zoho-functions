@@ -9,13 +9,13 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	// Boundary rule (AGENTS.md §Commercial Boundary): FTP starts only when
 	// commercials have actually been sent. Stage1 advance below enforces it.
 	//
-	//   Sent      → Stage1=Commercials Sent, Stage=FTP,
+	//   Sent      → Stage1=Commercial Agreement, Stage=FTP,
 	//               Commercials_Sent_At=now (if empty),
 	//               Sequence_Status=Not Started (so sequenceRouter creates
-	//               Commercials Sent Call 1 via WF003 stage-change router).
+	//               Commercial Agreement Call 1 via WF003 stage-change router).
 	//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
 	//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
-	//   Signed    → Stage1=Commercials Signed, Stage=RTP, Signed_At=now,
+	//   Signed    → Stage1=Onboarding, Stage=RTP, Signed_At=now,
 	//               State=Open (Deal stays active for onboarding / retention /
 	//               renewal; "Won" is a transition event, not a durable State),
 	//               Status=Working if already Working else New,
@@ -59,7 +59,7 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	if(cStatus == "Sent")
 	{
 		dealUpd = Map();
-		dealUpd.put("Stage1", "Commercials Sent");
+		dealUpd.put("Stage1", "Commercial Agreement");
 		dealUpd.put("Stage", "FTP");
 		if(isNull(deal.get("Commercials_Sent_At")))
 		{
@@ -74,9 +74,9 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.sequenceRouter(dealId.toString());
 
-		automation.sendSequencedEmail(dealId, "Commercials Sent", 0, "commercials_terms");
+		automation.sendSequencedEmail(dealId, "Commercial Agreement", 0, "commercials_terms");
 
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "sent", "stage_to_commercials_sent", {"sent_at":now});
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "sent", "stage_to_commercial_agreement", {"sent_at":now});
 		return;
 	}
 
@@ -101,7 +101,7 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	if(cStatus == "Signed")
 	{
 		dealUpd = Map();
-		dealUpd.put("Stage1", "Commercials Signed");
+		dealUpd.put("Stage1", "Onboarding");
 		dealUpd.put("Stage", "RTP");
 		if(isNull(deal.get("Signed_At"))) { dealUpd.put("Signed_At", now); }
 		// "Won" is a transition event, not a durable State. Signed commercials open
@@ -119,9 +119,9 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.sequenceRouter(dealId.toString());
 
-		automation.sendSequencedEmail(dealId, "Commercials Signed", 0, "commercials_signed_confirmation");
+		automation.sendSequencedEmail(dealId, "Onboarding", 0, "commercials_signed_confirmation");
 
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "signed", "stage_to_commercials_signed", {"signed_at":now});
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "signed", "stage_to_onboarding", {"signed_at":now});
 		return;
 	}
 

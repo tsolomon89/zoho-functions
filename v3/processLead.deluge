@@ -36,7 +36,7 @@ void automation.processLead(string lead_id)
 		return;
 	}
 
-	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
+	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 
 	// ---- 1. Read Lead ----
 	website = ifnull(leadRecord.get("Website"), "").toString().trim();
@@ -241,7 +241,7 @@ void automation.processLead(string lead_id)
 		updCon.put("Account_Name", accountId);
 	}
 
-	if(leadStage == "") { leadStage = "Marketing Consent"; }
+	if(leadStage == "") { leadStage = "Marketing Qualification"; }
 
 	currentContactStage = ifnull(contactRecord.get("Stage"), "").toString().trim();
 	if(currentContactStage == "")
@@ -325,11 +325,11 @@ void automation.processLead(string lead_id)
 		}
 
 		initialStage = leadStage;
-		if(initialStage == "") { initialStage = "Marketing Consent"; }
+		if(initialStage == "") { initialStage = "Marketing Qualification"; }
 		initialRank = ifnull(stageRanks.get(initialStage), 1);
 		initialOpp = "MQL";
-		if(initialRank >= 6) { initialOpp = "RTP"; }
-		else if(initialRank == 5) { initialOpp = "FTP"; }
+		if(initialRank >= 7) { initialOpp = "RTP"; }
+		else if(initialRank >= 5) { initialOpp = "FTP"; }
 		else if(initialRank >= 2) { initialOpp = "SQL"; }
 
 		dealMap.put("Stage1", initialStage);
@@ -456,7 +456,7 @@ void automation.processLead(string lead_id)
 	}
 
 	maxRank = 0;
-	bestStage = "Marketing Consent";
+	bestStage = "Marketing Qualification";
 	bestOpp = "MQL";
 	anyContactOpen = false;
 	openContactIdsAtMax = List();
@@ -477,7 +477,7 @@ void automation.processLead(string lead_id)
 			if(fullC != null && fullC.get("id") != null)
 			{
 				cState = ifnull(fullC.get("State"), "Open").toString();
-				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId_loop, ifnull(fullC.get("Job_Title"), "").toString().trim());
 
 				cPI = fullC.get("Products_Linked");
@@ -543,7 +543,7 @@ void automation.processLead(string lead_id)
 		if(refreshedC != null && refreshedC.get("id") != null)
 		{
 			cState = ifnull(refreshedC.get("State"), "Open").toString();
-			cStage = ifnull(refreshedC.get("Stage"), "Marketing Consent").toString();
+			cStage = ifnull(refreshedC.get("Stage"), "Marketing Qualification").toString();
 			newCJobTitle = ifnull(refreshedC.get("Job_Title"), "").toString().trim();
 			if(newCJobTitle == "" && leadJobTitle != "") { newCJobTitle = leadJobTitle; }
 			contactJobTitleMap.put(newContactId, newCJobTitle);
@@ -567,8 +567,8 @@ void automation.processLead(string lead_id)
 		}
 	}
 
-	if(maxRank >= 6) { bestOpp = "RTP"; }
-	else if(maxRank == 5) { bestOpp = "FTP"; }
+	if(maxRank >= 7) { bestOpp = "RTP"; }
+	else if(maxRank >= 5) { bestOpp = "FTP"; }
 	else if(maxRank >= 2) { bestOpp = "SQL"; }
 	else { bestOpp = "MQL"; }
 

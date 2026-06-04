@@ -34,14 +34,14 @@ graph TD
 The pipeline enforces a strict four-tiered commercial ontology to standardize operations.
 
 ### Active Commercial Motions (`Opportunity`)
-*   `MQL` (Marketing Qualified Lead): Initial intake or marketing consent capture phase.
+*   `MQL` (Marketing Qualified Lead): Initial intake or marketing qualification phase.
 *   `SQL` (Sales Qualified Lead): Validated consent or booked/attended demo.
 *   `FTP` (First Time Purchase): Moving into commercial negotiations and sent contracts.
 *   `RTP` (Retention Purchase): Signed contracts, onboarding, or renewal periods.
 
 ### Progression Stages (`Stage`)
 The progression stages map directly to active commercial motions:
-$$\text{Marketing Consent} \to \text{Demo Booking} \to \text{Demo Booked} \to \text{Demo Attended} \to \text{Commercials Sent} \to \text{Commercials Signed} \to \text{Onboarding} \to \text{Renewal}$$
+$$\text{Marketing Qualification} \to \text{Demo Booking} \to \text{Demo Confirmation} \to \text{Demo Hosted} \to \text{Proposal Preparation} \to \text{Commercial Agreement} \to \text{Onboarding} \to \text{Renewal}$$
 
 ### Record Status & States
 *   **State**: Must be either `Open` or `Lost` (Do **not** use "Won" as a persistent state; winning a gate simply opens the next commercial motion).
@@ -79,7 +79,7 @@ The automation is divided into 5 modular Deluge custom functions.
 *   **Purpose**: Normalizes Contact Stage, State, and Status fields and orchestrates Deal generation or reuse.
 *   **Key Operations**:
     *   Examines related Calls, Events, Tasks, and Notes to dynamically set status to `Working` if active, else `New` or `Closed`.
-    *   Applies Opportunity and Stage gates (capturing Marketing Consent, Commercial readiness, etc.).
+    *   Applies Opportunity and Stage gates (capturing Marketing Qualification, Commercial readiness, etc.).
     *   **Regression Prevention**: Rollup Contact Stage to Deal Stage ONLY if the contact's stage rank is **higher** than the Deal's current stage rank. Related Contacts can never demote/move a Deal stage backward.
     *   Triggers `syncDealProductsAndValue` and `rollupAccountCommercialState`.
 

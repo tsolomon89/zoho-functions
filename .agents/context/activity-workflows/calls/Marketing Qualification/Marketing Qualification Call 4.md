@@ -1,4 +1,4 @@
-# Marketing Consent Call 4 — Qualification & Value Alignment
+# Marketing Qualification Call 4 — Qualification & Value Alignment
 
 ## Objective
 Make a warm connection, address any hesitation, gather qualification data, and obtain consent.

@@ -19,6 +19,6 @@ I know you are busy, which is exactly why this demo is valuable—we’ll show y
 - *Send info*: "I've sent some details, but the real power of Jurnii is seeing how it integrates with your specific CRM fields. It's much faster to see it live."
 
 ## Call Outcomes
-- **Positive**: Demo booked.
+- **Positive**: Demo Confirmation.
 - **Neutral / No Answer**: Create next call. Send `Demo Booking Email 2`.
 - **Negative**: Mark Lost.

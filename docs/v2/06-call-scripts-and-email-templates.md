@@ -22,12 +22,11 @@ Each Stage has a dedicated set of call scripts. The system automatically steps t
 
 | Stage | Call Attempts | Purpose of Call Script |
 | :--- | :---: | :--- |
-| **Marketing Consent** | 5 | Introduce Jurnii, verify email, and gain marketing consent. |
+| **Marketing Qualification** | 5 | Introduce Jurnii, verify email, and gain marketing qualification details. |
 | **Demo Booking** | 5 | Establish pain points, pitch Jurnii's value, and book the demo. |
-| **Demo Booked** | 1 | Pre-demo check-in to confirm attendance and clarify goals. |
-| **Demo Attended** | 3 | Gather feedback post-demo, qualify, and move to commercials. |
-| **Commercials Sent** | 5 | Discuss proposal terms, handle objections, and secure signature. |
-| **Commercials Signed** | 5 | Confirm receipt of signed terms and discuss next steps. |
+| **Demo Confirmation** | 1 | Pre-demo check-in to confirm attendance and clarify goals. |
+| **Demo Hosted** | 3 | Gather feedback post-demo, qualify, and progress to commercials. |
+| **Commercial Agreement** | 5 | Discuss proposal terms, handle objections, and secure signature. |
 | **Onboarding** | 5 | Coordinate technical setup, database sync, and kickoff meeting. |
 | **Renewal** | 5 | Review account health, discuss expansion, and secure renewal. |
 
@@ -81,12 +80,12 @@ These are the exact email templates that must be configured inside Zoho CRM. The
 | **Stage Email N**<br>(e.g. `Demo Booking Email 1`) | After a Neutral call outcome on call attempt N | `handleCallOutcome` |
 | **No Answer Email N**<br>(e.g. `Demo Booking Email 1`) | After a No Answer call outcome on call attempt N | `handleCallOutcome` |
 | **Post-Call Email Chain 1–7**<br>(e.g. `Demo Booking Post-Call Email Chain 1`) | Scheduled chase sequence sent if all call attempts are exhausted | `sequenceRouter` (WF010) |
-| **Demo Booked Confirmation Email** | Sent immediately when a demo meeting is scheduled | `handleMeetingEvent` (WF007) |
-| **Demo Booked Reminder Email** | Sent 1 business day before the scheduled demo | `sequenceRouter` (WF010) |
-| **Demo Booked No-Show Email** | Sent if the prospect fails to attend the demo | `handleDemoOutcome` (WF005) |
-| **Demo Attended Post-Demo Email** | Sent immediately after a demo is completed | `handleDemoOutcome` (WF005) |
-| **Commercials Sent Terms Email** | Sent when contract terms or proposals are delivered | `handleCommercialsStatusChange` (WF004) |
-| **Commercials Signed Confirmation Email** | Sent immediately when commercials are signed | `handleCommercialsStatusChange` (WF004) |
+| **Demo Confirmation Email** | Sent immediately when a demo meeting is scheduled | `handleMeetingEvent` (WF007) |
+| **Demo Confirmation Reminder Email** | Sent 1 business day before the scheduled demo | `sequenceRouter` (WF010) |
+| **Demo Confirmation No-Show Email** | Sent if the prospect fails to attend the demo | `handleDemoOutcome` (WF005) |
+| **Demo Hosted Post-Demo Email** | Sent immediately after a demo is completed | `handleDemoOutcome` (WF005) |
+| **Commercial Agreement Terms Email** | Sent when contract terms or proposals are delivered | `handleCommercialsStatusChange` (WF004) |
+| **Commercial Agreement Confirmation Email** | Sent immediately when commercials are signed | `handleCommercialsStatusChange` (WF004) |
 | **Onboarding Kickoff Email** | Sent when the Deal moves into the Onboarding stage | `sequenceRouter` |
 
 ---
@@ -95,70 +94,67 @@ These are the exact email templates that must be configured inside Zoho CRM. The
 
 This section outlines Jurnii's active outreach library categorized by **Stage**. It explains the purpose of each Stage and the specific scripts/templates that run behind them.
 
-### 1. Marketing Consent Stage (Opportunity: MQL)
-*   **Commercial Purpose**: Secure formal permission to send future communications and marketing materials from Jurnii. This is the starting point for fresh prospects.
-*   **Call Scripts Library**: 5 call attempts (`Marketing Consent Call 1` to `5`). The script helps the rep establish immediate contact, introduce Jurnii, verify email, and gain marketing consent.
+### 1. Marketing Qualification Stage (Opportunity: MQL)
+*   **Commercial Purpose**: Obtain marketing consent and complete required lead/contact/account data.
+*   **Call Scripts Library**: 5 call attempts (`Marketing Qualification Call 1` to `5`). The script helps the rep introduce Jurnii, verify email, and gain marketing qualification.
 *   **Triggered Follow-Up Emails**: Sent after a Neutral or No Answer call outcome:
-    *   `Marketing Consent Email 1` through `5`: Recap Jurnii's value proposition with a quick link to opt-in.
+    *   `Marketing Qualification Email 1` through `5`: Recap Jurnii's value proposition with a quick link to opt-in.
 *   **Post-Call Chase Chain**: Sent if all 5 call attempts are exhausted without booking or gaining consent:
-    *   `Marketing Consent Post-Call Email Chain 1` through `7` (sends every 3 days).
+    *   `Marketing Qualification Post-Call Email Chain 1` through `7` (sends every 3 days).
 
 ### 2. Demo Booking Stage (Opportunity: SQL)
-*   **Commercial Purpose**: Turn qualified interest into a booked demo on the calendar.
+*   **Commercial Purpose**: Book the demo and capture product interest / use case information.
 *   **Call Scripts Library**: 5 call attempts (`Demo Booking Call 1` to `5`). Guides the rep to uncover custom CRM/data challenges, pitch Jurnii's tailored 15-minute demo, and book a meeting slot.
 *   **Triggered Follow-Up Emails**: Sent after a Neutral or No Answer call outcome:
     *   `Demo Booking Email 1` through `5`: Recap CRM pain points (data duplicates, manual checks) and links to the rep's calendar.
 *   **Post-Call Chase Chain**: Sent if all 5 call attempts are exhausted without scheduling:
     *   `Demo Booking Post-Call Email Chain 1` through `7` (sends every 3 days with direct booking links).
 
-### 3. Demo Booked Stage (Opportunity: SQL)
-*   **Commercial Purpose**: Keep the booked demo top-of-mind and confirm attendance before the call.
-*   **Call Scripts Library**: 1 pre-demo call script (`Demo Booked Call 1`). Rep confirms the meeting time, checks if other stakeholders will attend, and sets the agenda.
+### 3. Demo Confirmation Stage (Opportunity: SQL)
+*   **Commercial Purpose**: Confirm the prospect will attend the already-booked demo.
+*   **Call Scripts Library**: 1 pre-demo call script (`Demo Confirmation Call 1`). Rep confirms the meeting time, checks if other stakeholders will attend, and sets the agenda.
 *   **Event-Based & Scheduled Emails**:
-    *   `Demo Booked Confirmation Email`: Sent automatically when the event is scheduled (`WF007`) to lock in the calendar slot.
-    *   `Demo Booked Reminder Email`: Automated reminder sent 1 business day before the demo (`WF010`).
-    *   `Demo Booked No-Show Email`: Sent if the prospect fails to attend the demo (`WF005`) to prompt rescheduling.
+    *   `Demo Confirmation Email`: Sent automatically when the event is scheduled (`WF007`) to lock in the calendar slot.
+    *   `Demo Confirmation Reminder Email`: Automated reminder sent 1 business day before the demo (`WF010`).
+    *   `Demo Confirmation No-Show Email`: Sent if the prospect fails to attend the demo (`WF005`) to prompt rescheduling.
 *   **Post-Call Chase Chain**: Sent if all call attempts are exhausted:
-    *   `Demo Booked Post-Call Email Chain 1` through `7`.
+    *   `Demo Confirmation Post-Call Email Chain 1` through `7` (reschedule sequence).
 
-### 4. Demo Attended Stage (Opportunity: SQL)
-*   **Commercial Purpose**: Gather post-demo feedback, answer outstanding questions, and qualify the prospect for a commercial proposal.
-*   **Call Scripts Library**: 3 call attempts (`Demo Attended Call 1` to `3`). Helps the rep follow up on demo impressions, handle pricing objections, and establish intent to sign.
+### 4. Demo Hosted Stage (Opportunity: SQL)
+*   **Commercial Purpose**: Host and complete the demo. If a demo is hosted but needs follow-up, this stage manages nurturing.
+*   **Call Scripts Library**: 3 call attempts (`Demo Hosted Call 1` to `3`). Helps the rep follow up on demo impressions, handle pricing objections, and establish intent to sign.
 *   **Triggered & Event-Based Emails**:
-    *   `Demo Attended Post-Demo Email`: Sent automatically after demo completion (`WF005`) to deliver a tailored follow-up deck and outline next steps.
-    *   `Demo Attended Email 1` through `3`: Standard follow-ups summarizing solutions discussed during the demo.
+    *   `Demo Hosted Post-Demo Email`: Sent automatically after demo completion (`WF005`) to deliver a tailored follow-up deck and outline next steps.
+    *   `Demo Hosted Email 1` through `3`: Standard follow-ups summarizing solutions discussed during the demo.
 *   **Post-Call Chase Chain**: Sent if post-demo call attempts are exhausted:
-    *   `Demo Attended Post-Call Email Chain 1` through `7`.
+    *   `Demo Hosted Post-Call Email Chain 1` through `7`.
 
-### 5. Commercials Sent Stage (Opportunity: FTP)
-*   **Commercial Purpose**: Discuss, refine, and sign proposal terms. This is Jurnii's first commercial milestone (First-Time Purchase).
-*   **Call Scripts Library**: 5 call attempts (`Commercials Sent Call 1` to `5`). Guides the rep to review terms, handle pricing/contractual objections, and secure signature.
-*   **Triggered & Event-Based Emails**:
-    *   `Commercials Sent Terms Email`: Sent automatically when proposal terms are delivered (`WF004`).
-    *   `Commercials Sent Email 1` through `5`: Standard follow-ups discussing pricing and contract details.
-*   **Post-Call Chase Chain**: Sent if calls are exhausted:
-    *   `Commercials Sent Post-Call Email Chain 1` through `7` (sends every 3 days).
+### 5. Proposal Preparation Stage (Opportunity: FTP)
+*   **Commercial Purpose**: Prepare and send the proposal/commercials after a viable or positive demo. This is a task-driven milestone for rep preparation before formal terms are sent.
+*   **Trigger**: Demo hosted with viable next step advances stage to `Proposal Preparation` (FTP). When commercials are sent (Commercials Status = Sent), the Deal advances to `Commercial Agreement` (FTP).
+*   **Tasks Generated**: Creates a manual **Draft Commercials Task** for the representative.
 
-### 6. Commercials Signed Stage (Opportunity: RTP)
-*   **Commercial Purpose**: Transition the signed contract into active onboarding. This starts Jurnii's retention and renewal process.
-*   **Call Scripts Library**: 5 call attempts (`Commercials Signed Call 1` to `5`). The rep confirms receipt of signed agreement and coordinates next steps for technical kickoff.
+### 6. Commercial Agreement Stage (Opportunity: FTP)
+*   **Commercial Purpose**: Agree the commercial terms and secure signature after proposal/commercials have been sent.
+*   **Call Scripts Library**: 5 call attempts (`Commercial Agreement Call 1` to `5`). Guides the rep to review terms, handle pricing/contractual objections, and secure signature.
 *   **Triggered & Event-Based Emails**:
-    *   `Commercials Signed Confirmation Email`: Sent automatically when commercials are signed (`WF004`) to celebrate the partnership and outline kickoff steps.
-    *   `Commercials Signed Email 1` through `5`: Standard post-signature follow-ups.
+    *   `Commercial Agreement Terms Email`: Sent automatically when proposal terms are delivered (`WF004`).
+    *   `Commercial Agreement Email 1` through `5`: Standard follow-ups discussing pricing and contract details.
 *   **Post-Call Chase Chain**: Sent if calls are exhausted:
-    *   `Commercials Signed Post-Call Email Chain 1` through `7`.
+    *   `Commercial Agreement Post-Call Email Chain 1` through `7` (sends every 3 days).
 
 ### 7. Onboarding Stage (Opportunity: RTP)
-*   **Commercial Purpose**: Help the new customer complete technical setup, database sync, and achieve system activation.
+*   **Commercial Purpose**: Onboard the customer after commercial agreement/signature.
 *   **Call Scripts Library**: 5 call attempts (`Onboarding Call 1` to `5`). Focuses on technical checkpoints, resolving setup questions, and tracking onboarding roadmap milestones.
 *   **Triggered & Event-Based Emails**:
+    *   `Commercial Agreement Confirmation Email`: Sent automatically when commercials are signed (`WF004`) to celebrate the partnership and outline kickoff steps.
     *   `Onboarding Kickoff Email`: Sent immediately when entering Onboarding (`sequenceRouter`) to deliver setup checklists.
     *   `Onboarding Email 1` through `5`: Technical checklists and checkpoint follow-ups.
 *   **Post-Call Chase Chain**: Sent if calls are exhausted:
     *   `Onboarding Post-Call Email Chain 1` through `7`.
 
 ### 8. Renewal Stage (Opportunity: RTP)
-*   **Commercial Purpose**: Review annual ROI, discuss expansion/upsell, and secure contract renewal.
+*   **Commercial Purpose**: Manage renewal, retention, or expansion motion.
 *   **Call Scripts Library**: 5 call attempts (`Renewal Call 1` to `5`). Guides the rep to check system usage, gather testimonials, and present renewal terms.
 *   **Triggered Follow-Up Emails**: Sent after a Neutral or No Answer call outcome:
     *   `Renewal Email 1` through `5`: Summarize renewal options, key account metrics, and calendar links.

@@ -57,12 +57,11 @@ Each Stage has dedicated Call scripts tailored to its commercial goal.
 
 | Zoho Deal Stage Name | Call Scripts Available | Call Script Filename Pattern | Core Call Purpose |
 | :--- | :---: | :--- | :--- |
-| **Marketing Consent** | 5 | `Marketing Consent Call 1-5.md` | Obtain missing qualification and contact data |
+| **Marketing Qualification** | 5 | `Marketing Qualification Call 1-5.md` | Obtain missing qualification and contact data |
 | **Demo Booking** | 5 | `Demo Booking Call 1-5.md` | Sell and secure the demo booking |
-| **Demo Booked** | 1 | `Demo Booked Call 1.md` | Protect attendance and confirm meeting agenda |
-| **Demo Attended** | 3 | `Demo Attended Call 1-3.md` | Gather outstanding client details needed for commercial terms |
-| **Commercials Sent** | 5 | `Commercials Sent Call 1-5.md` | Prompt discussion, handle objections, and secure signature |
-| **Commercials Signed** | 5 | `Commercials Signed Call 1-5.md` | Onboard and kick off onboarding setup steps |
+| **Demo Confirmation** | 1 | `Demo Confirmation Call 1.md` | Protect attendance and confirm meeting agenda |
+| **Demo Hosted** | 3 | `Demo Hosted Call 1-3.md` | Gather outstanding client details needed for commercial terms |
+| **Commercial Agreement** | 5 | `Commercial Agreement Call 1-5.md` | Prompt discussion, handle objections, and secure signature |
 | **Onboarding** | 5 | `Onboarding Call 1-5.md` | Ensure kickoff completion and setup checklists |
 | **Renewal** | 5 | `Renewal Call 1-5.md` | Initiate renewal discussions and expansion value |
 
@@ -116,12 +115,12 @@ To prevent erratic templates, the email resolver maps triggers to specific templ
 | :--- | :--- | :--- |
 | **Call Outcome (1-5)** | `{Stage} Email {Attempt}` | Value-led follow-up after a failed call |
 | **Post-Call Chase (1-7)** | `{Stage} Post-Call Email Chain {Step}` | Spaced nurture follow-up for unresponsive leads |
-| **Demo Booked (Event Created)** | `Demo Booked Confirmation Email` | Agenda details and calendar invite confirmation |
-| **Demo 1-Day Reminder** | `Demo Booked Reminder Email` | Protect attendance (sent 1 business day before at 9:00 AM) |
-| **Demo No-Show logged** | `Demo Booked No-Show Email` | Re-engage and recover the booking |
-| **Demo Completed Qualified** | `Demo Attended Post-Demo Email` | Confirm demo value and highlight commercials preparation |
-| **Commercials Sent** | `Commercials Sent Terms Email` | Share commercial terms and contract link |
-| **Commercials Signed** | `Commercials Signed Confirmation Email` | Confirm signature and kickoff next steps |
+| **Demo Booked (Event Created)** | `Demo Confirmation Email` | Agenda details and calendar invite confirmation |
+| **Demo 1-Day Reminder** | `Demo Confirmation Reminder Email` | Protect attendance (sent 1 business day before at 9:00 AM) |
+| **Demo No-Show logged** | `Demo Confirmation No-Show Email` | Re-engage and recover the booking |
+| **Demo Completed Qualified** | `Demo Hosted Post-Demo Email` | Confirm demo value and highlight commercials preparation |
+| **Commercials Sent** | `Commercial Agreement Terms Email` | Share commercial terms and contract link |
+| **Commercials Signed** | `Commercial Agreement Confirmation Email` | Confirm signature and kickoff next steps |
 | **Onboarding Started** | `Onboarding Kickoff Email` | Share kickoff steps and first setup requirements |
 
 ---
@@ -131,10 +130,10 @@ Meetings (logged as *Events* in Zoho) directly govern the Demo pipeline. The tim
 
 | Trigger Event | Immediate System Action | Scheduled System Action | Email / Template Used |
 | :--- | :--- | :--- | :--- |
-| **Meeting Scheduled** (Meeting Type = Demo) | Mirrors details to Deal (*Demo_Status = Scheduled* and copy dates). | Schedules a reminder 1 business day before the demo at 9:00 AM. | `Demo Booked Confirmation Email` |
-| **Demo Reminder Time Reached** | Sends the protect-attendance reminder. | None. | `Demo Booked Reminder Email` |
-| **Demo Attended (Qualified)** | Updates Deal Stage to `Demo Attended` and sets Opportunity to `SQL`. | Creates a manual **Draft Commercials Task** for the rep. | `Demo Attended Post-Demo Email` |
-| **Demo Completed (No-Show)** | Updates Deal to *Demo_Status = No Show*. | Automatically recreates a recovery Call at the `Demo Booked` Stage. | `Demo Booked No-Show Email` |
+| **Meeting Scheduled** (Meeting Type = Demo) | Mirrors details to Deal (*Demo_Status = Scheduled* and copy dates). | Schedules a reminder 1 business day before the demo at 9:00 AM. | `Demo Confirmation Email` |
+| **Demo Reminder Time Reached** | Sends the protect-attendance reminder. | None. | `Demo Confirmation Reminder Email` |
+| **Demo Attended (Qualified)** | Updates Deal Stage to `Proposal Preparation` and sets Opportunity to `FTP`. | Creates a manual **Draft Commercials Task** for the rep. | `Demo Hosted Post-Demo Email` |
+| **Demo Completed (No-Show)** | Updates Deal to *Demo_Status = No Show*. | Automatically recreates a recovery Call at the `Demo Confirmation` Stage. | `Demo Confirmation No-Show Email` |
 | **Demo Cancelled** | Updates Deal *Demo_Status = Cancelled*. | Automatically recreates a recovery Call at the `Demo Booking` Stage. | None |
 | **Demo Rescheduled** | Updates Deal *Demo_Status = Rescheduled*. | Recomputes the new 1-day reminder date and time. | None |
 
@@ -145,10 +144,10 @@ The commercials workflow governs the FTP (First Time Purchase) and RTP (Retentio
 
 | Commercials Status | Immediate Pipeline Action | Sent Email | Next Sequence Impact |
 | :--- | :--- | :--- | :--- |
-| **Sent** | Stage becomes `Commercials Sent`, Opportunity becomes `FTP`, stamps sent timestamp. | `Commercials Sent Terms Email` | Resets sequence to `Not Started` to trigger Commercials Sent Call 1. |
+| **Sent** | Stage becomes `Commercial Agreement`, Opportunity becomes `FTP`, stamps sent timestamp. | `Commercial Agreement Terms Email` | Resets sequence to `Not Started` to trigger Commercial Agreement Call 1. |
 | **Discussed** | Stamps discussed timestamp. | None. | None (No Stage move). |
 | **Intent to Sign** | Checks Deal *Intent to Sign* flag. | None. | None (No Stage move). |
-| **Signed** | Stage becomes `Commercials Signed`, Opportunity becomes `RTP`, State stays `Open`. | `Commercials Signed Confirmation Email` | Resets sequence to `Not Started` to trigger Commercials Signed Call 1. |
+| **Signed** | Stage becomes `Onboarding`, Opportunity becomes `RTP`, State stays `Open`. | `Commercial Agreement Confirmation Email` | Resets sequence to `Not Started` to trigger Onboarding Call 1. |
 | **Deferred** | Pauses sequence routing. | None. | Pauses until the *Next Commercial Follow-Up Date*. |
 | **Rejected** | Marks Deal State as `Lost` and Status as `Closed`. | None. | Halts all future automation. |
 

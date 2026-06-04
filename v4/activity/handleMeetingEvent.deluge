@@ -15,7 +15,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 	//                                                         -1,
 	//                                                         "business_days_minus_AM").
 	//   Cancelled                      → Deal Demo_Status=Cancelled, create
-	//                                   recovery Call at Demo Booked stage.
+	//                                   recovery Call at Demo Confirmation stage.
 	//   Rescheduled                    → Deal Demo_Status=Rescheduled,
 	//                                    recompute Demo_Reminder_Send_At.
 	// =========================================================================
@@ -67,7 +67,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 		dealUpd.put("Demo_Status", "Cancelled");
 		dealUpd.put("Demo_Reminder_Send_At", null);
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.createStageCall(dealId.toString(), "Demo Booked", 1);
+		automation.createStageCall(dealId.toString(), "Demo Confirmation", 1);
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "recovery_call", {"deal":dealId});
 		return;
 	}

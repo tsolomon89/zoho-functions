@@ -55,12 +55,12 @@ This repository uses local workspace configurations to guide agent behavior. The
 *   `RTP` (Retention Purchase): Signed commercials, onboarding, and renewal.
 
 ### 2. Stage Values
-*   `Marketing Consent`
+*   `Marketing Qualification`
 *   `Demo Booking`
-*   `Demo Booked`
-*   `Demo Attended`
-*   `Commercials Sent`
-*   `Commercials Signed`
+*   `Demo Confirmation`
+*   `Demo Hosted`
+*   `Proposal Preparation`
+*   `Commercial Agreement`
 *   `Onboarding`
 *   `Renewal`
 

@@ -1,4 +1,4 @@
-# Commercials Sent Call 2 — Objection Handling & Contract Negotiation
+# Commercial Agreement Call 2 — Objection Handling & Contract Negotiation
 
 ## Objective
 Handle pricing, contract length, or legal objections, and prompt discussion to keep the deal moving forward.
@@ -18,5 +18,5 @@ Handle pricing, contract length, or legal objections, and prompt discussion to k
 
 ## Call Outcomes
 - **Positive**: Terms accepted/Intent to sign.
-- **Neutral / No Answer**: Create next call. Send `Commercials Sent Email 2`.
+- **Neutral / No Answer**: Create next call. Send `Commercial Agreement Email 2`.
 - **Negative**: Move to Lost.

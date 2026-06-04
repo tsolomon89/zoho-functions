@@ -8,7 +8,7 @@ void automation.handleCallOutcome(string callIdStr)
 	// branches. Drops stale calls (Sequence_Stage != current Deal Stage1).
 	//
 	// Outcome handling:
-	//   Positive       → advance Stage (Marketing Consent → Demo Booking, etc.)
+	//   Positive       → advance Stage (Marketing Qualification → Demo Booking, etc.)
 	//                    and Opportunity. Lets WF003 re-route via sequenceRouter.
 	//   Neutral        → sendSequencedEmail({Stage} Email {N}) + createStageCall N+1.
 	//   No Answer      → same as Neutral, but trigger_context = "call_no_answer".
@@ -96,24 +96,25 @@ void automation.handleCallOutcome(string callIdStr)
 	if(outcome == "Positive")
 	{
 		nextStage = "";
-		if(dealStage == "Marketing Consent")         { nextStage = "Demo Booking"; }
-		else if(dealStage == "Demo Booking")         { nextStage = "Demo Booked"; }
-		else if(dealStage == "Demo Booked")          { nextStage = "Demo Attended"; }
-		else if(dealStage == "Commercials Sent")     { nextStage = "Commercials Signed"; }
-		else if(dealStage == "Commercials Signed")   { nextStage = "Onboarding"; }
-		else if(dealStage == "Onboarding")           { nextStage = "Renewal"; }
+		if(dealStage == "Marketing Qualification")    { nextStage = "Demo Booking"; }
+		else if(dealStage == "Demo Booking")            { nextStage = "Demo Confirmation"; }
+		else if(dealStage == "Demo Confirmation")       { nextStage = "Demo Hosted"; }
+		else if(dealStage == "Demo Hosted")             { nextStage = "Proposal Preparation"; }
+		else if(dealStage == "Proposal Preparation")    { nextStage = "Commercial Agreement"; }
+		else if(dealStage == "Commercial Agreement")    { nextStage = "Onboarding"; }
+		else if(dealStage == "Onboarding")              { nextStage = "Renewal"; }
 
 		if(nextStage != "")
 		{
 			oppMap = Map();
-			oppMap.put("Marketing Consent",  "MQL");
-			oppMap.put("Demo Booking",       "SQL");
-			oppMap.put("Demo Booked",        "SQL");
-			oppMap.put("Demo Attended",      "SQL");
-			oppMap.put("Commercials Sent",   "FTP");
-			oppMap.put("Commercials Signed", "RTP");
-			oppMap.put("Onboarding",         "RTP");
-			oppMap.put("Renewal",            "RTP");
+			oppMap.put("Marketing Qualification", "MQL");
+			oppMap.put("Demo Booking",            "SQL");
+			oppMap.put("Demo Confirmation",       "SQL");
+			oppMap.put("Demo Hosted",             "SQL");
+			oppMap.put("Proposal Preparation",    "FTP");
+			oppMap.put("Commercial Agreement",    "FTP");
+			oppMap.put("Onboarding",              "RTP");
+			oppMap.put("Renewal",                 "RTP");
 
 			dealUpd = Map();
 			dealUpd.put("Stage1", nextStage);

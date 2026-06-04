@@ -25,7 +25,7 @@ When a representative or event updates a field, the matching function decides th
 | **Call Outcome** (updated on Call) | Whether to send an email, create the next Call, move Stage, pause, or close the Deal |
 | **Task Status / Task Outcome** (completed on Task) | Whether to resume sequence routing or update commercials status |
 | **Demo Outcome** (updated on Deal) | Whether to move the demo Stage or send a demo follow-up |
-| **Commercials Status** (updated on Deal) | Whether to move to Commercials Sent, Commercials Signed, or Lost |
+| **Commercials Status** (updated on Deal) | Whether to move to Commercial Agreement, Onboarding, or Lost |
 | **Email Event** (replied or bounced outbound email) | Whether to pause the sequence for review/repair or log passive engagement |
 | **Follow-up Date Reached** (scheduled timeframe reached) | Whether scheduled routing resumes |
 
@@ -105,7 +105,7 @@ To keep the CRM pristine and prevent erratic behaviors, the system enforces thes
 * **System**: Updates the Deal to wait for Call 2.
 
 ### Example 2: Representative logs "Positive" on Call 1
-* **System**: Moves the Deal to the next *Stage* (e.g., from *Marketing Consent* to *Demo Booking*).
+* **System**: Moves the Deal to the next *Stage* (e.g., from *Marketing Qualification* to *Demo Booking*).
 * **System**: Automatically triggers the sequence router to cancel the previous Stage and create Call 1 for the new *Stage*.
 
 ### Example 3: Customer replies to a sequenced email
@@ -113,10 +113,10 @@ To keep the CRM pristine and prevent erratic behaviors, the system enforces thes
 * **System**: Automatically creates a *Review Reply Task* for the representative to read the reply and decide on the next step.
 
 ### Example 4: Commercials Status is updated to "Signed"
-* **System**: Moves the Deal's *Stage* to `Commercials Signed` and sets Opportunity to `RTP`.
+* **System**: Moves the Deal's *Stage* to `Onboarding` and sets Opportunity to `RTP`.
 * **System**: Stays in the `Open` State (keeping it active for onboarding, retention, and renewal).
-* **System**: Resets sequence status to `Not Started` and sends the commercial signed confirmation email.
-* **System**: Automatically starts Call 1 for the *Commercials Signed* Stage (does not automatically move to Onboarding until Call 1 gets a Positive outcome).
+* **System**: Resets sequence status to `Not Started` and sends the Commercial Agreement Confirmation Email.
+* **System**: Automatically starts Call 1 for the *Onboarding* Stage.
 
 ---
 

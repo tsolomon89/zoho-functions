@@ -24,7 +24,7 @@ string automation.convertLead2(String lead_id)
 // ======================================================
 // CONFIG
 // ======================================================
-DEFAULT_STAGE = "Marketing Consent";
+DEFAULT_STAGE = "Marketing Qualification";
 DEFAULT_STATUS = "New";
 DEFAULT_STATE = "Open";
 DEFAULT_CLOSING_DAYS = 30;
@@ -279,22 +279,22 @@ if(marketingConsentValue != null)
 if(leadLostReasons != "")
 {
 	// Lost lead: stage preserved, opportunity mapped per spec
-	if(leadStage == "Marketing Consent")
+	if(leadStage == "Marketing Qualification")
 	{
 		targetOpportunity = "MQL";
-		targetStage = "Marketing Consent";
+		targetStage = "Marketing Qualification";
 	}
-	else if(leadStage == "Demo Booking" || leadStage == "Demo Booked" || leadStage == "Demo Attended")
+	else if(leadStage == "Demo Booking" || leadStage == "Demo Confirmation" || leadStage == "Demo Hosted")
 	{
 		targetOpportunity = "SQL";
 		targetStage = leadStage;
 	}
-	else if(leadStage == "Commercials Sent")
+	else if(leadStage == "Proposal Preparation" || leadStage == "Commercial Agreement")
 	{
 		targetOpportunity = "FTP";
 		targetStage = leadStage;
 	}
-	else if(leadStage == "Commercials Signed" || leadStage == "Onboarding" || leadStage == "Renewal")
+	else if(leadStage == "Onboarding" || leadStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
 		targetStage = leadStage;
@@ -303,8 +303,8 @@ if(leadLostReasons != "")
 else
 {
 	// Open lead: pure Stage→Opportunity map per spec.md
-	// Only auto-advance: Marketing Consent with consent → Demo Booking
-	if(leadStage == "Marketing Consent")
+	// Only auto-advance: Marketing Qualification with consent → Demo Booking
+	if(leadStage == "Marketing Qualification")
 	{
 		if(marketingConsentCaptured == true)
 		{
@@ -314,20 +314,20 @@ else
 		else
 		{
 			targetOpportunity = "MQL";
-			targetStage = "Marketing Consent";
+			targetStage = "Marketing Qualification";
 		}
 	}
-	else if(leadStage == "Demo Booking" || leadStage == "Demo Booked" || leadStage == "Demo Attended")
+	else if(leadStage == "Demo Booking" || leadStage == "Demo Confirmation" || leadStage == "Demo Hosted")
 	{
 		targetOpportunity = "SQL";
 		targetStage = leadStage;
 	}
-	else if(leadStage == "Commercials Sent")
+	else if(leadStage == "Proposal Preparation" || leadStage == "Commercial Agreement")
 	{
 		targetOpportunity = "FTP";
-		targetStage = "Commercials Sent";
+		targetStage = leadStage;
 	}
-	else if(leadStage == "Commercials Signed" || leadStage == "Onboarding" || leadStage == "Renewal")
+	else if(leadStage == "Onboarding" || leadStage == "Renewal")
 	{
 		targetOpportunity = "RTP";
 		targetStage = leadStage;

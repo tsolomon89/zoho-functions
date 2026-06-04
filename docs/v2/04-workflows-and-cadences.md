@@ -16,8 +16,8 @@ Ten core Zoho workflow rules decide when our Published Deluge functions execute:
 | **WF001** | `Leads` | Lead marked ready | `processLead` | Convert Lead when marked ready |
 | **WF002** | `Deals` | Sequence not started | `sequenceRouter` | Create Call 1 and start sequence |
 | **WF003** | `Deals` | Stage changed | `sequenceRouter` | Reset stage sequence; clear old calls |
-| **WF004** | `Deals` | Commercial status changed | `handleCommercialsStatusChange` | Move to `Commercials Sent` stage |
-| **WF005** | `Deals` | Demo outcome changed | `handleDemoOutcome` | Move to `Demo Attended` or schedule No Show |
+| **WF004** | `Deals` | Commercial status changed | `handleCommercialsStatusChange` | Move to `Commercial Agreement` / `Onboarding` stage |
+| **WF005** | `Deals` | Demo outcome changed | `handleDemoOutcome` | Move to `Proposal Preparation` / `Demo Hosted` or schedule No Show |
 | **WF006** | `Calls` | Call outcome logged | `handleCallOutcome` | Decide next action based on outcome |
 | **WF007** | `Events` | Meeting / Demo updated | `handleMeetingEvent` | Set demo reminder dates and status |
 | **WF008** | `Tasks` | Task completed | `handleTaskCompletion` | Evaluate manual work and resume sequence |

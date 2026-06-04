@@ -1,7 +1,7 @@
-# Demo Attended Call 3 — Final Check-in on Proposal Specifications
+# Demo Hosted Call 3 — Final Check-in on Proposal Specifications
 
 ## Objective
-Final call-based attempt in the Demo Attended stage to gather the remaining details and push the deal to the Commercials Sent stage.
+Final call-based attempt in the Demo Hosted stage to gather the remaining details and push the deal to the Commercial Agreement stage.
 
 ## Call Script
 
@@ -16,5 +16,5 @@ Our drafting desk has everything ready, but we are holding on the final billing 
 
 ## Call Outcomes
 - **Positive**: Details gathered.
-- **Neutral / No Answer**: Create Post-Call Email Chain 1. Send `Demo Attended Email 3`.
+- **Neutral / No Answer**: Create Post-Call Email Chain 1. Send `Demo Hosted Email 3`.
 - **Negative**: Mark Lost.

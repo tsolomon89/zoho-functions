@@ -1,4 +1,4 @@
-# Commercials Sent Call 1 — Initial Terms Review
+# Commercial Agreement Call 1 — Initial Terms Review
 
 ## Objective
 Confirm receipt of the commercial proposal, answer initial questions, address any immediate objections, and establish the review timeline.
@@ -21,6 +21,6 @@ Should we schedule a brief 10-minute call next week to finalize any modification
 
 ## Call Outcomes
 - **Positive**: Terms agreed/ready for signature. Set `Commercials_Status` = `Intent to Sign`.
-- **Neutral**: Terms received, review is in progress. Send `Commercials Sent Email 1`.
-- **No Answer**: Voicemail left. Send `Commercials Sent Email 1`.
+- **Neutral**: Terms received, review is in progress. Send `Commercial Agreement Email 1`.
+- **No Answer**: Voicemail left. Send `Commercial Agreement Email 1`.
 - **Negative**: Rejected terms. Move to Lost.

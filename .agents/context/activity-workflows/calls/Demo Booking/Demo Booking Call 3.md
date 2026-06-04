@@ -13,6 +13,6 @@ Reference product interests, build curiosity about tailored solution mapping, an
 We can map a custom sandbox environment for `${Contacts.Account_Name}` in just 15 minutes. Would you be open to booking a brief look at this sandbox early next week?"
 
 ## Call Outcomes
-- **Positive**: Demo booked.
+- **Positive**: Demo Confirmation.
 - **Neutral / No Answer**: Create next call. Send `Demo Booking Email 3`.
 - **Negative**: Mark Lost.

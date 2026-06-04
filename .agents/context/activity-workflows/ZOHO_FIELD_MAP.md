@@ -28,7 +28,7 @@ Deals own the commercial state machine.
 
 | Label | API Name | Type | Values / Notes | Required |
 |---|---|---|---|---|
-| Stage | `TBD_API_NAME` | Picklist | Marketing Consent; Demo Booking; Demo Booked; Demo Attended; Commercials Sent; Commercials Signed; Onboarding; Renewal | Yes |
+| Stage | `TBD_API_NAME` | Picklist | Marketing Qualification; Demo Booking; Demo Confirmation; Demo Hosted; Commercial Agreement; Onboarding; Onboarding; Renewal | Yes |
 | Stage Rank | `TBD_API_NAME` | Number | 1-8 | Yes |
 | Opportunity | `TBD_API_NAME` | Picklist | MQL; SQL; FTP; RTP | Yes, unless default Stage has been renamed to Opportunity |
 | Sequence Status | `TBD_API_NAME` | Picklist | Not Started; Initialized; Waiting on Call; Waiting on Meeting; Waiting on Email Trigger; Waiting on Internal Task; Paused; Deferred; Manual Only; Completed; Superseded; Suppressed | Yes |
@@ -49,7 +49,7 @@ Deals own the commercial state machine.
 | Demo Status | `TBD_API_NAME` | Picklist | Not Scheduled; Scheduled; Confirmed; Rescheduled; Cancelled; Completed; No Show | Yes |
 | Demo Outcome | `TBD_API_NAME` | Picklist | Scheduled; Attended - Qualified; Attended - Needs Follow-up; Attended - Not Qualified; No Show; Rescheduled; Cancelled; Commercials Requested; Follow-up Required | Yes |
 | Commercials Status | `TBD_API_NAME` | Picklist | Not Started; Drafting; Ready to Send; Sent; Discussed; Intent to Sign; Signed; Deferred; Rejected | Yes |
-| Commercials Sent At | `TBD_API_NAME` | DateTime | Starts FTP follow-up | Yes |
+| Commercial Agreement At | `TBD_API_NAME` | DateTime | Starts FTP follow-up | Yes |
 | Commercials Discussed At | `TBD_API_NAME` | DateTime | Used for chase timing | Yes |
 | Commercial Outcome | `TBD_API_NAME` | Picklist | Intent to Sign; Needs Review; Deferred; Rejected; No Answer; Signed | Yes |
 | Next Commercial Follow-Up Date | `TBD_API_NAME` | DateTime | Deferral override | Yes |
@@ -128,7 +128,7 @@ Contacts hold identity/profile/consent context.
 | Label | API Name | Type | Values / Notes | Required |
 |---|---|---|---|---|
 | Contact Source Classification | `TBD_API_NAME` | Picklist | Inbound Form; LinkedIn Prospecting; Partner Referral; Existing Database; Existing Client; Calendar Booking; Migration; Manual Add; Bulk Import | Recommended |
-| Marketing Consent Status | `TBD_API_NAME` | Picklist | Consented; Not Consented; Unknown; Withdrawn | Yes |
+| Marketing Qualification Status | `TBD_API_NAME` | Picklist | Consented; Not Consented; Unknown; Withdrawn | Yes |
 | Profile Completion Status | `TBD_API_NAME` | Picklist | Complete; Missing Company; Missing Phone; Missing Product Interest; Missing Role; Needs Enrichment | Recommended |
 | Do Not Contact Reason | `TBD_API_NAME` | Picklist | Unsubscribed; Existing Client; Duplicate; Bad Data; Legal/Compliance; Requested No Contact | Recommended |
 | Preferred Contact Method | `TBD_API_NAME` | Picklist | Phone; Email; No Preference; Partner Managed | Optional |

@@ -106,7 +106,7 @@ Only use weak matching with caution.
 
 - Contact identity fields.
 - Contact source classification.
-- Marketing consent status.
+- Marketing Qualification status.
 - Profile completion status.
 
 ## Return
@@ -459,7 +459,7 @@ Examples:
 
 ```text
 Demo Booking Email 1
-Commercials Sent Email 3
+Commercial Agreement Email 3
 Renewal Post-Call Email Chain 7
 ```
 
@@ -475,13 +475,13 @@ Handle Demo Outcome transitions.
 
 ```text
 Attended - Qualified:
-    Stage = Demo Attended
+    Stage = Demo Hosted
     send post-demo email
     Commercials Status = Drafting
     create task: Draft Commercials
 
 Attended - Needs Follow-up:
-    Stage = Demo Attended
+    Stage = Demo Hosted
     create call or task
 
 Attended - Not Qualified:
@@ -510,16 +510,16 @@ Handle commercial transitions.
 
 ```text
 Commercials Status = Sent:
-    Stage = Commercials Sent
+    Stage = Commercial Agreement
     Opportunity = FTP
-    Commercials Sent At = now if empty
+    Commercial Agreement At = now if empty
     Sequence Status = Not Started
-    create Commercials Sent Call 1
+    create Commercial Agreement Call 1
 ```
 
 ```text
 Commercials Status = Signed:
-    Stage = Commercials Signed
+    Stage = Onboarding
     Opportunity = RTP
     Signed At = now if empty
 ```
@@ -633,3 +633,259 @@ Should log:
 - error
 - fields read/written
 - duplicate prevention result
+
+---
+
+# Reconciliation Hierarchy (Mandatory model for resolvers)
+
+The graph processor must NOT simply say "Contact exists → reuse it. Deal exists → reuse it." It must find all relevant Contacts/Deals/Products for an Account or Lead cluster and then choose the active commercial truth based on open state, pipeline rank, and role priority.
+
+Three hard rules drive every resolver:
+
+1. **Latest open pipeline position wins over historical/lost position.**
+2. **Primary Contact is selected by commercial relevance:** open/farthest-along Deal first, then highest Contact Role.
+3. **Deal value = sum of linked Product values.**
+
+## Priority order (apply top-to-bottom, no skipping)
+
+```text
+1. Open beats closed/lost.
+2. Among open Deals, farthest Stage wins.
+3. Among same Stage, highest Opportunity rank wins.
+4. Among same Stage + Opportunity, highest Contact Role wins.
+5. Among same role, most recently updated wins.
+6. If still tied, existing primary remains unchanged.
+```
+
+"Farthest along" is **not absolute** — it is "farthest along among open Deals". A Lost RTP Deal never beats an Open FTP Deal because step 1 filters lost/closed Deals out before steps 2-5 apply.
+
+## Rank tables (used as deterministic tie-breakers)
+
+| Stage              | Rank |
+| ------------------ | ---: |
+| Marketing Qualification  |    1 |
+| Demo Booking       |    2 |
+| Demo Confirmation        |    3 |
+| Demo Hosted      |    4 |
+| Commercial Agreement   |    5 |
+| Onboarding |    6 |
+| Onboarding         |    7 |
+| Renewal            |    8 |
+
+| Opportunity | Rank |
+| ----------- | ---: |
+| MQL         |    1 |
+| SQL         |    2 |
+| FTP         |    3 |
+| RTP         |    4 |
+
+| Contact Role   | Rank |
+| -------------- | ---: |
+| Decision Maker |    3 |
+| Influencer     |    2 |
+| End User       |    1 |
+
+---
+
+# 18. `resolvePrimaryActiveDeal` — primary-active-Deal selection contract
+
+> **Implementation note (Round 7e):** Zoho's `automation.` namespace rejects functions that return `Map` / `List` / `string` — only `void` is accepted. The contract below was originally implemented as `map automation.resolvePrimaryActiveDeal(...)` and could not be published. It is now **inlined** directly into [processLead.deluge §7](../../../v4/processLead.deluge), [processAccount.deluge §3](../../../v4/processAccount.deluge), and [processContact.deluge §5](../../../v4/processContact.deluge). processDeal deliberately does NOT inline this — it operates on its triggered Deal, not the Account's primary. The ranking contract below remains the source of truth; bug fixes must be applied in all 3 inline sites.
+
+## Purpose
+
+Return the single Deal that represents the current active commercial position for an Account / Contact cluster. Used by every graph-layer entry point whenever a new Lead, import, or Deal-affecting edit lands.
+
+## Inputs
+
+```text
+account_id           — id of the Account being reconciled
+contact_ids          — list of Contact ids relevant to the inbound signal
+incoming_stage       — Stage1 implied by the inbound signal (may be null)
+incoming_opportunity — Opportunity implied by the inbound signal (may be null)
+```
+
+## Reads
+
+- All Deals related to Account.
+- All Deals linked to any Contact in contact_ids.
+- Each Deal's: Stage1, Stage (Opportunity), State, Status, Modified_Time, linked Contact_Roles.
+
+## Logic
+
+```text
+1. Fetch all Deals related to Account and relevant Contacts.
+2. Exclude closed/lost/disqualified Deals from active-state selection
+   (State == "Lost" OR Status == "Closed" OR Lost_Reasons populated).
+3. Rank remaining open Deals by Stage Rank (highest wins).
+4. If tied, rank by Opportunity Rank (highest wins).
+5. If tied, rank by highest linked Contact Role rank.
+6. If tied, rank by Modified_Time (most recent wins).
+7. If still tied, retain the existing primary Deal (no change).
+8. Return primary active Deal id.
+9. If no open Deal exists at all, return null — caller creates a new Deal
+   using incoming_stage / incoming_opportunity.
+```
+
+## Writes
+
+None. Pure query / scoring function.
+
+## Returns
+
+```text
+{
+  deal_id: string | null,
+  reason: string,              // e.g. "open_ftp_wins_over_lost_rtp"
+  rejected: [{deal_id, reason}]
+}
+```
+
+## Must-not behaviours
+
+- MUST NOT treat a Lost or Closed Deal as the current active pipeline state — even if its Stage Rank is higher.
+- MUST NOT regress the active pipeline (e.g., pick an SQL Decision-Maker Deal when an Open FTP Influencer Deal exists for the same Account).
+- MUST NOT silently skip step 1 (the open-vs-closed filter) — every downstream rule depends on it.
+
+---
+
+# 19. `resolvePrimaryContactForDeal` — within-Deal primary-Contact contract
+
+> **Implementation note (Round 7e):** Inlined in all 4 process functions ([processLead §10b](../../../v4/processLead.deluge), [processAccount §4b](../../../v4/processAccount.deluge), [processContact §8b](../../../v4/processContact.deluge), [processDeal §5b](../../../v4/processDeal.deluge)) — same Zoho namespace constraint as §18. Bug fixes must be applied in all 4 inline sites.
+
+## Purpose
+
+Return the single Contact that represents the primary commercial interlocutor for an active Deal. Used whenever the Deal's primary needs reconciliation (new Lead arrives, contact role changes, deal advances stage).
+
+## Inputs
+
+```text
+deal_id — id of the active Deal
+```
+
+## Reads
+
+- All Contacts linked to Deal (via Contact_Roles related list).
+- Each Contact's Contact_Role on the Deal.
+- Each Contact's contactability fields (Do_Not_Contact_Reason, Email_Opt_Out, Unsubscribed_Mode, Marketing_Consent_Status, Record_Status__s).
+- Each Contact's State (soft tie-break).
+- Each Contact's Modified_Time (recency tie-break).
+- Deal's current Contact_Name (existing primary for "preserve on full tie" rule).
+
+## Logic
+
+```text
+1. Hard-EXCLUDE non-contactable Contacts. A Contact is suppressed if ANY of:
+     Do_Not_Contact_Reason ∈ {Unsubscribed, Existing Client, Duplicate,
+                              Bad Data, Legal/Compliance, Requested No Contact}
+     Email_Opt_Out == true
+     Unsubscribed_Mode ∈ {Consent form, Manual, Unsubscribe link, Zoho campaigns}
+     Marketing_Consent_Status ∈ {Not Consented, Withdrawn}
+     Record_Status__s == Trash
+   Hard-suppressed Contacts NEVER become primary, regardless of role.
+2. Rank remaining Contacts by Contact_Role:
+     Decision Maker (3) > Influencer (2) > End User (1).
+3. If tied on role rank, prefer Contact.State == "Open" as a SOFT tie-break.
+     (A Lost Decision Maker still beats an Open Influencer — state preference
+     only matters when role rank is equal.)
+4. If tied on role + state, prefer most recently Modified_Time.
+5. If tied on role + state + recency AND the existing Deal.Contact_Name passes
+   hard suppression, preserve it (no change).
+6. Return the resolved primary Contact id.
+```
+
+## Writes
+
+Update Deal.Contact_Name to the resolved primary (suppressing the Deal trigger to avoid cascade recursion).
+
+## Returns
+
+```text
+{
+  contact_id: string,
+  contact_role: string,
+  changed: boolean             // true if different from previous primary
+}
+```
+
+## Must-not behaviours
+
+- MUST NOT promote a Contact that fails the hard-suppression check, even at the highest role rank.
+- MUST NOT hard-filter by Contact.State alone — State == Open is a soft preference only (Test: a Lost Decision Maker outranks an Open End User on the same Deal).
+- MUST NOT promote an End User or Influencer to primary while a non-suppressed Decision Maker exists on the same Deal.
+- MUST NOT cross Deal boundaries — the Decision Maker on Deal A cannot be promoted to primary of Deal B. Use resolvePrimaryActiveDeal to pick the right Deal first, then resolve its primary Contact within that Deal's scope only.
+- MUST NOT reset the existing primary when a tie-break fails — preserve it (provided it still passes hard suppression).
+
+---
+
+# 20. `syncDealProductsAndValue` — Product link + Amount summation contract
+
+> **Implementation note (Round 7e):** Inlined in all 4 process functions ([processLead §12a-bis](../../../v4/processLead.deluge), [processAccount §5a-bis](../../../v4/processAccount.deluge), [processContact §9a-bis](../../../v4/processContact.deluge), [processDeal §6a-bis](../../../v4/processDeal.deluge)) — same Zoho namespace constraint as §18. Bug fixes must be applied in all 4 inline sites.
+
+## Purpose
+
+Recompute Deal Amount from linked Products and stamp the value-source flags. Runs whenever Products change on the Deal or whenever a process function lands a fresh Product_Interest signal.
+
+## Inputs
+
+```text
+deal_id — id of the Deal to recompute
+```
+
+## Reads
+
+- All Product_Interest tokens / values from the source signal (if called from upsertDeal).
+- All Products linked to Deal via Product_Details subform.
+- Each Product's Default_Deal_Value.
+- Account.Account_Products linked list (where supported/configured).
+
+## Logic
+
+```text
+1. Resolve ALL product interests from the source signal, not just the
+   first match (e.g., "Product A; Product B" → both resolved).
+2. Link every resolved Product to the Deal (Product_Details subform).
+3. Link Products to Account where supported/configured.
+4. Read Default_Deal_Value from each linked Product.
+5. Sum the values: deal_amount = SUM(Default_Deal_Value of all linked Products).
+6. Write deal_amount to Deal.Amount.
+7. Set Deal.Deal_Value_Source = "Product Derived".
+8. Set Deal.Product_Resolution_Status = "Resolved".
+```
+
+## Writes
+
+- Deal.Product_Details (subform, all resolved Products)
+- Deal.Amount
+- Deal.Deal_Value_Source = "Product Derived"
+- Deal.Product_Resolution_Status = "Resolved"
+- Account.Account_Products (if supported)
+
+## Returns
+
+```text
+{
+  product_ids: [string],
+  deal_amount: number,
+  resolution_status: "Resolved" | "Manual Review" | "Missing Product Interest" | "Failed",
+  changed: boolean
+}
+```
+
+## Resolution status mapping
+
+Maps to the `Deals.Product_Resolution_Status` picklist (verified picklist values: -None-, Not Started, Resolved, Missing Product Interest, Failed, Manual Review, No Active Product Match):
+
+| Condition                                                            | Status                     |
+| -------------------------------------------------------------------- | -------------------------- |
+| Every linked Product has a Default_Deal_Value                        | `Resolved`                 |
+| Some linked Products have values, some do not                        | `Manual Review`            |
+| No Products were linked at all                                       | `Missing Product Interest` |
+| Products were linked but all failed to load or had no value          | `Failed`                   |
+
+## Must-not behaviours
+
+- MUST NOT stop at the first matched Product when multiple are signalled — link all of them.
+- MUST NOT use a single Product's value when multiple are linked — the Amount is always the SUM.
+- MUST NOT overwrite Deal.Amount with a manual / stale value when called as part of a Lead reconciliation flow — Product-derived value wins.
+- MUST NOT carry value from a Lost/Closed Deal into the active Deal — value belongs to the resolved primary active Deal only (see Test 26). The resolver skips Lost/Closed Deals via the State/Status guard.
+- MUST NOT leave Product_Resolution_Status as `Missing Product Interest` or `Failed` when all linked Products resolved successfully.

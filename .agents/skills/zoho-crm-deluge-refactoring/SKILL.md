@@ -83,7 +83,7 @@ if(accountId == "" && normalizedDomain != "")
 
 These functions align records with the **Commercial Ontology**:
 *   **Opportunity**: `MQL` $\to$ `SQL` $\to$ `FTP` $\to$ `RTP`
-*   **Stage**: `Marketing Consent` $\to$ `Demo Booking` $\to$ `Demo Booked` $\to$ `Demo Attended` $\to$ `Commercials Sent` $\to$ `Commercials Signed` $\to$ `Onboarding` $\to$ `Renewal`
+*   **Stage**: `Marketing Qualification` $\to$ `Demo Booking` $\to$ `Demo Confirmation` $\to$ `Demo Hosted` $\to$ `Proposal Preparation` $\to$ `Commercial Agreement` $\to$ `Onboarding` $\to$ `Renewal`
 *   **State**: `Open` or `Lost`
 *   **Status**: `New` (no human activity), `Working` (active call/meeting/note), or `Closed` (if Lost).
 

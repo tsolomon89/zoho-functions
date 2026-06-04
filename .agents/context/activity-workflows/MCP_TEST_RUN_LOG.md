@@ -28,7 +28,7 @@ Append-only log of MCP test harness runs. One round per `## Round N` section.
   - WF008 Task Completion Handler — id `991103000000784145`
   - WF010a–d Date Routers — placeholder
 
-  T1's "Marketing Consent Call 1 exists" assertion will tell us if the activity layer is reachable via the direct `automation.sequenceRouter` hook fired from `processDeal`, regardless of WF002 wiring.
+  T1's "Marketing Qualification Call 1 exists" assertion will tell us if the activity layer is reachable via the direct `automation.sequenceRouter` hook fired from `processDeal`, regardless of WF002 wiring.
 
 - **Module IDs cached:** Leads=`991103000000000043`, Accounts=`991103000000000045`, Contacts=`991103000000000047`, Deals=`991103000000000049`, Tasks=`991103000000000063`, Events=`991103000000000065`, Calls=`991103000000000067`.
 
@@ -41,28 +41,28 @@ Append-only log of MCP test harness runs. One round per `## Round N` section.
 - **Observed (graph layer — PASS):**
   - Contact `991103000000721223` created with `Email=mcp_t0900_t1@acme-t0900-t1.example`, `Account_Name → 991103000000735173`, `Contact_Role1="Decision Maker"`, `Job_Title="Head of Marketing"`. ✅
   - Account `991103000000735173` created with `Account_Name="MCP_TEST_20260601_T0900_T1_Co"`, `Account_Key="acme-t0900-t1.example"`, `Website="https://acme-t0900-t1.example"`, `State="Open"`, `Status="New"`. ✅
-  - Deal `991103000000762142` created with `Deal_Name="MCP_TEST_20260601_T0900_T1_Co Deal"`, `Stage1="Marketing Consent"`, `Stage="MQL"`, `State="Open"`, `Deal_Key="acme-t0900-t1.example::active"`, `Sequence_Status="Waiting on Call"`, `Active_Sequence_Stage="Marketing Consent"`, `Active_Sequence_Attempt=1`, `Active_Email_Chain_Step=0`. ✅
+  - Deal `991103000000762142` created with `Deal_Name="MCP_TEST_20260601_T0900_T1_Co Deal"`, `Stage1="Marketing Qualification"`, `Stage="MQL"`, `State="Open"`, `Deal_Key="acme-t0900-t1.example::active"`, `Sequence_Status="Waiting on Call"`, `Active_Sequence_Stage="Marketing Qualification"`, `Active_Sequence_Attempt=1`, `Active_Email_Chain_Step=0`. ✅
   - Deal's `Contact_Roles` related list has 1 entry: Contact `991103000000721223` with `Contact_Role="Decision Maker"`. ✅
 - **Observed (activity layer — FAIL):**
   - **No Call record exists anywhere in the Calls module** — `getRecords` on Calls (no filter, sort desc by Created_Time, per_page 10) returned 0 records.
   - Deal's related `Calls` list also empty.
-- **Expected:** A Call with `Subject="Marketing Consent Call 1"`, `Sequence_Managed="Yes"`, `Sequence_Stage="Marketing Consent"`, `Sequence_Attempt=1`, `Stale="No"`, `What_Id=Deal id`, `$se_module="Deals"`, `Who_Id=Contact id`.
+- **Expected:** A Call with `Subject="Marketing Qualification Call 1"`, `Sequence_Managed="Yes"`, `Sequence_Stage="Marketing Qualification"`, `Sequence_Attempt=1`, `Stale="No"`, `What_Id=Deal id`, `$se_module="Deals"`, `Who_Id=Contact id`.
 - **Diagnosis:**
   1. Reproduced `createStageCall`'s exact payload via direct MCP `createRecords` on Calls — **succeeded** (Call `991103000000790081`). All fields valid: `Subject`, `What_Id`, `$se_module`, `Who_Id`, `Sequence_Managed`, `Sequence_Stage`, `Sequence_Attempt`, `Block_Email_Until_Done`, `Call_Purpose_Detail`, `Call_Type=Outbound`, `Call_Start_Time` (future), `Stale=No`. So the payload itself is fine. (Diagnostic Call then deleted.)
-  2. Re-triggered the Deal by setting `Sequence_Status="Not Started"` and clearing `Active_Sequence_Stage` / `Active_Sequence_Attempt`. WF001d re-fired → `processDeal` → `sequenceRouter`. Sequence-state fields advanced to `Waiting on Call` / `Marketing Consent` / `1` again (proving sequenceRouter executed and entered its `needsBootstrap` branch), **but again no Call was created**.
+  2. Re-triggered the Deal by setting `Sequence_Status="Not Started"` and clearing `Active_Sequence_Stage` / `Active_Sequence_Attempt`. WF001d re-fired → `processDeal` → `sequenceRouter`. Sequence-state fields advanced to `Waiting on Call` / `Marketing Qualification` / `1` again (proving sequenceRouter executed and entered its `needsBootstrap` branch), **but again no Call was created**.
   3. `sequenceRouter` calls `automation.createStageCall(dealId.toString(), stage, 1)` at [v4/activity/sequenceRouter.deluge:134](../../../v4/activity/sequenceRouter.deluge#L134) and then unconditionally writes `Sequence_Status="Waiting on Call"` at [v4/activity/sequenceRouter.deluge:137-146](../../../v4/activity/sequenceRouter.deluge#L137-L146) without checking the returned `callId`. So if `createStageCall` returns `""` (failure), the Deal advances anyway.
 - **Root cause:** `automation.createStageCall` is **silently failing** when invoked from the parent Deluge function. The most likely reason is that the function is not currently published in Zoho's Functions registry (Setup → Functions), so the Deluge invocation `automation.createStageCall(...)` returns null without error. The file [v4/activity/createStageCall.deluge](../../../v4/activity/createStageCall.deluge) exists on disk but must be published as a Zoho custom function under the name `createStageCall` (namespace `automation`).
 - **Fix written:** No code change in this round. The fix is operational: publish `createStageCall` in Zoho. (Secondary code finding for a future round: `sequenceRouter` should check `createStageCall`'s return value and skip the Deal state advance when the Call creation fails — but defer until we confirm the primary publish-and-rerun fix actually creates the Call.)
 
 #### T1 follow-up — true root cause (via REST diagnostic)
 
-The "createStageCall is unpublished" hypothesis was wrong — user confirmed it's published. After enabling the function's REST API toggle, direct REST invoke of `createStageCall("991103000000762142","Marketing Consent",1)` returned:
+The "createStageCall is unpublished" hypothesis was wrong — user confirmed it's published. After enabling the function's REST API toggle, direct REST invoke of `createStageCall("991103000000762142","Marketing Qualification",1)` returned:
 
 ```json
 { "code":"success",
   "details":{
     "output":"",
-    "userMessage":["automation_event func=createStageCall module=Calls record= action=create outcome=failed payload={\"deal\":991103000000762142,\"stage\":\"Marketing Consent\",\"attempt\":1,\"resp\":{\"code\":\"INVALID_DATA\",\"details\":{\"expected_data_type\":\"datetime\",\"api_name\":\"Call_Start_Time\"},\"message\":\"invalid data\",\"status\":\"error\"}}"]
+    "userMessage":["automation_event func=createStageCall module=Calls record= action=create outcome=failed payload={\"deal\":991103000000762142,\"stage\":\"Marketing Qualification\",\"attempt\":1,\"resp\":{\"code\":\"INVALID_DATA\",\"details\":{\"expected_data_type\":\"datetime\",\"api_name\":\"Call_Start_Time\"},\"message\":\"invalid data\",\"status\":\"error\"}}"]
   }}
 ```
 
@@ -129,10 +129,10 @@ Zoho strictly requires the `T` separator. Both `zoho.currenttime` and `automatio
 
 #### T1 final result + batch sweep
 
-After republish of the ISO-8601 fix, REST-invoke of `createStageCall("991103000000762142","Marketing Consent",1)` returned **success** with `output="991103000000740288"` and `due="2026-06-01T12:55:41+02:00"` (proper ISO 8601 with offset).
+After republish of the ISO-8601 fix, REST-invoke of `createStageCall("991103000000762142","Marketing Qualification",1)` returned **success** with `output="991103000000740288"` and `due="2026-06-01T12:55:41+02:00"` (proper ISO 8601 with offset).
 
 Full workflow-chain verification: deleted the REST-created Call, reset Deal `Sequence_Status=Not Started`, waited 60s. WF001d fired → `processDeal` → `sequenceRouter` → `createStageCall` → **Call `991103000000762148` created** with all expected fields:
-- `Subject="Marketing Consent Call 1"`, `Sequence_Managed="Yes"`, `Sequence_Stage="Marketing Consent"`, `Sequence_Attempt=1`, `Stale="No"`, `Call_Type="Outbound"`, `Call_Start_Time="2026-06-01T11:56:23+01:00"`, `Call_Purpose_Detail="Data Completion"`, `What_Id` → Deal, `$se_module="Deals"`, `Who_Id` → Contact.
+- `Subject="Marketing Qualification Call 1"`, `Sequence_Managed="Yes"`, `Sequence_Stage="Marketing Qualification"`, `Sequence_Attempt=1`, `Stale="No"`, `Call_Type="Outbound"`, `Call_Start_Time="2026-06-01T11:56:23+01:00"`, `Call_Purpose_Detail="Data Completion"`, `What_Id` → Deal, `$se_module="Deals"`, `Who_Id` → Contact.
 
 **T1 — PASS.**
 
@@ -156,7 +156,7 @@ Grep across `v4/` found the same `zoho.currenttime`/`.toDateTime(...)` → datet
 - **Discovery first:** trying to update the T1 Lead returned `INVALID_DATA: "can't update the converted record"`. So Zoho's native conversion flag IS set on the Lead after processLead runs — even though the Converted_Contact/Account/Deal fields didn't return any values when queried. Practical consequence: WF001a / processLead can never re-fire on the same Lead after first conversion. Lead-side idempotency is enforced by Zoho itself, not by function logic.
 - **Reframed test:** trigger `processDeal` idempotency by editing the canonical Deal `991103000000762142` with a no-op change (`Description="MCP_TEST_T2_noop_edit_1"`) — WF001d (`create_or_edit`, repeat=true) fires processDeal which then calls sequenceRouter.
 - **Status:** PASS
-- **Observed:** counts unchanged (Contacts=5, Accounts=2, Deals=2, Calls=1). Deal `Modified_Time` advanced to `13:07:50`, `Description` persisted, `Sequence_Status="Waiting on Call"` / `Active_Sequence_Stage="Marketing Consent"` / `Active_Sequence_Attempt=1` unchanged. sequenceRouter correctly recognised state was already active (sequence not in bootstrap states) and skipped Call creation.
+- **Observed:** counts unchanged (Contacts=5, Accounts=2, Deals=2, Calls=1). Deal `Modified_Time` advanced to `13:07:50`, `Description` persisted, `Sequence_Status="Waiting on Call"` / `Active_Sequence_Stage="Marketing Qualification"` / `Active_Sequence_Attempt=1` unchanged. sequenceRouter correctly recognised state was already active (sequence not in bootstrap states) and skipped Call creation.
 
 ### T4 — multi-Lead → multi-Contact role precedence
 
@@ -167,10 +167,10 @@ Grep across `v4/` found the same `zoho.currenttime`/`.toDateTime(...)` → datet
   - Lead C `991103000000785085` — Job_Title="Marketing Manager" (Influencer)
 - **Observed:**
   - 3 Contacts created under one Account (`991103000000762150`, `Account_Key=acme-t0900-t4.example`). Each Contact's `Contact_Role1` matches its title-mapped role: DM / EU / Inf. ✅
-  - 1 canonical Deal `991103000000757200` with `Deal_Key=acme-t0900-t4.example::active`, `Stage1=Marketing Consent`, `Stage=MQL`, `State=Open`, `Sequence_Status=Waiting on Call`. ✅
+  - 1 canonical Deal `991103000000757200` with `Deal_Key=acme-t0900-t4.example::active`, `Stage1=Marketing Qualification`, `Stage=MQL`, `State=Open`, `Sequence_Status=Waiting on Call`. ✅
   - Deal's `Contact_Roles` related list has all 3 entries with correct roles. ✅
   - Deal's primary `Contact_Name` is T4_A (Decision Maker). This is correct — primary selection is "furthest viable open Contact", all 3 are equally open at creation, T4_A was first. Role-precedence (EU > Inf > DM) applies to per-Contact role assignment, not primary selection.
-- **Race-condition bug found (separate from T4's assertion):** two `Marketing Consent Call 1` records were created on Deal `991103000000757200`, IDs `991103000000733355` (13:10:12) and `991103000000752299` (13:10:13), ~1 second apart. Both have `Sequence_Managed=Yes, Sequence_Stage=Marketing Consent, Sequence_Attempt=1` — the dup-check in `createStageCall` should have prevented this.
+- **Race-condition bug found (separate from T4's assertion):** two `Marketing Qualification Call 1` records were created on Deal `991103000000757200`, IDs `991103000000733355` (13:10:12) and `991103000000752299` (13:10:13), ~1 second apart. Both have `Sequence_Managed=Yes, Sequence_Stage=Marketing Qualification, Sequence_Attempt=1` — the dup-check in `createStageCall` should have prevented this.
   - **Root cause:** Grep across `v4/` found `sequenceRouter(...)` called from FIVE places — [processLead.deluge:898](../../../v4/processLead.deluge#L898), [processContact.deluge:712](../../../v4/processContact.deluge#L712), [processAccount.deluge:562](../../../v4/processAccount.deluge#L562), [processDeal.deluge:519](../../../v4/processDeal.deluge#L519), [handleTaskCompletion.deluge:73](../../../v4/activity/handleTaskCompletion.deluge#L73). When a Lead is created: WF001a → processLead → (creates Deal which triggers WF001d → processDeal → sequenceRouter) AND processLead itself calls sequenceRouter at its tail. Both sequenceRouter invocations enter the bootstrap branch in parallel because Sequence_Status is still empty when both read the Deal. Both call `createStageCall`. `createStageCall`'s `zoho.crm.searchRecords` dup-check returns "no existing Call" for both because neither create has committed yet. Both create Call 1. Race.
   - **Why T1 didn't show it:** T1's only Call creation flowed through a manual MCP-driven Deal update (`Sequence_Status=Not Started`), which fires only WF001d/processDeal/sequenceRouter — single chain, no race. T4's Leads each fire the full graph cascade where processLead + processDeal both invoke sequenceRouter.
   - **Fix options (deferred, design decision needed):**
@@ -215,15 +215,15 @@ T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → si
 
 - **Status:** **CRITICAL ASSERTION PASSES** (State stays Open, not Won). Multiple secondary failures from architectural cascade bug.
 - **Action taken (T4 Deal `991103000000757200`):**
-  1. Set Stage1="Commercials Sent" with workflows enabled. Waited 60s.
+  1. Set Stage1="Commercial Agreement" with workflows enabled. Waited 60s.
   2. Set Commercials_Status="Signed" with workflows enabled. Waited 60s.
 - **Observed:**
-  - Step 1 intermediate state: Stage1 reverted to "Marketing Consent" within ~7s of update by `processDeal` (cascade bug, see below).
+  - Step 1 intermediate state: Stage1 reverted to "Marketing Qualification" within ~7s of update by `processDeal` (cascade bug, see below).
   - Final state after step 2:
 
   | Field | Expected | Actual | Result |
   |---|---|---|---|
-  | Stage1 | Commercials Signed | Marketing Consent (reverted) | ❌ |
+  | Stage1 | Onboarding | Marketing Qualification (reverted) | ❌ |
   | Stage | RTP | MQL (reverted) | ❌ |
   | **State** | **Open** | **Open** | ✅ **critical regression PASS** |
   | Status | New or Working | New | ✅ |
@@ -249,7 +249,7 @@ T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → si
   - **Fix shape:** use a known-correct datetime source. Options: `zoho.currenttime.toString("yyyy-MM-dd HH:mm:ssZ")` (with `Z` for the offset literal — the function context's offset, may be different from `XXX` behaviour), OR explicitly construct from UTC via `zoho.currenttime.toTime("UTC")` + offset arithmetic.
 
 - **Cross-cutting bug #3 — sequenceRouter race + dup-check unreliability:**
-  - The T1→T13 transition also created a fresh `Marketing Consent Call 1` (id `991103000000754292`) on the T4 Deal — even though the original Call (`991103000000752299`) was still open with the same `Sequence_Stage` and `Sequence_Attempt`. `createStageCall`'s dup-check via `zoho.crm.searchRecords` did not detect the existing Call.
+  - The T1→T13 transition also created a fresh `Marketing Qualification Call 1` (id `991103000000754292`) on the T4 Deal — even though the original Call (`991103000000752299`) was still open with the same `Sequence_Stage` and `Sequence_Attempt`. `createStageCall`'s dup-check via `zoho.crm.searchRecords` did not detect the existing Call.
   - **Likely cause:** Zoho's search-index lag — searchRecords by custom field on a recently-created record returns no match for several minutes. Same issue noted in the function's own comment at [createStageCall.deluge:729](../../../v4/activity/createStageCall.deluge#L729).
   - **Fix shape:** read the Deal's `Calls` related list via `getRelatedRecords` (which reads live data, no search lag) instead of `searchRecords`. Filter client-side by Sequence_Stage + Sequence_Attempt + open Call_Outcome + Stale!=Yes.
 
@@ -259,7 +259,7 @@ T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → si
 - **Action taken:** Updated T1 Call `991103000000762148` to `Call_Outcome="Positive"`. Waited 60s.
 - **Observed:**
   - Call `Modified_Time` advanced to 16:42:58, `Call_Outcome="Positive"` persisted. ✅
-  - Deal `991103000000762142` Modified_Time **did not change** (still 13:07:50 from earlier T2 edit). Stage1 still "Marketing Consent", Sequence_Status still "Waiting on Call". ❌
+  - Deal `991103000000762142` Modified_Time **did not change** (still 13:07:50 from earlier T2 edit). Stage1 still "Marketing Qualification", Sequence_Status still "Waiting on Call". ❌
 - **Likely root causes (not diagnosed):**
   1. WF006's trigger type was `scheduled_call_createedit` in the pre-flight. This is Zoho's "Scheduled Call Triggers" mechanism — fires only when a scheduled call's specific fields change, not on arbitrary edits. May not fire on Call_Outcome change for already-completed/logged calls.
   2. Alternatively WF006 fired but its criteria gate excluded my edit (Sequence_Managed=Yes, Call_Outcome not empty, Stale != Yes — these all look satisfied; needs UI check).
@@ -321,7 +321,7 @@ T5 (sentinel "(Duplicate)" Deal) and T6 (two open Deals under one Account → si
 - Leads: `991103000000788047`, `991103000000785085`, `991103000000792032`, `991103000000799031`, `991103000000795089`
 
 **Records flagged but NOT touched** (likely my workflow side-effects, but not my prefix so leaving for the user to inspect/delete):
-- Call `991103000000709309` — `Commercials Sent Call 1` on lionvegas Deal (created during my session at 13:56:58, on a pre-existing Deal).
+- Call `991103000000709309` — `Commercial Agreement Call 1` on lionvegas Deal (created during my session at 13:56:58, on a pre-existing Deal).
 - Contacts created during the session window with non-prefix names: Munn (`991103000000726252`), Sun (`991103000000708324`), Phrophet (`991103000000740290`), Bob (`991103000000769263`). May be someone else's work in parallel — please verify before any deletion.
 
 **Cascade-hijack fix applied (Option 1: triggerMap + explicit sequenceRouter call):**
@@ -367,13 +367,13 @@ Other branches in these three files already passed `triggerMap`, so no change ne
 ### T1-retest — fresh Lead end-to-end
 
 - **Status:** Graph layer PASS; race + timezone bugs unchanged (deferred).
-- Lead `991103000000797020` → Contact `991103000000768216`, Account `991103000000709313`, Deal `991103000000735175`. Full graph cascade healthy. `Marketing Consent Call 1` created via the workflow chain (proves all Round 1 datetime-format fixes still hold).
-- Pre-existing **sequenceRouter race bug** reproduced (2 `Marketing Consent Call 1`s ~1s apart) — unchanged from Round 1, expected.
+- Lead `991103000000797020` → Contact `991103000000768216`, Account `991103000000709313`, Deal `991103000000735175`. Full graph cascade healthy. `Marketing Qualification Call 1` created via the workflow chain (proves all Round 1 datetime-format fixes still hold).
+- Pre-existing **sequenceRouter race bug** reproduced (2 `Marketing Qualification Call 1`s ~1s apart) — unchanged from Round 1, expected.
 - Pre-existing **timezone bug** reproduced (`Call_Start_Time=07:43:57` for a Call created at `08:43:57`) — unchanged from Round 1, expected.
 
 ### T13 first attempt — deeper bug surfaced
 
-- Set `Commercials_Status="Signed"` with `trigger=["workflow"]`. Observed result: `Stage1` reverted to `"Marketing Consent"` despite handleCommercialsStatusChange having written `"Commercials Signed"` first. Active_Sequence_Stage also reverted.
+- Set `Commercials_Status="Signed"` with `trigger=["workflow"]`. Observed result: `Stage1` reverted to `"Marketing Qualification"` despite handleCommercialsStatusChange having written `"Onboarding"` first. Active_Sequence_Stage also reverted.
 - **Root cause:** the cascade-hijack fix prevents activity-layer INTERNAL cascades from reverting Stage1, but it does NOT prevent the user's INITIAL Deal edit from firing both WF004 (correct handler) AND WF001d (which re-runs processDeal in parallel). processDeal's `bestStage` computation from Contacts lags behind the activity-layer transition, so it clobbers Stage1.
 
 ### Round 2 fix: "never-regress" Stage1 in 4 process functions
@@ -395,22 +395,22 @@ After the 4-file fix and republish, re-fired `Commercials_Status="Signed"`:
 
 | Field | Expected | Actual |
 |---|---|---|
-| Stage1 | Commercials Signed | **Commercials Signed** ✅ |
+| Stage1 | Onboarding | **Onboarding** ✅ |
 | Stage | RTP | RTP ✅ |
 | State | Open | Open ✅ |
 | Status | New | New ✅ |
 | Signed_At | not empty | `2026-06-02T07:52:32+01:00` ✅ (still 1hr-off due to timezone bug) |
 | Sequence_Status | Not Started → Waiting on Call | Waiting on Call ✅ |
-| Active_Sequence_Stage | Commercials Signed | Commercials Signed ✅ |
+| Active_Sequence_Stage | Onboarding | Onboarding ✅ |
 | Commercials_Status | Signed | Signed ✅ |
-| Commercials Signed Call 1 | exists | id `991103000000718272` ✅ |
+| Onboarding Call 1 | exists | id `991103000000718272` ✅ |
 | **Race-induced duplicate Calls** | **0** | **0** ✅ |
 
 The never-regress fix has an unexpected bonus: when processDeal's `bestStageRank == currentStageRank` it skips the Stage1 write entirely, which shrinks the racing-write window and (in this trigger pattern) avoided the duplicate-Call race condition that's still present on the Lead-create cascade.
 
 ### T16 — Positive Call outcome (workflow path) FAIL; handleCallOutcome direct invoke PASS
 
-- Set `Call_Outcome="Positive"` on Commercials Signed Call 1 → Deal didn't react. Same failure as Round 1.
+- Set `Call_Outcome="Positive"` on Onboarding Call 1 → Deal didn't react. Same failure as Round 1.
 - REST-invoked `handleCallOutcome(callIdStr="991103000000718272")` directly. Function ran end-to-end successfully: supersedeOldSequence → createStageCall(Onboarding,1) → sequenceRouter bootstrap → Stage1 advanced to `Onboarding`, Stage=`RTP`. Confirmed Deal in `Onboarding`.
 - **Root cause isolated:** `handleCallOutcome` is correct. **WF006 trigger configuration is the bug** — pre-flight inventory showed WF006 type was `scheduled_call_createedit` which doesn't fire on Call_Outcome-only edits to logged/completed calls. Workflow-config fix (UI), not code.
 - Arg-name finding: function signature is `automation.handleCallOutcome(string callIdStr)`. The Trigger Map doc spec says `call_id`. The Zoho function-execute API uses parameter names from the function signature, so REST callers must pass `callIdStr`.
@@ -433,11 +433,11 @@ Fresh Lead `991103000000792038` → Deal `991103000000750242`. Set `Demo_Outcome
 
 | Field | Expected | Actual |
 |---|---|---|
-| Stage1 | Demo Attended | **Demo Attended** ✅ |
+| Stage1 | Demo Hosted | **Demo Hosted** ✅ |
 | Stage | SQL | **SQL** ✅ |
 | Commercials_Status | Drafting | **Drafting** ✅ |
 | Demo_Status | Completed | Completed ✅ |
-| Active_Sequence_Stage | Demo Attended | Demo Attended ✅ |
+| Active_Sequence_Stage | Demo Hosted | Demo Hosted ✅ |
 | `Draft Commercials` Task | exists | **NOT CREATED** ❌ |
 
 The Deal-state transition is correct. The Task creation step failed because `sendSequencedEmail` throws on invalid email domain (`acme-r2-t15.example`), and the exception **halts handleDemoOutcome's execution before reaching the Task createRecord call**.
@@ -586,7 +586,7 @@ After that, `Call_Outcome="Positive"` edits on Calls (per T16) should trigger ha
 
 **Round 2 plan once republished:**
 1. Re-create a fresh T1 Lead, verify the full graph + activity cascade still works post-fix.
-2. Re-test T13 (Commercials Signed) — all assertions should now PASS including Stage1=Commercials Signed.
+2. Re-test T13 (Onboarding) — all assertions should now PASS including Stage1=Onboarding.
 3. Run T14 (Commercials Rejected) — should now PASS with Lost_Reasons set.
 4. Run T15 (Demo Outcome Attended-Qualified) — should now PASS without Stage1 revert.
 5. Run T16 (Positive Call outcome) — see if cascade-hijack was the root cause; if not, dig into WF006 trigger config.
@@ -633,22 +633,22 @@ After that, `Call_Outcome="Positive"` edits on Calls (per T16) should trigger ha
 ### T1 — Fresh Lead cascade baseline
 
 - **Action:** Created Lead `991103000000789178` (`MCP_TEST_20260602_R4_T1_Last`, Ready_for_Conversion=true).
-- **Result:** ✅ Graph layer PASS (Account `991103000000741246`, Contact `991103000000762176`, Deal `991103000000720212` all created; Deal Stage1=Marketing Consent, Stage=MQL, Sequence_Status=Waiting on Call, Active_Sequence_Stage=Marketing Consent, Active_Sequence_Attempt=1). Account Account_Key derived correctly (`acme-r4-t1.example`). Contact Contact_Role1=Decision Maker.
-- **Result:** ❌ **Duplicate Marketing Consent Call 1** — two Calls created at the same timestamp `2026-06-02T19:20:53+01:00` (ids `991103000000742205` and `991103000000732199`). Both with identical Sequence_Stage/Attempt/What_Id. The Round 3 `searchRecords → getRelatedRecords` swap in `createStageCall` reduced search-index lag but did NOT eliminate the parallel-invocation race: processLead and processDeal both call sequenceRouter→createStageCall concurrently on the freshly-created Deal, and both `getRelatedRecords` calls return empty because neither Call has committed yet. Manually marked `991103000000732199` Stale=Yes to deduplicate before downstream tests. **Same dup observed on T14's and T15's fresh Leads — consistent across all Lead→Deal cascades.**
+- **Result:** ✅ Graph layer PASS (Account `991103000000741246`, Contact `991103000000762176`, Deal `991103000000720212` all created; Deal Stage1=Marketing Qualification, Stage=MQL, Sequence_Status=Waiting on Call, Active_Sequence_Stage=Marketing Qualification, Active_Sequence_Attempt=1). Account Account_Key derived correctly (`acme-r4-t1.example`). Contact Contact_Role1=Decision Maker.
+- **Result:** ❌ **Duplicate Marketing Qualification Call 1** — two Calls created at the same timestamp `2026-06-02T19:20:53+01:00` (ids `991103000000742205` and `991103000000732199`). Both with identical Sequence_Stage/Attempt/What_Id. The Round 3 `searchRecords → getRelatedRecords` swap in `createStageCall` reduced search-index lag but did NOT eliminate the parallel-invocation race: processLead and processDeal both call sequenceRouter→createStageCall concurrently on the freshly-created Deal, and both `getRelatedRecords` calls return empty because neither Call has committed yet. Manually marked `991103000000732199` Stale=Yes to deduplicate before downstream tests. **Same dup observed on T14's and T15's fresh Leads — consistent across all Lead→Deal cascades.**
 
 ### T13 — Commercials_Status=Signed (cascade-hijack + Stage1 no-regress)
 
 - **Action:** PATCH `Commercials_Status=Signed` on Deal `991103000000720212`.
 - **Result:** ✅ PASS.
-  - `Stage1=Commercials Signed` ✅ (advanced from Marketing Consent, did NOT revert via WF001d cascade)
+  - `Stage1=Onboarding` ✅ (advanced from Marketing Qualification, did NOT revert via WF001d cascade)
   - `Stage=RTP` ✅
   - `State=Open` ✅ (per spec: Signed keeps Deal open for onboarding/retention/renewal)
   - `Status=New` ✅
-  - `Active_Sequence_Stage=Commercials Signed` ✅
+  - `Active_Sequence_Stage=Onboarding` ✅
   - `Sequence_Status=Waiting on Call` ✅ (transitioned via sequenceRouter)
-  - `Last_Email_Template="Commercials Signed Confirmation Email"` ✅ stamped
+  - `Last_Email_Template="Onboarding Confirmation Email"` ✅ stamped
   - `Signed_At=2026-06-02T18:22:02+01:00` (Modified_Time `19:22:06+01:00` → see TZ note below) ✅ format correct
-  - New Call: `Commercials Signed Call 1` (id `991103000000721244`) created at 19:22:04, single Call (no dup — only one path fires here, not the parallel WF001a+WF001d combo). ✅
+  - New Call: `Onboarding Call 1` (id `991103000000721244`) created at 19:22:04, single Call (no dup — only one path fires here, not the parallel WF001a+WF001d combo). ✅
 - **Confirms:** cascade-hijack fix (triggerMap + explicit sequenceRouter in [handleCommercialsStatusChange.deluge:73-74](../../../v4/activity/handleCommercialsStatusChange.deluge#L73-L74)) + never-regress Stage1 guard in [processDeal.deluge:502-519](../../../v4/processDeal.deluge#L502-L519).
 
 ### T14 — Commercials_Status=Rejected (Lost_Reasons swap)
@@ -666,18 +666,18 @@ After that, `Call_Outcome="Positive"` edits on Calls (per T16) should trigger ha
 
 - **Action:** Fresh Lead `991103000000782090` → Deal `991103000000731222`. PATCH `Demo_Outcome="Attended - Qualified"`.
 - **Result:** ✅ PASS.
-  - `Stage1=Demo Attended` ✅ (advanced from Marketing Consent, no revert)
+  - `Stage1=Demo Hosted` ✅ (advanced from Marketing Qualification, no revert)
   - `Stage=SQL` ✅
   - `State=Open` ✅
   - `Demo_Outcome="Attended - Qualified"` ✅
-  - `Active_Sequence_Stage=Demo Attended` ✅
-  - `Last_Email_Template="Demo Attended Email 1"` ✅ stamped (`Last_Email_Sent_At=2026-06-02T18:23:56+01:00`)
-  - New Call: `Demo Attended Call 1` (id `991103000000754303`) created at 19:23:54 ✅
+  - `Active_Sequence_Stage=Demo Hosted` ✅
+  - `Last_Email_Template="Demo Hosted Email 1"` ✅ stamped (`Last_Email_Sent_At=2026-06-02T18:23:56+01:00`)
+  - New Call: `Demo Hosted Call 1` (id `991103000000754303`) created at 19:23:54 ✅
 - **Confirms:** cascade-hijack fix in handleDemoOutcome Attended-Qualified branch.
 
 ### T16 / T17 — BLOCKED on WF006v2 trigger not firing
 
-- **Action (T16):** PATCH `Call_Outcome="Interested - Schedule Demo"` + `Status=Completed` on the Demo Attended Call 1 (`991103000000754303`). Expected: WF006v2 → handleCallOutcome → Deal advance.
+- **Action (T16):** PATCH `Call_Outcome="Interested - Schedule Demo"` + `Status=Completed` on the Demo Hosted Call 1 (`991103000000754303`). Expected: WF006v2 → handleCallOutcome → Deal advance.
 - **Observed:** Deal `Modified_Time=19:23:56+01:00` UNCHANGED after Call edit at `19:24:16+01:00`. WF006v2 `last_executed_time: null` confirmed via GET.
 - **Diagnostic 1:** Updated WF006v2 conditions via API to explicitly set `criteria_details.criteria=null` + `relational_criteria.module_selection="all"` + actions=[functions]. No change — rule still doesn't fire on subsequent Call edits.
 - **Diagnostic 2:** User opened WF006v2 in UI and confirmed Save. Noted "logic is superfluous — Condition 1 'applied to all calls', Condition 2 'all that don't meet that criteria'". This means my API POST created C1 and my UPDATE appended C2 instead of replacing it — Zoho's update semantics added a new condition rather than overwriting.
@@ -706,7 +706,7 @@ Datetime fields stamped by Deluge functions are 1 hour behind wall-clock time:
 
 **4 of 6 PASS; the 4 primary Round 2/3 fixes (cascade-hijack, never-regress Stage1, Lost_Reasons swap, ISO-8601 format) are verified.** Two open items go into the deferred-bugs list:
 
-1. **Duplicate Marketing Consent Call 1 race** (regression): The parallel WF001a→processLead and WF001d→processDeal both invoke `sequenceRouter→createStageCall` on fresh Lead cascade. Both `getRelatedRecords` reads return empty (neither has committed yet), so both create a Call. **Suggested fix:** make processLead NOT call sequenceRouter (let WF001d's processDeal handle bootstrap), OR add an atomic "lock" write to Deal before createStageCall (e.g., set `Sequence_Bootstrapping_At=now` and have createStageCall re-read the Deal and abort if another bootstrap already wrote it within the last 5s).
+1. **Duplicate Marketing Qualification Call 1 race** (regression): The parallel WF001a→processLead and WF001d→processDeal both invoke `sequenceRouter→createStageCall` on fresh Lead cascade. Both `getRelatedRecords` reads return empty (neither has committed yet), so both create a Call. **Suggested fix:** make processLead NOT call sequenceRouter (let WF001d's processDeal handle bootstrap), OR add an atomic "lock" write to Deal before createStageCall (e.g., set `Sequence_Bootstrapping_At=now` and have createStageCall re-read the Deal and abort if another bootstrap already wrote it within the last 5s).
 2. **WF006v2 trigger inert** despite UI Save: the `outgoing_call_createedit` rule never increments `last_executed_time`. The dual-condition pollution from API POST+UPDATE may be the root cause; cleanest fix is to delete WF006v2 and recreate cleanly with one condition (either via API single-shot POST without subsequent UPDATE, or in UI).
 3. **TZ-offset 1hr behind** on all datetime stamps written by Deluge functions — the `XXX` formatter applies +01:00 to UTC values. Affects Signed_At, Last_Email_Sent_At, Commercials_Sent_At, and any other zoho.currenttime.toString output.
 
@@ -714,8 +714,8 @@ Datetime fields stamped by Deluge functions are 1 hour behind wall-clock time:
 - Leads: `991103000000789178` (T1), `991103000000796126` (T14), `991103000000782090` (T15)
 - Accounts: `991103000000741246` (T1 acme-r4-t1.example), T14 acme-r4-t14.example, T15 acme-r4-t15.example
 - Contacts: `991103000000762176` (T1), 2 more for T14/T15
-- Deals: `991103000000720212` (T1/T13, Commercials Signed), `991103000000756239` (T14, Lost), `991103000000731222` (T15, Demo Attended)
-- Calls: `991103000000742205` (T1 dup A), `991103000000732199` (T1 dup B, stale), `991103000000721244` (T13 Commercials Signed Call 1), `991103000000754303` (T15 Demo Attended Call 1), plus T14 dup pair `991103000000768232`/`991103000000707368`
+- Deals: `991103000000720212` (T1/T13, Onboarding), `991103000000756239` (T14, Lost), `991103000000731222` (T15, Demo Hosted)
+- Calls: `991103000000742205` (T1 dup A), `991103000000732199` (T1 dup B, stale), `991103000000721244` (T13 Onboarding Call 1), `991103000000754303` (T15 Demo Hosted Call 1), plus T14 dup pair `991103000000768232`/`991103000000707368`
 
 **Cleanup complete (end of Round 4):** all 19 records above deleted via MCP `deleteRecords`.
 
@@ -739,10 +739,10 @@ WF006 + WF006v2 both deactivated.
 
 ### T16 (positive Call outcome) — PASS
 
-- **Setup:** Lead `991103000000805036` → Deal `991103000000709321` (Stage1=Marketing Consent) → Marketing Consent Call 1 (`991103000000729210`).
+- **Setup:** Lead `991103000000805036` → Deal `991103000000709321` (Stage1=Marketing Qualification) → Marketing Qualification Call 1 (`991103000000729210`).
 - **First attempt:** PATCH `Call_Outcome="Interested - Schedule Demo"`. WF006v3 `last_executed_time` updated → trigger fired ✅. Deal Modified_Time unchanged ❌. **Root cause discovered:** [v4/activity/handleCallOutcome.deluge:96-262](../../../v4/activity/handleCallOutcome.deluge#L96-L262) expects canonical outcome strings: `Positive`, `Neutral`, `No Answer`, `Negative`, `Deferred`, `Bad Data`, `Already Handled`, `Not Relevant`, `Manual Only`, `Do Not Contact`. "Interested - Schedule Demo" hits the unknown-outcome fallback at line 261 — function logs and exits. **Bug in Round 4 test design**, not in the function. (Implication: if the picklist values for `Call_Outcome` in the Calls module UI are descriptive like "Interested - Schedule Demo", they need to be aligned to the canonical taxonomy OR handleCallOutcome needs a translation layer.)
 - **Second attempt:** PATCH `Call_Outcome="Positive"`. Result ✅ PASS:
-  - Stage1 `Marketing Consent → Demo Booking` ✅
+  - Stage1 `Marketing Qualification → Demo Booking` ✅
   - Stage `MQL → SQL` ✅
   - Active_Sequence_Stage `Demo Booking` ✅
   - Active_Sequence_Attempt reset to `1` for new stage ✅
@@ -773,7 +773,7 @@ WF006 + WF006v2 both deactivated.
 
 ### Updated open items / deferred-bugs after Round 4b
 
-1. **Duplicate Marketing Consent Call 1 race** (Round 4 T1 regression) — still open. Specific to parallel WF001a+WF001d on Lead conversion; not reproducible on stage-advance paths.
+1. **Duplicate Marketing Qualification Call 1 race** (Round 4 T1 regression) — still open. Specific to parallel WF001a+WF001d on Lead conversion; not reproducible on stage-advance paths.
 2. ~~WF006v2 trigger inert~~ — **RESOLVED** via WF006v3 with `anyaction` trigger.
 3. **TZ-offset 1hr behind** — still open. `Last_Email_Sent_At=2026-06-03T04:55:56+01:00` while `Modified_Time=2026-06-03T05:55:58+01:00` (T17). Same issue as Round 4.
 4. **NEW — Call_Outcome picklist values vs handleCallOutcome canonical taxonomy:** if the UI picklist for `Call_Outcome` shows descriptive labels (e.g. "Interested - Schedule Demo"), handleCallOutcome currently silently no-ops on anything outside its canonical list. Either align picklist values to `Positive`/`Neutral`/`No Answer`/`Negative`/`Deferred`/`Bad Data`/`Already Handled`/`Not Relevant`/`Manual Only`/`Do Not Contact`, OR add a translation map at the top of handleCallOutcome.
@@ -783,7 +783,7 @@ WF006 + WF006v2 both deactivated.
 - Account: derived (acme-r4b-t16.example)
 - Contact: `991103000000761235`
 - Deal: `991103000000709321`
-- Calls: `991103000000729210` (Marketing Consent Call 1, Call_Outcome=Positive), `991103000000716306` (Demo Booking Call 1, Call_Outcome=No Answer), `991103000000710225` (Demo Booking Call 2)
+- Calls: `991103000000729210` (Marketing Qualification Call 1, Call_Outcome=Positive), `991103000000716306` (Demo Booking Call 1, Call_Outcome=No Answer), `991103000000710225` (Demo Booking Call 2)
 
 **Cleanup complete (end of Round 4b):** all 7 records above deleted via MCP `deleteRecords`.
 
@@ -802,7 +802,7 @@ Deferred / Bad Data / Already Handled / Not Relevant / Manual Only / Do Not Cont
 ```
 These match handleCallOutcome's switch statement at [handleCallOutcome.deluge:96-262](../../../v4/activity/handleCallOutcome.deluge#L96-L262) exactly. Round 4's apparent mismatch was a test-design mistake (I PATCHed `Call_Outcome="Interested - Schedule Demo"` which is NOT a picklist value, but the Zoho REST API has no server-side picklist validation on this field). In real UI use, reps can only pick from the canonical list. **Bug #4 closed — false positive.**
 
-### Bug #1 fix — Dup Marketing Consent Call 1 race
+### Bug #1 fix — Dup Marketing Qualification Call 1 race
 
 **Root cause confirmed** by reading the source. All 4 graph-layer process functions had identical `// Activity layer hook` blocks calling `automation.sequenceRouter(canonicalDealId.toLong())` after their Deal writes:
 - [processLead.deluge:909](../../../v4/processLead.deluge#L909)
@@ -835,13 +835,13 @@ All swapped `"yyyy-MM-dd'T'HH:mm:ssXXX"` → `"yyyy-MM-dd'T'HH:mm:ss'Z'"`. Outpu
 
 ### Round 5 — Remaining open items
 
-1. ~~Dup Marketing Consent Call 1 race~~ — **FIXED**, pending Round 6 verification.
+1. ~~Dup Marketing Qualification Call 1 race~~ — **FIXED**, pending Round 6 verification.
 2. ~~WF006v2 trigger inert~~ — closed in Round 4b via WF006v3 (`anyaction` trigger).
 3. ~~TZ-offset 1hr behind~~ — **FIXED** for 4 direct sites, pending Round 6 verification.
 4. ~~Call_Outcome picklist mismatch~~ — closed in Round 5 as false positive.
 
 **Next round (Round 6) should re-run T1, T13, T15, T16, T17 (skip T14 since it doesn't exercise the dup-Call path or any TZ-sensitive timestamp).** Assertions:
-- T1: only ONE Marketing Consent Call 1 created (dup-Call fix verification).
+- T1: only ONE Marketing Qualification Call 1 created (dup-Call fix verification).
 - T13/T15: `Signed_At` / `Last_Email_Sent_At` match wall-clock time (TZ-offset fix verification).
 - T16/T17: still PASS with WF006v3 and canonical Call_Outcome values.
 
@@ -853,3 +853,302 @@ All swapped `"yyyy-MM-dd'T'HH:mm:ssXXX"` → `"yyyy-MM-dd'T'HH:mm:ss'Z'"`. Outpu
 - v4/activity/handleCommercialsStatusChange.deluge
 - v4/activity/supersedeOldSequence.deluge
 - v4/activity/sendSequencedEmail.deluge
+
+---
+
+## Round 6 — 2026-06-03 07:07 (T1 retest — partial fail)
+
+**Goal:** verify Bug #1 (dup-Call race) and Bug #3 (TZ-offset) after Round 5 republish, starting with T1.
+
+**Setup:** fresh Lead `991103000000817002` (Last_Name `MCP_TEST_20260603_R6_T1_Last`, Ready_for_Conversion=true, prefix `MCP_TEST_20260603_R6`).
+
+**Observed at +1m30s:**
+- WF001a (Process Lead): last_executed_time `2026-06-03T07:07:46+01:00` ✅
+- WF001b (Process Contact): last_executed_time `2026-06-03T07:07:50+01:00` ✅
+- WF001c (Process Account): last_executed_time `2026-06-03T07:07:50+01:00` ✅
+- WF001d (Process Deal): last_executed_time `2026-06-02T19:22:02+01:00` ❌ **DID NOT FIRE**
+- Deal `991103000000822001` created; Sequence_Status = null, Active_Sequence_Stage = null, no Marketing Qualification Call 1 created.
+
+**Diagnosis:** Round 5's claim that "processLead's createRecord("Deals",...) triggers WF001d" was wrong. **Zoho Deluge's `zoho.crm.createRecord(module, fieldsMap)` does NOT fire workflows by default** — you have to pass an explicit triggerList parameter or the workflow's `last_executed_time` stays untouched. With processLead's section-12b sequenceRouter call removed AND WF001d not firing on the create, nothing bootstrapped the sequence.
+
+**Round 5b fix (this same day):** restored processLead.deluge's `automation.sequenceRouter(canonicalDealId.toLong())` call at section 12b. Kept the removals in processContact / processAccount because those WERE the actual dup-Call race contributors (each calling sequenceRouter on the same canonicalDealId after their own writes, racing with processLead's call).
+
+**Cleanup:** Lead `991103000000817002`, Deal `991103000000822001`, Account `991103000000747403`, Contact `991103000000819001` all deleted.
+
+**Files modified in Round 5b (require republish):**
+- v4/processLead.deluge — section 12b sequenceRouter call restored with explanatory comment.
+
+---
+
+## Round 7 — 2026-06-03 (reconciliation-resolver implementation pass)
+
+**Trigger:** user requirement that the graph processor must implement a real reconciliation hierarchy (not just "Contact exists → reuse / Deal exists → reuse"). Three hard rules:
+1. Latest open pipeline position wins over historical/lost position.
+2. Primary Contact selected by commercial relevance: open/farthest-along Deal first, then highest Contact Role.
+3. Deal value = SUM of linked Product values.
+
+**Doc updates landed before code:**
+- `TEST_CASES.md`: added Reconciliation Suite preamble + Tests 21-27 covering Open beats Lost, Decision Maker within Deal, farthest-along open beats lower-stage DM, same-stage tie uses Role, Product sum = Deal value, Product values follow active Deal, new Lead updates existing active Deal.
+- `FUNCTION_SPEC.md`: added Reconciliation Hierarchy section + §18 resolvePrimaryActiveDeal + §19 resolvePrimaryContactForDeal + §20 syncDealProductsAndValue.
+
+**New utility files written:**
+- [`v4/activity/_util_resolvePrimaryActiveDeal.deluge`](../../../v4/activity/_util_resolvePrimaryActiveDeal.deluge) — pure-read scorer. Inputs: accountIdStr, contactIdList, incoming stage/opportunity. Collects candidates from Account + each Contact, filters out State=Lost / Status=Closed / Lost_Reasons!="", scores by Stage1 rank → Stage (Opportunity) rank → top Contact_Role rank on Deal → Modified_Time. Returns `{deal_id, reason, rejected}`.
+- [`v4/activity/_util_resolvePrimaryContactForDeal.deluge`](../../../v4/activity/_util_resolvePrimaryContactForDeal.deluge) — reads Contact_Roles related list on the Deal, ranks Contacts by role (Decision Maker 3 > Influencer 2 > End User 1), recency tie-break, preserves existing primary on full tie. Returns `{contact_id, contact_role, changed, existing_primary}`.
+- [`v4/activity/_util_syncDealProductsAndValue.deluge`](../../../v4/activity/_util_syncDealProductsAndValue.deluge) — accepts dealIdStr + incomingProductIds (List), merges into Product_Details subform (idempotent — already-linked Products preserved), reads each Product's Default_Deal_Value, sums to Deal.Amount, stamps Deal_Value_Source="Product Derived" and Product_Resolution_Status. **Picklist sync:** confirmed via `ZohoCRM_getFields` that Deal_Value_Source picklist contains "Product Derived" and Product_Resolution_Status picklist contains "Resolved" / "Manual Review" / "Missing Product Interest" / "Failed" / "No Active Product Match" / "Not Started" — NOT "Partially Resolved" / "Unresolved" as the original FUNCTION_SPEC draft assumed. Spec corrected to match.
+
+**processLead.deluge wiring (this pass only — Account/Contact/Deal deferred):**
+- Section 7 "Silence duplicate active Deals" REPLACED with `automation.resolvePrimaryActiveDeal(accountId, [newContactId], leadStage, "")`. The legacy "lowest-id-wins + mark losers Lost/Closed" loop is gone — per Tests 23/24, multiple open Deals on one Account can coexist. The resolver picks one as primary; the others stay Open but inert. Fall back to the just-created `dealId` if resolver returns "" (brand-new Account, getRelatedRecords search-index lag).
+- Section 10b ADDED after Contact_Roles writes: `automation.resolvePrimaryContactForDeal(canonicalDealId)`. If `changed=true`, write Deal.Contact_Name = winner with suppressed trigger. Implements Tests 22/23/24's "highest role wins, recency tie-break, preserve existing on tie".
+- Section 12a-bis ADDED after the dUpd Deal write: `automation.syncDealProductsAndValue(canonicalDealId, List())`. Empty list — Product_Details was already populated by section 11; this call recomputes Amount + flags from the now-persisted subform. Implements Tests 25/26.
+
+**Behaviour changes the deferred refactors must follow:**
+- processAccount.deluge canonical-Deal logic (~lines 80-410) still uses the old lowest-id silencing pattern. Same swap needed.
+- processContact.deluge canonical-Deal logic (~lines 304-578) — same.
+- processDeal.deluge — debatable; processDeal operates on the Deal it was triggered for, not "the Account's active Deal". The right call may be: have processDeal call resolvePrimaryActiveDeal as a *consistency check* (warn if the triggered Deal is not the resolver-picked primary) rather than reassign canonical. To be decided in a follow-up pass.
+
+**Round 7 — Files modified (require republish):**
+- v4/activity/_util_resolvePrimaryActiveDeal.deluge (NEW)
+- v4/activity/_util_resolvePrimaryContactForDeal.deluge (NEW)
+- v4/activity/_util_syncDealProductsAndValue.deluge (NEW)
+- v4/processLead.deluge (resolver wiring at sections 7, 10b, 12a-bis)
+
+**Pending:**
+- processAccount / processContact same-shape refactor.
+- Decide processDeal contract (re-resolve vs. trust the triggered Deal).
+- Round 8 testing: T1/T13/T15/T16/T17 regression + T21-T27 reconciliation suite.
+
+### Round 7 — API budget note (user-acknowledged)
+
+The new resolvers add ~14-22 API calls per `processLead` invocation on top of the existing ~30-50 (roughly +40-50%). Hot spots: `resolvePrimaryActiveDeal` does a `getRecordById` + `getRelatedRecords("Contact_Roles", ...)` for every candidate Deal; `resolvePrimaryContactForDeal` re-fetches the Deal that the caller already has in scope; `syncDealProductsAndValue` re-fetches each Product even though `processLead` section 11 already loaded all Products into a `productCatalog` Map.
+
+User reviewed the trade-off and chose **keep as-is** — acceptable on Enterprise edition (25k/day API budget) at typical Lead-conversion volumes. If conversions scale past a few hundred per day or the org moves to a lower-tier edition, the cheaper option is to pass already-fetched records into the resolvers (Option B in the rollback discussion): change signatures to accept `pre_fetched_deals` / `deal_record` / `product_catalog` so callers reuse data they've already loaded.
+
+---
+
+## Round 7b — 2026-06-03 (resolvers wired into all 4 process functions)
+
+User flagged that the Round 7 wiring was processLead-only; Tests 21-27 must hold on Account / Contact / Deal edits too, not only Lead conversion. Same three resolver calls added to:
+
+- **processAccount.deluge** — section 3 (legacy "lowest-id wins + silence others") REPLACED with `resolvePrimaryActiveDeal(cleanId, all contact ids on Account, "", "")`. Section 4b added after Contact_Roles writes for `resolvePrimaryContactForDeal`. Section 5a-bis added after dUpd write for `syncDealProductsAndValue`.
+- **processContact.deluge** — section 5 (same legacy block) REPLACED with `resolvePrimaryActiveDeal(accountId, [cleanId], "", "")`. Section 8b added for primary-Contact refresh (important — processContact is the path most likely to surface a role upgrade). Section 9a-bis added for product sync.
+- **processDeal.deluge** — section 5b added for primary-Contact refresh on the triggered Deal. Section 6a-bis added for product sync. **`resolvePrimaryActiveDeal` deliberately NOT called** because processDeal owns its triggered Deal; "which Deal is primary on the Account" is a question for processAccount / processContact / processLead paths.
+
+---
+
+## Round 7c — 2026-06-03 (cleanup of duplicate inline logic)
+
+User audit caught that the Round 7/7b wiring **added** resolver calls on top of the existing inline logic instead of **replacing** it. The duplicates:
+
+| Inline (legacy)                          | Resolver (new)                              | Issue                                                                                          |
+| ---------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `dUpd.put("Amount", totalAmount)` (summed from line-item `list_price`) | `syncDealProductsAndValue` (summed from Product.`Default_Deal_Value`) | Both fire; new overwrites old. Also semantic divergence — `list_price` is the manually-overridable line-item price, `Default_Deal_Value` is the Product master per FUNCTION_SPEC §20. |
+| `dUpd.put("Contact_Name", furthestContactId)` (furthest-along open Contact) | `resolvePrimaryContactForDeal` (highest Contact_Role rank) | Both fire; new overwrites old. Different selection criteria — per FUNCTION_SPEC §19 / Tests 22-24, role-rank is correct. |
+| `dUpd.put("Product_Details", mergedPDList)` (inline merge of name-matched line items with full Discount/Tax/total/net_total fields) | `syncDealProductsAndValue` (idempotent merge of product IDs only, quantity=1) | Both fire; resolver overwrites inline. Resolver's merge is simpler — only `{product:{id}, quantity:1}` per entry. |
+
+**Deletions per file:**
+- **processLead.deluge** — removed lines ~587-601 (`furthestContactId` block), ~770-784 (`totalAmount` pre-pass), ~813-814 (`totalAmount` increment), ~837 (Products summary log), ~843-844 (dUpd Amount), ~846-849 (dUpd Product_Details), ~851-854 (dUpd Contact_Name). The Product-name → Product-id matching loop kept but simplified to collect IDs into `incomingProductIds` instead of building full line items.
+- **processAccount.deluge** — same shape of deletions in lines ~398-486 (mergedPDList + totalAmount blocks), 489-505 (furthestContactId), 510-520 (dUpd Amount + Product_Details + Contact_Name).
+- **processContact.deluge** — same in lines 396-413, 564-669.
+- **processDeal.deluge** — same in lines 384-506.
+- All 4: the `syncDealProductsAndValue(canonicalDealId, List())` call updated to `syncDealProductsAndValue(canonicalDealId, incomingProductIds)` so the resolver receives the collected IDs and does the Product_Details merge itself.
+
+**Net effect:**
+- Single source of truth for each authoritative write: §18 / §19 / §20 resolvers own canonical-Deal / primary-Contact / Product-Details-and-Amount respectively. The process functions only collect inputs and dispatch.
+- ~80-100 lines of duplicate compute deleted per process function (~350 lines total across the 4 files).
+- API call count REDUCED versus Round 7 (no longer doing both the inline write AND the resolver write).
+- One semantic change rolled out: Deal.Amount is now SUM(`Default_Deal_Value`) per spec, no longer SUM(`list_price`). Line items still carry quantity=1 by default; if line-item-level overrides matter for any UI/report, that's a separate decision to revisit.
+
+**Files modified in Round 7b + 7c (require republish):**
+- v4/processLead.deluge
+- v4/processAccount.deluge
+- v4/processContact.deluge
+- v4/processDeal.deluge
+- (resolver utility files from Round 7 unchanged: v4/activity/_util_resolvePrimaryActiveDeal.deluge, v4/activity/_util_resolvePrimaryContactForDeal.deluge, v4/activity/_util_syncDealProductsAndValue.deluge)
+
+**Pending for next round:**
+- Round 8 testing: T1/T13/T15/T16/T17 regression + T21-T27 reconciliation suite.
+- Watch for Amount values changing between rounds due to the `list_price` → `Default_Deal_Value` switch — if any existing test setup has a hand-edited line-item `list_price` that no longer matches Product.Default_Deal_Value, the Round 8 Amount will differ.
+
+---
+
+## Round 7d — 2026-06-03 (final audit pass — processDeal silencing + header doc sync)
+
+Full-file audit across `v4/` after the 7b + 7c passes turned up two things:
+
+1. **processDeal.deluge lines 77-119 STILL had the legacy "Silence duplicate active Deals" block** (lowest-id wins, mark all other open Deals as `State=Lost / Status=Closed / Lost_Reasons="Duplicate / Test Record" / Deal_Name+="(Duplicate)" / Deal_Key=""`). This was never refactored because Round 7 focused on processLead and Round 7b only ADDED resolver calls — it didn't replace the silencing. Critical bug: any WF001d-triggered edit on any Deal would have nuked sibling open Deals on the same Account, destroying the multi-Deal state Tests 21/23/24/26 require. **Fixed:** replaced the entire block with `canonicalDealId = cleanId;` (processDeal operates on its triggered Deal — it does NOT re-pick the Account's primary; that's Lead/Account/Contact's job).
+
+2. **All 4 process functions had stale header docstrings** referencing "Silence duplicate active Deals", "Pick furthest viable open Contact", and "sum Unit_Price into Deal.Amount" — none of which are true anymore. **Fixed:** rewrote each header to reflect the resolver-based pipeline (§18 / §19 / §20 ownership).
+
+**Clean-state grep results (post-7d):**
+- `furthestContactId` — only in comment text + `_util_syncDealProductsAndValue.deluge` internals. ✅
+- `totalAmount` — only in comment text + resolver internals. ✅
+- `mergedPDList` — only in `_util_syncDealProductsAndValue.deluge`. ✅
+- `dUpd.put("Amount", ...)` / `("Contact_Name", ...)` / `("Product_Details", ...)` — only in `_util_syncDealProductsAndValue.deluge`. ✅
+- `Silence duplicate` / `minId = 999...` / `Duplicate / Test Record` (as a write target) — none remaining. ✅
+- `currentPrimaryId =` / `activeDeals =` / `origDeal =` — none remaining. ✅
+- `XXX` TZ format specifier — 4 round-tripped sites still use it (`createStageCall:77`, `handleCallOutcome:156`, `handleMeetingEvent:96`, `sequenceRouter:120`). All four derive from `automation.calculateBusinessDate(...)` which produces org-local-naive `"yyyy-MM-dd 00:00:00"` strings; the `.toDateTime().toString("…XXX")` round-trip stamps the org TZ offset onto an org-local value, which is arguably correct. Round 5 deferred these for Round 6/8 verification — kept deferred.
+
+**Known dead code (left in place — harmless, removing them is risky):**
+- `openContactIdsAtMax` lists in [processLead.deluge:449,513-550](../../../v4/processLead.deluge#L449-L550), [processContact.deluge:236,335-366](../../../v4/processContact.deluge#L236-L366), [processDeal.deluge:131,209-214](../../../v4/processDeal.deluge#L131-L214) are still populated by the contact-rollup loops but no longer consumed (was the input to `furthestContactId`, deleted in 7c). The loops themselves also compute `maxRank`, `bestStage`, `anyContactOpen` — those are still used. Cost: a few list-add operations per run; safe to leave.
+- `processAccount.deluge:201` still consumes `openContactIdsAtMax.get(0)` as `initialPrimary` when creating a brand-new Deal — legitimate.
+
+**Files modified in Round 7d (require republish):**
+- v4/processDeal.deluge (silencing block removed + header updated)
+- v4/processLead.deluge (header updated)
+- v4/processAccount.deluge (header updated)
+- v4/processContact.deluge (header updated)
+
+**Cleanup state across `v4/`:**
+
+| Concern | Status |
+| --- | --- |
+| Primary-Deal selection | `resolvePrimaryActiveDeal` is the only ranked selector in processLead/Account/Contact; processDeal trusts its triggered Deal |
+| Primary-Contact selection | `resolvePrimaryContactForDeal` is the only writer of `Deal.Contact_Name` in the graph layer |
+| Deal Amount + Product_Details | `syncDealProductsAndValue` is the only writer |
+| Legacy "lowest-id wins + silence others" | Removed from all 4 process functions |
+| Legacy `furthestContactId` / `totalAmount` / `mergedPDList` inline blocks | Removed from all 4 process functions |
+| TZ-offset `XXX` direct `zoho.currenttime` sites | Fixed in 4 sites (Round 5); 4 round-tripped sites deferred |
+| Activity-layer handlers (handleCallOutcome / handleDemoOutcome / handleCommercialsStatusChange / handleTaskCompletion / handleMeetingEvent / handleEmailEvent / sendSequencedEmail / supersedeOldSequence / createStageCall) | Reviewed — they write Stage1 / Stage / Sequence_Status / Demo_* / Last_Email_* etc. but NOT Amount / Contact_Name / Product_Details, so they don't conflict with the resolvers |
+| Direct `automation.sequenceRouter` call sites | Single graph-layer entry in processDeal (line 537); activity-layer handlers each have their own legitimate calls after stage transitions |
+
+---
+
+## Round 7e — 2026-06-03 (inline pivot — Zoho namespace constraint)
+
+**Blocker found at publish time:** Zoho's `automation.` function namespace **only accepts `void` return types**. The 3 utility files written in Round 7 (`_util_resolvePrimaryActiveDeal.deluge`, `_util_resolvePrimaryContactForDeal.deluge`, `_util_syncDealProductsAndValue.deluge`) all started with `map automation.<name>(...)` and could not be published — Zoho's UI rejected them when the user tried to save them under the Customer Function / Standalone Function category. The only category accepting Map returns is **Validation Rule**, with a mandated `map validation_rule.<name>(string crmAPIRequest)` signature aimed at on-save record validation, not at callable utility code.
+
+**Decision:** inline the resolver logic directly into each process function instead of routing through utility functions. Trade-off accepted:
+- + Eliminates the publishing blocker (everything stays `void automation.<name>(...)`).
+- + Eliminates the cross-function call overhead and the API budget concern from the Round 7 note.
+- + Matches the user's original architectural intuition ("most of this stuff lived inside processLead, processDeal, processAccount and processContact previously").
+- − Same ranking/sync logic duplicated across 3 or 4 files. Bug fixes need to be applied N times. FUNCTION_SPEC §18/§19/§20 remain the single source of truth for the contract; each inline site is annotated with a link back to those sections.
+
+**Inline sites:**
+
+| Section | processLead | processAccount | processContact | processDeal |
+| --- | --- | --- | --- | --- |
+| `resolvePrimaryActiveDeal` (FUNCTION_SPEC §18) | §7 | §3 | §5 | — (operates on triggered Deal) |
+| `resolvePrimaryContactForDeal` (FUNCTION_SPEC §19) | §10b | §4b | §8b | §5b |
+| `syncDealProductsAndValue` (FUNCTION_SPEC §20) | §12a-bis | §5a-bis | §9a-bis | §6a-bis |
+
+**Files deleted:**
+- v4/activity/_util_resolvePrimaryActiveDeal.deluge
+- v4/activity/_util_resolvePrimaryContactForDeal.deluge
+- v4/activity/_util_syncDealProductsAndValue.deluge
+
+**Files modified in Round 7e (require republish):**
+- v4/processLead.deluge (3 inline sections)
+- v4/processAccount.deluge (3 inline sections)
+- v4/processContact.deluge (3 inline sections)
+- v4/processDeal.deluge (2 inline sections — no active-Deal ranker)
+
+**FUNCTION_SPEC.md changes:** added "Implementation note" callouts at the top of §18 / §19 / §20 pointing to each inline site so contract changes propagate. Logic / Returns / Must-not sections unchanged.
+
+**Round-7e verification grep (post-inline):**
+- `automation.resolvePrimaryActiveDeal` / `automation.resolvePrimaryContactForDeal` / `automation.syncDealProductsAndValue` — zero call sites remaining in `v4/`. ✅
+- Three `_util_resolve*/sync*` files gone from `v4/activity/`. ✅
+
+**Pending for Round 8:**
+- Republish v4/process{Lead,Account,Contact,Deal}.deluge.
+- Run T1 / T13 / T15 / T16 / T17 regression + T21-T27 reconciliation suite.
+- Watch Amount values for the `list_price` → `Default_Deal_Value` semantic change rolled in Round 7c.
+
+---
+
+## Round 7f — 2026-06-04 (primary-Contact ranker: hard suppression + soft state preference)
+
+User audit caught that the Round 7e inlined `resolvePrimaryContactForDeal` was too loose — it ranked **any** Contact with a Contact_Role, including those marked Do Not Contact / Unsubscribed / Bad Data / Trash. Spec correction (verbatim from the user):
+
+> Do not hard-filter primary contacts to Contact.State = Open. Filter Deals to Open first.
+> Then rank Contacts within the selected open Deal by:
+> 1. hard suppression/contactability exclusions
+> 2. Contact Role priority
+> 3. Contact State as a soft preference
+> 4. recency / existing primary fallback
+
+**Contactability fields confirmed on Contacts module** (via `ZohoCRM_getFields`):
+- `Do_Not_Contact_Reason` (picklist) — values: -None-, Unsubscribed, Existing Client, Duplicate, Bad Data, Legal/Compliance, Requested No Contact.
+- `Email_Opt_Out` (boolean).
+- `Unsubscribed_Mode` (picklist) — values: -None-, Consent form, Manual, Unsubscribe link, Zoho campaigns.
+- `Marketing_Consent_Status` (picklist) — values: -None-, Consented, Not Consented, Unknown, Withdrawn.
+- `Record_Status__s` (picklist) — values: Trash, Available, Draft.
+
+A Contact is hard-suppressed (NEVER eligible as primary) if any of:
+- `Do_Not_Contact_Reason` is set (any non-empty, non-`-None-` value).
+- `Email_Opt_Out == true`.
+- `Unsubscribed_Mode` is set.
+- `Marketing_Consent_Status ∈ {Not Consented, Withdrawn}`.
+- `Record_Status__s == Trash`.
+
+**Updated ranker order (in all 4 inline sites):**
+
+```text
+1. Hard-suppression filter — skip Contacts failing contactability check.
+2. Contact_Role rank: Decision Maker (3) > Influencer (2) > End User (1).
+3. SOFT tie-break: Contact.State == "Open" preferred over non-Open at SAME role rank.
+   A Lost Decision Maker still beats an Open End User.
+4. Modified_Time (most recent wins).
+5. Preserve existing Deal.Contact_Name if it ties on role + state + recency
+   AND it still passes hard suppression.
+```
+
+**Files modified in Round 7f (require republish):**
+- v4/processLead.deluge (§10b)
+- v4/processAccount.deluge (§4b)
+- v4/processContact.deluge (§8b)
+- v4/processDeal.deluge (§5b)
+
+**FUNCTION_SPEC.md §19 updated:** Reads section now lists the contactability fields; Logic section spells out the 6-step order with hard exclusion at step 1 and state as soft step 3; Must-not list adds "MUST NOT promote a suppressed Contact" and "MUST NOT hard-filter by State alone".
+
+**Per-invocation API cost note:** the hard-suppression check adds 5 field reads per linked Contact, all from the same `getRecordById("Contacts", crCid)` call that was already happening for Modified_Time. No new round trips — same API budget as Round 7e.
+
+**Pending for Round 8 (unchanged):**
+- Republish v4/process{Lead,Account,Contact,Deal}.deluge.
+- T1 / T13 / T15 / T16 / T17 regression + T21-T27 reconciliation suite.
+- New: design a T22b variant that includes a suppressed Decision Maker (e.g., `Email_Opt_Out=true`) to verify the hard-suppression filter actually skips them.
+
+---
+
+## Round 7g — 2026-06-04 (Deluge type-system fixes: TEXT > TEXT rejected, no L literal)
+
+Two Zoho publish errors caught after Round 7f:
+
+### Error 1 — `Operator > is not valid for TEXT expression`
+
+Reported at processLead line 454: `else if(... && cMod > winMod)`. Deluge does NOT support `>` / `<` on String operands — only `==` and `!=`. The Modified_Time tie-break (and 6 similar sites across the 4 process functions) was comparing two ISO-8601 strings.
+
+**Fix:** convert Modified_Time strings to a numeric sort key (`long`) before comparison. Take the first 19 chars (`"yyyy-MM-ddTHH:mm:ss"`), strip non-digit characters, parse with `.toLong()` → e.g. `"2026-06-04T07:08:09"` becomes `20260604070809`. Since all records in this org use the same timezone, lexicographic order of the digit string equals chronological order, so the sort key preserves semantics.
+
+Inline pattern used at each extraction site:
+
+```deluge
+cMod = 0;
+cmStr = ifnull(cFull.get("Modified_Time"), "").toString();
+if(cmStr.length() >= 19) { cMod = cmStr.subString(0,19).replaceAll("[^0-9]", "").toLong(); }
+```
+
+**Sites converted:** every `cMod` / `winMod` / `bestMod` / `eMod` variable across processLead / processAccount / processContact (active-Deal ranker + primary-Contact ranker each) and processDeal (primary-Contact ranker only). 11 comparison sites in total, all now `long > long` / `long == long`.
+
+### Error 2 — `Expecting ';' at the end of statement (Line : 418 / 247)`
+
+Reported on the multi-statement init lines `winnerDealId = ""; winS = -1; winO = -1; winRoleR = -1; winMod = 0L;`. Two suspects:
+1. **`0L` literal** — Deluge does NOT accept the Java-style `L` suffix on integer literals. Use plain `0`; Deluge promotes to long via assignment context.
+2. **Multi-statement-per-line at function top level** — works inside `{}` blocks elsewhere in this codebase but may have been rejected here.
+
+**Fix:** both at once. Replaced all 17 `= 0L;` occurrences across the 4 files with `= 0;`. Then split the 3 multi-statement `winnerDealId`-init lines (processLead / processAccount / processContact) into one statement per line.
+
+**Verification grep (post-fix):**
+- `= 0L` → zero matches across `v4/`. ✅
+- multi-statement init lines for `winnerDealId` → split. ✅
+- `cMod > winMod` / `cMod > bestMod` sites still present (intentional — both operands are now `long`). ✅
+
+**Files modified in Round 7g (same list as 7f; require republish — no new files):**
+- v4/processLead.deluge
+- v4/processAccount.deluge
+- v4/processContact.deluge
+- v4/processDeal.deluge
+
+**Lessons for future Deluge work in this codebase:**
+- `0L` / `1L` / `100L` are NOT valid Deluge literals. Use plain integer literals.
+- `>` and `<` work on `int` / `long` / `decimal` / `date` / `dateTime`, but NOT on `string`. For ISO-8601 timestamps stored as strings (which is what `getRecordById` returns), convert to `long` sort keys via `subString(0,19).replaceAll("[^0-9]", "").toLong()`.
+- Multi-statement-per-line with `;` separators is accepted inside `{}` blocks but may be rejected at function top level — split to one statement per line for safety.

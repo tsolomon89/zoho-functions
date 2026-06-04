@@ -39,10 +39,10 @@ Goal: confirm the v3 → activity hook fires without workflow help.
 - [ ] In the CRM, navigate to the canonical Deal that was created.
       Verify:
       - [ ] `Sequence_Status` = `Waiting on Call`
-      - [ ] `Active_Sequence_Stage` = `Marketing Consent` (or the Stage1
+      - [ ] `Active_Sequence_Stage` = `Marketing Qualification` (or the Stage1
             value set by processLead)
       - [ ] `Active_Sequence_Attempt` = 1
-      - [ ] An associated Call exists with `Subject` = `Marketing Consent Call 1`,
+      - [ ] An associated Call exists with `Subject` = `Marketing Qualification Call 1`,
             `Sequence_Managed` = true, `Sequence_Attempt` = 1, `Stale` = false.
 - [ ] Re-run `processLead` on the same Lead ID. Verify **no** duplicate
       Call is created (the `createStageCall` duplicate-prevention search
@@ -79,12 +79,12 @@ Order from `WORKFLOW_CONFIGURATION_CHECKLIST.md`:
 - [ ] **WF006** Call Outcome Handler — on. Set Call_Outcome = No Answer;
       confirm email sent (look at Last_Email_Template), Call 2 created.
 - [ ] **WF004** Commercials Status Handler — on. Set Commercials_Status =
-      Sent; confirm Stage1 → Commercials Sent, Opportunity → FTP,
-      Commercials Sent Terms Email sent, Commercials Sent Call 1 created.
+      Sent; confirm Stage1 → Commercial Agreement, Opportunity → FTP,
+      Commercial Agreement Terms Email sent, Commercial Agreement Call 1 created.
 - [ ] **WF005** Demo Outcome Handler — on. Set Demo_Outcome =
-      Attended - Qualified; confirm Stage1 → Demo Attended,
+      Attended - Qualified; confirm Stage1 → Demo Hosted,
       Commercials_Status = Drafting, Draft Commercials task created,
-      Demo Attended Post-Demo Email sent.
+      Demo Hosted Post-Demo Email sent.
 - [ ] **WF007/008/009/010** — on as needed; see test cases 8, 13, 15,
       16 below for verification.
 
@@ -99,23 +99,23 @@ The numbered tests below correspond 1-to-1 with the cases in
 - [ ] **T3** Existing Contact/Account/Deal → no dupes, sequence consistent.
 - [ ] **T4** Product lookup fails → graph still created;
       `Product_Resolution_Status` set; sequence does not crash.
-- [ ] **T5** Imported Deal at Commercials Sent → Sequence initialized,
-      Commercials Sent Call 1 only, no chase email.
+- [ ] **T5** Imported Deal at Commercial Agreement → Sequence initialized,
+      Commercial Agreement Call 1 only, no chase email.
 - [ ] **T6** Demo Booking Call 1 = No Answer → Demo Booking Email 1 sent,
       Call 2 created, attempt incremented.
-- [ ] **T7** Demo Booking Call 1 = Positive → Stage1 = Demo Booked, old
-      sequence superseded, new Demo Booked sequence starts; no stale
+- [ ] **T7** Demo Booking Call 1 = Positive → Stage1 = Demo Confirmation, old
+      sequence superseded, new Demo Confirmation sequence starts; no stale
       Demo Booking Email 1 fires.
 - [ ] **T8** Demo reminder → Reminder Send At = -1 business day AM;
       reschedule recomputes.
-- [ ] **T9** Demo Outcome = Attended - Qualified → Stage Demo Attended,
+- [ ] **T9** Demo Outcome = Attended - Qualified → Stage Demo Hosted,
       Post-Demo Email, Draft Commercials task, Commercials Status =
-      Drafting. Stage does NOT advance to Commercials Sent.
-- [ ] **T10** Commercials Status = Sent → Stage Commercials Sent,
+      Drafting. Stage does NOT advance to Commercial Agreement.
+- [ ] **T10** Commercials Status = Sent → Stage Commercial Agreement,
       Opportunity FTP, Call 1 due +2 business days, no chase email yet.
-- [ ] **T11** Commercials Sent Call 1 = Deferred → Sequence Deferred,
+- [ ] **T11** Commercial Agreement Call 1 = Deferred → Sequence Deferred,
       Paused Until = Next Follow-Up Date.
-- [ ] **T12** Commercials Sent Call 1 = No Answer → Email 1, Call 2,
+- [ ] **T12** Commercial Agreement Call 1 = No Answer → Email 1, Call 2,
       Stage unchanged.
 - [ ] **T13** After Call 5 → 7-email chain begins; chain stops on Stage
       change or Sequence_Superseded_At set.
@@ -148,13 +148,13 @@ For each of T1, T6, T10:
 
 ## 6 — Stale-email guard
 
-- [ ] Trigger T7 (Demo Booking Call 1 = Positive → Stage = Demo Booked).
+- [ ] Trigger T7 (Demo Booking Call 1 = Positive → Stage = Demo Confirmation).
 - [ ] Immediately wait 1 minute and verify NO `Demo Booking Email 1`
       send is logged. Check `Last_Email_Template` on the Deal — it must
       not equal "Demo Booking Email 1" with a timestamp after the Stage
       change.
 - [ ] Repeat with a manual Stage change: set Stage1 from `Demo Booking`
-      to `Demo Booked` directly; confirm same guard.
+      to `Demo Confirmation` directly; confirm same guard.
 
 ## 7 — Production rollout sequence
 

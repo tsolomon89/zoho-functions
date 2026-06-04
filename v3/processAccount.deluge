@@ -30,7 +30,7 @@ void automation.processAccount(string account_id)
 	accountRecord = zoho.crm.getRecordById("Accounts", cleanId.toLong());
 	if(accountRecord.get("id") == null) { return; }
 
-	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Booked":3, "Demo Attended":4, "Commercials Sent":5, "Commercials Signed":6, "Onboarding":7, "Renewal":8};
+	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 
 	// Title → Contact_Role mapping (from .agents/context/field_mapping/Jurnii Personas - Job Tile to Contact Role Mapping.csv).
 	// Precedence on duplicate titles (per existing pattern): End User > Influencer > Decision Maker.
@@ -68,7 +68,7 @@ void automation.processAccount(string account_id)
 	lowercasePIList = List();
 
 	maxRank = 0;
-	bestStage = "Marketing Consent";
+	bestStage = "Marketing Qualification";
 	bestOpp = "MQL";
 	anyContactOpen = false;
 	openContactIdsAtMax = List();
@@ -90,7 +90,7 @@ void automation.processAccount(string account_id)
 			if(fullC != null && fullC.get("id") != null)
 			{
 				cState = ifnull(fullC.get("State"), "Open").toString();
-				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				cJobTitleLoop = ifnull(fullC.get("Job_Title"), "").toString().trim();
 				contactJobTitleMap.put(cId, cJobTitleLoop);
 
@@ -163,8 +163,8 @@ void automation.processAccount(string account_id)
 		}
 	}
 
-	if(maxRank >= 6) { bestOpp = "RTP"; }
-	else if(maxRank == 5) { bestOpp = "FTP"; }
+	if(maxRank >= 7) { bestOpp = "RTP"; }
+	else if(maxRank >= 5) { bestOpp = "FTP"; }
 	else if(maxRank >= 2) { bestOpp = "SQL"; }
 	else { bestOpp = "MQL"; }
 

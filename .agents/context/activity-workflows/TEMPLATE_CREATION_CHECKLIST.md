@@ -15,32 +15,32 @@ Categorize templates into folders for sanity. Suggested folder layout:
 
 ```
 Templates/
-  Marketing Consent/      (12 templates)
+  Marketing Qualification/      (12 templates)
   Demo Booking/           (12 templates)
-  Demo Booked/            (10 templates: Confirmation, Reminder, No-Show, Chain 1-7)
-  Demo Attended/          (10 templates: Post-Demo, 3 call-outcome, Chain 1-7)
-  Commercials Sent/       (13 templates: Terms + 5 call-outcome + Chain 1-7)
-  Commercials Signed/     (10 templates: Confirmation + 1 call-outcome + Chain 1-7 + Email 1)
+  Demo Confirmation/            (10 templates: Confirmation, Reminder, No-Show, Chain 1-7)
+  Demo Hosted/          (10 templates: Post-Demo, 3 call-outcome, Chain 1-7)
+  Commercial Agreement/       (13 templates: Terms + 5 call-outcome + Chain 1-7)
+  Onboarding/     (10 templates: Confirmation + 1 call-outcome + Chain 1-7 + Email 1)
   Onboarding/             (11 templates: Kickoff + 2 call-outcome + Chain 1-7 + Email 2)
   Renewal/                (12 templates)
 ```
 
 ---
 
-## Marketing Consent (12)
+## Marketing Qualification (12)
 
-- [ ] Marketing Consent Email 1
-- [ ] Marketing Consent Email 2
-- [ ] Marketing Consent Email 3
-- [ ] Marketing Consent Email 4
-- [ ] Marketing Consent Email 5
-- [ ] Marketing Consent Post-Call Email Chain 1
-- [ ] Marketing Consent Post-Call Email Chain 2
-- [ ] Marketing Consent Post-Call Email Chain 3
-- [ ] Marketing Consent Post-Call Email Chain 4
-- [ ] Marketing Consent Post-Call Email Chain 5
-- [ ] Marketing Consent Post-Call Email Chain 6
-- [ ] Marketing Consent Post-Call Email Chain 7
+- [ ] Marketing Qualification Email 1
+- [ ] Marketing Qualification Email 2
+- [ ] Marketing Qualification Email 3
+- [ ] Marketing Qualification Email 4
+- [ ] Marketing Qualification Email 5
+- [ ] Marketing Qualification Post-Call Email Chain 1
+- [ ] Marketing Qualification Post-Call Email Chain 2
+- [ ] Marketing Qualification Post-Call Email Chain 3
+- [ ] Marketing Qualification Post-Call Email Chain 4
+- [ ] Marketing Qualification Post-Call Email Chain 5
+- [ ] Marketing Qualification Post-Call Email Chain 6
+- [ ] Marketing Qualification Post-Call Email Chain 7
 
 ## Demo Booking (12)
 
@@ -57,60 +57,60 @@ Templates/
 - [ ] Demo Booking Post-Call Email Chain 6
 - [ ] Demo Booking Post-Call Email Chain 7
 
-## Demo Booked (10)
+## Demo Confirmation (10)
 
-- [ ] Demo Booked Confirmation Email
-- [ ] Demo Booked Reminder Email
-- [ ] Demo Booked No-Show Email
-- [ ] Demo Booked Post-Call Email Chain 1
-- [ ] Demo Booked Post-Call Email Chain 2
-- [ ] Demo Booked Post-Call Email Chain 3
-- [ ] Demo Booked Post-Call Email Chain 4
-- [ ] Demo Booked Post-Call Email Chain 5
-- [ ] Demo Booked Post-Call Email Chain 6
-- [ ] Demo Booked Post-Call Email Chain 7
+- [ ] Demo Confirmation Email
+- [ ] Demo Confirmation Reminder Email
+- [ ] Demo Confirmation No-Show Email
+- [ ] Demo Confirmation Post-Call Email Chain 1
+- [ ] Demo Confirmation Post-Call Email Chain 2
+- [ ] Demo Confirmation Post-Call Email Chain 3
+- [ ] Demo Confirmation Post-Call Email Chain 4
+- [ ] Demo Confirmation Post-Call Email Chain 5
+- [ ] Demo Confirmation Post-Call Email Chain 6
+- [ ] Demo Confirmation Post-Call Email Chain 7
 
-## Demo Attended (11)
+## Demo Hosted (11)
 
-- [ ] Demo Attended Post-Demo Email
-- [ ] Demo Attended Email 1
-- [ ] Demo Attended Email 2
-- [ ] Demo Attended Email 3
-- [ ] Demo Attended Post-Call Email Chain 1
-- [ ] Demo Attended Post-Call Email Chain 2
-- [ ] Demo Attended Post-Call Email Chain 3
-- [ ] Demo Attended Post-Call Email Chain 4
-- [ ] Demo Attended Post-Call Email Chain 5
-- [ ] Demo Attended Post-Call Email Chain 6
-- [ ] Demo Attended Post-Call Email Chain 7
+- [ ] Demo Hosted Post-Demo Email
+- [ ] Demo Hosted Email 1
+- [ ] Demo Hosted Email 2
+- [ ] Demo Hosted Email 3
+- [ ] Demo Hosted Post-Call Email Chain 1
+- [ ] Demo Hosted Post-Call Email Chain 2
+- [ ] Demo Hosted Post-Call Email Chain 3
+- [ ] Demo Hosted Post-Call Email Chain 4
+- [ ] Demo Hosted Post-Call Email Chain 5
+- [ ] Demo Hosted Post-Call Email Chain 6
+- [ ] Demo Hosted Post-Call Email Chain 7
 
-## Commercials Sent (13)
+## Commercial Agreement (13)
 
-- [ ] Commercials Sent Terms Email
-- [ ] Commercials Sent Email 1
-- [ ] Commercials Sent Email 2
-- [ ] Commercials Sent Email 3
-- [ ] Commercials Sent Email 4
-- [ ] Commercials Sent Email 5
-- [ ] Commercials Sent Post-Call Email Chain 1
-- [ ] Commercials Sent Post-Call Email Chain 2
-- [ ] Commercials Sent Post-Call Email Chain 3
-- [ ] Commercials Sent Post-Call Email Chain 4
-- [ ] Commercials Sent Post-Call Email Chain 5
-- [ ] Commercials Sent Post-Call Email Chain 6
-- [ ] Commercials Sent Post-Call Email Chain 7
+- [ ] Commercial Agreement Terms Email
+- [ ] Commercial Agreement Email 1
+- [ ] Commercial Agreement Email 2
+- [ ] Commercial Agreement Email 3
+- [ ] Commercial Agreement Email 4
+- [ ] Commercial Agreement Email 5
+- [ ] Commercial Agreement Post-Call Email Chain 1
+- [ ] Commercial Agreement Post-Call Email Chain 2
+- [ ] Commercial Agreement Post-Call Email Chain 3
+- [ ] Commercial Agreement Post-Call Email Chain 4
+- [ ] Commercial Agreement Post-Call Email Chain 5
+- [ ] Commercial Agreement Post-Call Email Chain 6
+- [ ] Commercial Agreement Post-Call Email Chain 7
 
-## Commercials Signed (9)
+## Onboarding (9)
 
-- [ ] Commercials Signed Confirmation Email
-- [ ] Commercials Signed Email 1
-- [ ] Commercials Signed Post-Call Email Chain 1
-- [ ] Commercials Signed Post-Call Email Chain 2
-- [ ] Commercials Signed Post-Call Email Chain 3
-- [ ] Commercials Signed Post-Call Email Chain 4
-- [ ] Commercials Signed Post-Call Email Chain 5
-- [ ] Commercials Signed Post-Call Email Chain 6
-- [ ] Commercials Signed Post-Call Email Chain 7
+- [ ] Onboarding Confirmation Email
+- [ ] Onboarding Email 1
+- [ ] Onboarding Post-Call Email Chain 1
+- [ ] Onboarding Post-Call Email Chain 2
+- [ ] Onboarding Post-Call Email Chain 3
+- [ ] Onboarding Post-Call Email Chain 4
+- [ ] Onboarding Post-Call Email Chain 5
+- [ ] Onboarding Post-Call Email Chain 6
+- [ ] Onboarding Post-Call Email Chain 7
 
 ## Onboarding (10)
 
@@ -172,7 +172,7 @@ and resolve Contact email from the Deal lookup instead.
 
 - [ ] All 79 templates exist with the exact names listed.
 - [ ] Each template renders correctly against a sample Contact + Deal.
-- [ ] Marketing Consent merge field renders for Contacts where
+- [ ] Marketing Qualification merge field renders for Contacts where
       `Marketing_Consent_Status` = `Consented` (and templates explicitly
       do NOT send to `Not Consented` or `Withdrawn` — handled in
       `sendSequencedEmail`).
