@@ -49,10 +49,10 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	}
 
 	cStatus = ifnull(deal.get("Commercials_Status"), "").toString();
-	// zoho.currenttime returns UTC; the XXX formatter naively appends the org-local
-	// offset (+01:00 BST) producing a string Zoho re-parses 1 hour earlier than wall-clock.
-	// Use 'Z' literal so Zoho parses as UTC explicitly.
-	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+	// zoho.currenttime returns ORG-LOCAL time (Round 8 T1 confirmed). XXX appends the org
+	// TZ offset → valid ISO-8601 that Zoho re-parses to the same wall-clock. Round 5's
+	// 'Z' switch was reverted in Round 8.
+	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 	triggerMap = Map();
 	triggerMap.put("trigger", List());
 
