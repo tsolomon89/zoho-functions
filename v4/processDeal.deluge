@@ -497,8 +497,17 @@ void automation.processDeal(string deal_id)
 	else if(hasContacts)
 	{
 		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		if(ifnull(targetDeal.get("Stage1"), "") != bestStage) { dUpd.put("Stage1", bestStage); }
-		if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
+		// Never-regress Stage1/Stage: handleCommercialsStatusChange/handleDemoOutcome/etc.
+		// may have advanced Stage1 past the bestStage derived from Contact stages. Only
+		// ADVANCE Stage1, never roll backward.
+		currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
+		currentRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+		bestRank = ifnull(stageRanks.get(bestStage), 0).toLong();
+		if(currentRank < bestRank)
+		{
+			dUpd.put("Stage1", bestStage);
+			dUpd.put("Stage", bestOpp);
+		}
 	}
 
 	if(dUpd.size() > 0)

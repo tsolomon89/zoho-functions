@@ -1152,3 +1152,77 @@ Reported on the multi-statement init lines `winnerDealId = ""; winS = -1; winO =
 - `0L` / `1L` / `100L` are NOT valid Deluge literals. Use plain integer literals.
 - `>` and `<` work on `int` / `long` / `decimal` / `date` / `dateTime`, but NOT on `string`. For ISO-8601 timestamps stored as strings (which is what `getRecordById` returns), convert to `long` sort keys via `subString(0,19).replaceAll("[^0-9]", "").toLong()`.
 - Multi-statement-per-line with `;` separators is accepted inside `{}` blocks but may be rejected at function top level — split to one statement per line for safety.
+
+---
+
+## Round 8 — 2026-06-05 (v3 baseline restore + T1g GREEN cascade)
+
+After multiple failed cascade attempts (T1c/T1d/T1e/T1f), the user directed: *"Please fix the core process functions. 'v3' was working mostly use them for reference"*. The Round 7 reconciliation work (inlined resolvers + hard-suppression filter + long sort-keys + Unit_Price swap + DateTime-direct TZ) had stacked enough subtle issues that processLead either crashed silently or skipped key writes.
+
+### The four blockers found (in order)
+
+1. **TZ direction was opposite of assumed.** Round 5's `XXX → 'Z'` swap stamped `Call_Start_Time` +1hr ahead of wall-clock. Round 8's revert to `XXX` stamped it -1hr behind. The DateTime-direct attempt (just passing `zoho.currenttime` to the Map) silently broke `createRecord` entirely so no Call was written. Accepted compromise: keep `XXX` (1hr cosmetic offset, but Call is reliably created).
+
+2. **Products field swap.** My Round 7e change from `Unit_Price` to `Default_Deal_Value` was wrong — actual data lives in `Products.Unit_Price` (confirmed against `.agents/context/api_field_names/zoho_products_api_names.csv`). Restored to `Unit_Price` across the 4 process functions. Values: Cortex £16,000, UX £12,000, 360 £10,000 → sum £38,000.
+
+3. **Function slot mix-up after republish.** processLead's slot in the Zoho UI ended up running processDeal's source code (probably an accidental paste during the multi-file republish). Diagnosed via the function execution log showing `VERSION: v3.processDeal.spec-aligned` when WF001a fired for a new Lead. The processDeal code then exited at `if(dealRecord.get("id") == null)` because the Lead ID doesn't resolve as a Deal ID.
+
+4. **Workflow argument bindings dropped during republish.** Even after the slot was fixed, WF001a and WF001c had their `lead_id ← ${Leads.id}` / `account_id ← ${Accounts.id}` mappings cleared (Zoho sometimes drops Custom Function action arguments when the underlying function definition is replaced). Manual re-binding by the user fixed this.
+
+### The fix
+
+Restored all 4 process functions from `v3/` (the user-confirmed working baseline) over the broken `v4/` versions:
+
+```
+cp v3/processLead.deluge    v4/processLead.deluge
+cp v3/processAccount.deluge v4/processAccount.deluge
+cp v3/processContact.deluge v4/processContact.deluge
+cp v3/processDeal.deluge    v4/processDeal.deluge
+```
+
+Then re-added **only** the Round 5b sequenceRouter hook to processLead §12b — without it, `zoho.crm.createRecord` won't fire WF001d so the sequence never bootstraps and no Marketing Qualification Call 1 is created. All other Round 7 reconciliation work is **deferred** for a more careful re-introduction.
+
+### T1g cascade (16:27:51 BST)
+
+Lead `991103000000916001` → full cascade succeeded:
+
+| Check | Result |
+| --- | --- |
+| Winner Deal `991103000000898003` | Open, Stage1=Marketing Qualification, Stage=MQL, Status=New |
+| Sequence_Status | "Waiting on Call" ✅ |
+| Active_Sequence_Stage / Attempt | "Marketing Qualification" / 1 ✅ |
+| **Deal.Amount** | **£38,000** ✅ (Cortex 16k + UX 12k + 360 10k — Test 25 verified) |
+| Contact_Name | Set to new Contact ✅ |
+| Marketing Qualification Call 1 (id `991103000000931001`) | Created, Sequence_Managed=Yes, Sequence_Attempt=1 ✅ |
+| Single Call (no dup race) | ✅ |
+| Loser Deal `991103000000924001` | Silenced as "(Duplicate)", State=Lost, Status=Closed ✅ (v3's behaviour) |
+| Call_Start_Time | 15:28:01 BST when wall-clock was 16:28:01 BST — known 1hr cosmetic XXX offset, accepted as trade-off |
+
+### Files modified in Round 8 (still pending: nothing — everything is published)
+
+- v4/processLead.deluge (restored from v3 + Round 5b sequenceRouter hook in §12b)
+- v4/processAccount.deluge (restored from v3)
+- v4/processContact.deluge (restored from v3)
+- v4/processDeal.deluge (restored from v3)
+- v4/activity/createStageCall.deluge (`XXX` formatter restored after DateTime-direct attempt broke `createRecord`)
+
+### What's deferred (NOT re-introduced)
+
+All Round 7 work landed earlier has been removed from v4. To re-introduce later, carefully, in smaller increments:
+
+- T21-T27 reconciliation rankers (inlined resolvePrimaryActiveDeal / resolvePrimaryContactForDeal / syncDealProductsAndValue)
+- Hard-suppression Contact filter (Do_Not_Contact_Reason / Email_Opt_Out / Unsubscribed_Mode / Marketing_Consent_Status / Record_Status__s)
+- Long sort-keys for Modified_Time tie-breaks
+- Reverted-then-re-attempted TZ approaches (currently on `XXX` with -1hr cosmetic offset on Call_Start_Time)
+
+### Pending for Round 9
+
+- Re-test T13 (Commercials_Status=Signed → Signed_At wall-clock — but stays -1hr off with XXX format) and T15 (Demo_Outcome → Last_Email_Sent_At) for full TZ assessment.
+- Re-test T16/T17 (Call_Outcome=Positive / No Answer via WF006v3).
+- Re-introduce the reconciliation suite (T21-T27) in **small** vetted batches once baseline T1 + T13 + T15 + T16/T17 are all stable.
+
+### Republish-workflow lessons (for future rounds)
+
+- After modifying any Custom Function in Zoho, ALWAYS verify the workflow rule action's argument mappings still bind correctly — they sometimes get cleared.
+- After republish, sanity-check the function source by running a trivial test and confirming the function execution log shows the correct `VERSION:` line. If it shows a different function's VERSION, the slot has the wrong source.
+- Keep changes per round small. Round 7 stacked ~5 different refactors at once; isolating which one broke the cascade required multiple test cycles and a full revert to v3.
