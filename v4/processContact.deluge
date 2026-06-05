@@ -1,22 +1,20 @@
 void automation.processContact(string contact_id)
 {
 	// =========================================================================
-	// processContact  (reconciliation-hierarchy aligned, Round 7)
+	// processContact  (spec.md aligned)
 	//
 	// Pipeline:
 	//   1. Read Contact, resolve / repair canonical Account
 	//   2. Normalize Contact Stage / State / Status defaults
-	//   3. Resolve / create a Deal under the canonical Account (Deal_Key dedup)
-	//   4. Aggregate Product Interest across Contacts
-	//   5. Select primary active Deal via resolvePrimaryActiveDeal (FUNCTION_SPEC §18)
-	//      — open beats closed/lost; loser open Deals are NOT silenced anymore
-	//   6. Maintain Contact_Roles related list on the canonical Deal
-	//      (default Decision Maker, never overwrite a manual role)
-	//      8b. resolvePrimaryContactForDeal (FUNCTION_SPEC §19) → Deal.Contact_Name
-	//   7. Resolve Products by name → collect Product IDs
-	//   8. Bootstrap dUpd (Deal_Key, State, Status, Stage1, etc.)
-	//      9a-bis. syncDealProductsAndValue (FUNCTION_SPEC §20) → Product_Details +
-	//             Amount + Deal_Value_Source + Product_Resolution_Status
+	//   3. Resolve / create the Account's one active canonical Deal
+	//   4. Silence duplicate active Deals
+	//   5. Aggregate Product Interest across Contacts + existing Deal Products
+	//   6. Maintain Contact_Roles related list (Decision Maker default, never
+	//      overwrite a manual role)
+	//   7. Resolve Products by name, attach to Deal Products related list,
+	//      sum Unit_Price into Deal.Amount
+	//   8. Pick furthest viable open Contact as Deal primary (Contact_Name),
+	//      set Stage1 + Stage (Opportunity) + State + Status
 	//   9. Roll up Account State / Status
 	//
 	// REQUIRED ZOHO CRM SETTING:
@@ -206,95 +204,48 @@ void automation.processContact(string contact_id)
 		}
 	}
 
-	// ---- 5. Select primary active Deal (inlined ranker — FUNCTION_SPEC §18) ----
-	// Open beats closed/lost; Stage1 → Stage(Opp) → top role on Deal → Modified_Time.
-	// Losers among open Deals are NOT silenced (T23/T24/T26).
+	// ---- 5. Silence duplicate active Deals ----
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
+	canonicalDealId = "";
+	minId = 999999999999999999;
+	activeDeals = List();
 	triggerMap = Map();
 	triggerMap.put("trigger", List());
 
-	rankStage1 = Map();
-	rankStage1.put("Marketing Qualification",1); rankStage1.put("Demo Booking",2); rankStage1.put("Demo Confirmation",3); rankStage1.put("Demo Hosted",4);
-	rankStage1.put("Proposal Preparation",5); rankStage1.put("Commercial Agreement",6); rankStage1.put("Onboarding",7); rankStage1.put("Renewal",8);
-	rankStageOpp = Map();
-	rankStageOpp.put("MQL",1); rankStageOpp.put("SQL",2); rankStageOpp.put("FTP",3); rankStageOpp.put("RTP",4);
-	rankRole = Map();
-	rankRole.put("Decision Maker",3); rankRole.put("Influencer",2); rankRole.put("End User",1);
-
-	candDealIds = List();
-	acctDealsR = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
-	if(!isNull(acctDealsR) && acctDealsR.size() > 0 && !acctDealsR.toString().startsWith("{"))
+	for each d in relDeals
 	{
-		for each d in acctDealsR
+		if(ifnull(d.get("State"), "Open") == "Open")
 		{
-			dIdStr = d.get("id").toString();
-			if(!candDealIds.contains(dIdStr)) { candDealIds.add(dIdStr); }
-		}
-	}
-	if(cleanId != "")
-	{
-		cDeals = zoho.crm.getRelatedRecords("Deals", "Contacts", cleanId.toLong());
-		if(!isNull(cDeals) && cDeals.size() > 0 && !cDeals.toString().startsWith("{"))
-		{
-			for each d in cDeals
+			dIdLong = d.get("id").toLong();
+			activeDeals.add(d.get("id"));
+			if(dIdLong < minId)
 			{
-				dIdStr = d.get("id").toString();
-				if(!candDealIds.contains(dIdStr)) { candDealIds.add(dIdStr); }
+				minId = dIdLong;
+				canonicalDealId = d.get("id").toString();
 			}
 		}
 	}
-
-	// winMod is a numeric sort key (yyyyMMddHHmmss). Deluge rejects > on TEXT.
-	winnerDealId = "";
-	winS = -1;
-	winO = -1;
-	winRoleR = -1;
-	winMod = 0;
-	for each candId in candDealIds
-	{
-		cDeal = zoho.crm.getRecordById("Deals", candId.toLong());
-		if(isNull(cDeal) || isNull(cDeal.get("id"))) { continue; }
-		cState = ifnull(cDeal.get("State"), "").toString();
-		cStatus = ifnull(cDeal.get("Status"), "").toString();
-		cLost = ifnull(cDeal.get("Lost_Reasons"), "").toString();
-		cSysLost = ifnull(cDeal.get("Reason_For_Loss__s"), "").toString();
-		if(cState == "Lost" || cStatus == "Closed" || cLost != "" || cSysLost != "") { continue; }
-
-		cSRank = ifnull(rankStage1.get(ifnull(cDeal.get("Stage1"), "").toString()), 0);
-		cORank = ifnull(rankStageOpp.get(ifnull(cDeal.get("Stage"), "").toString()), 0);
-		cMod = 0;
-		cmStr = ifnull(cDeal.get("Modified_Time"), "").toString();
-		if(cmStr.length() >= 19) { cMod = cmStr.subString(0,19).replaceAll("[^0-9]", "").toLong(); }
-
-		cTopRole = 0;
-		cRoles = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", candId.toLong());
-		if(!isNull(cRoles) && cRoles.size() > 0 && !cRoles.toString().startsWith("{"))
-		{
-			for each cr in cRoles
-			{
-				crRoleRaw = cr.get("Contact_Role");
-				crRoleName = "";
-				if(!isNull(crRoleRaw))
-				{
-					if(crRoleRaw.toString().startsWith("{")) { crRoleName = ifnull(crRoleRaw.get("name"), "").toString(); }
-					else { crRoleName = crRoleRaw.toString(); }
-				}
-				rR = ifnull(rankRole.get(crRoleName), 0);
-				if(rR > cTopRole) { cTopRole = rR; }
-			}
-		}
-
-		isWinner = false;
-		if(winnerDealId == "") { isWinner = true; }
-		else if(cSRank > winS) { isWinner = true; }
-		else if(cSRank == winS && cORank > winO) { isWinner = true; }
-		else if(cSRank == winS && cORank == winO && cTopRole > winRoleR) { isWinner = true; }
-		else if(cSRank == winS && cORank == winO && cTopRole == winRoleR && cMod > winMod) { isWinner = true; }
-		if(isWinner) { winnerDealId = candId; winS = cSRank; winO = cORank; winRoleR = cTopRole; winMod = cMod; }
-	}
-	canonicalDealId = winnerDealId;
-	info "Primary active Deal: winner=" + canonicalDealId + " (sRank=" + winS + " oRank=" + winO + " roleRank=" + winRoleR + ", from " + candDealIds.size() + " candidates)";
-
 	if(canonicalDealId == "" && dealId != "") { canonicalDealId = dealId; }
+
+	for each ad in activeDeals
+	{
+		adStr = ad.toString();
+		if(adStr != canonicalDealId)
+		{
+			origDeal = zoho.crm.getRecordById("Deals", adStr.toLong());
+			dupUpdate = Map();
+			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
+			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
+			if(ifnull(origDeal.get("Reason_For_Loss__s"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
+			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
+			origName = ifnull(origDeal.get("Deal_Name"), "");
+			if(!origName.endsWith("(Duplicate)")) { dupUpdate.put("Deal_Name", origName + " (Duplicate)"); }
+			if(dupUpdate.size() > 0)
+			{
+				zoho.crm.updateRecord("Deals", adStr.toLong(), dupUpdate, triggerMap);
+			}
+		}
+	}
 
 	if(canonicalDealId == "") { return; }
 
@@ -468,11 +419,24 @@ void automation.processContact(string contact_id)
 		}
 	}
 
-	// ---- 7. Load target Deal for downstream merges ----
-	// Primary-Contact selection moved to resolvePrimaryContactForDeal (section 8b
-	// below) — FUNCTION_SPEC §19. Old "furthest open Contact wins" heuristic removed
-	// in Round 7c in favor of Contact_Role rank (DM > Influencer > End User).
+	// ---- 7. Pick primary Contact ----
 	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+	currentPrimaryId = "";
+	cnLookup = targetDeal.get("Contact_Name");
+	if(cnLookup != null && cnLookup.get("id") != null) { currentPrimaryId = cnLookup.get("id").toString(); }
+
+	furthestContactId = "";
+	if(openContactIdsAtMax.size() > 0)
+	{
+		if(currentPrimaryId != "" && openContactIdsAtMax.contains(currentPrimaryId))
+		{
+			furthestContactId = currentPrimaryId;
+		}
+		else
+		{
+			furthestContactId = openContactIdsAtMax.get(0);
+		}
+	}
 
 	// ---- 8. Maintain Contact_Roles ----
 	// Contact_Roles is a junction sub-module. updateRelatedRecord parameter order:
@@ -582,124 +546,6 @@ void automation.processContact(string contact_id)
 	}
 	info "Contact_Roles summary: added=" + roleAddCount + " skipped=" + roleSkipCount + " total=" + contactsToEnsureInRoles.size();
 
-	// ---- 8b. Promote primary Contact to Deal.Contact_Name (inlined — §19) ----
-	// Order: hard-exclude non-contactable → role rank → state-Open soft pref → recency → preserve existing on full tie.
-	primaryContactId = "";
-	primaryContactRole = "";
-	existingPrimary = "";
-	pcnDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
-	if(!isNull(pcnDeal) && !isNull(pcnDeal.get("Contact_Name")) && !isNull(pcnDeal.get("Contact_Name").get("id")))
-	{
-		existingPrimary = pcnDeal.get("Contact_Name").get("id").toString();
-	}
-	dealRolesPC = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", canonicalDealId.toLong());
-	if(!isNull(dealRolesPC) && dealRolesPC.size() > 0 && !dealRolesPC.toString().startsWith("{"))
-	{
-		bestRoleRank = -1;
-		bestStatePref = -1;
-		bestMod = 0;  // long sort key; Deluge rejects > on TEXT
-		for each cr in dealRolesPC
-		{
-			crCidRaw = cr.get("id");
-			if(isNull(crCidRaw)) { continue; }
-			crCid = crCidRaw.toString();
-			crRoleRaw = cr.get("Contact_Role");
-			crRoleName = "";
-			if(!isNull(crRoleRaw))
-			{
-				if(crRoleRaw.toString().startsWith("{")) { crRoleName = ifnull(crRoleRaw.get("name"), "").toString(); }
-				else { crRoleName = crRoleRaw.toString(); }
-			}
-			rR = ifnull(rankRole.get(crRoleName), 0);
-			cFull = zoho.crm.getRecordById("Contacts", crCid.toLong());
-			if(isNull(cFull)) { continue; }
-
-			cDNC    = ifnull(cFull.get("Do_Not_Contact_Reason"), "").toString();
-			cOptOut = ifnull(cFull.get("Email_Opt_Out"), false).toString();
-			cUnsub  = ifnull(cFull.get("Unsubscribed_Mode"), "").toString();
-			cMktCns = ifnull(cFull.get("Marketing_Consent_Status"), "").toString();
-			cRecSt  = ifnull(cFull.get("Record_Status__s"), "").toString();
-			isSuppressed = false;
-			if(cDNC != "" && cDNC != "-None-") { isSuppressed = true; }
-			if(cOptOut == "true") { isSuppressed = true; }
-			if(cUnsub != "" && cUnsub != "-None-") { isSuppressed = true; }
-			if(cMktCns == "Not Consented" || cMktCns == "Withdrawn") { isSuppressed = true; }
-			if(cRecSt == "Trash") { isSuppressed = true; }
-			if(isSuppressed) { info "Suppressed Contact " + crCid + " (DNC=" + cDNC + ")"; continue; }
-
-			cStateVal = ifnull(cFull.get("State"), "").toString();
-			cStatePref = 0;
-			if(cStateVal == "Open") { cStatePref = 1; }
-			cMod = 0;
-			cmStr = ifnull(cFull.get("Modified_Time"), "").toString();
-			if(cmStr.length() >= 19) { cMod = cmStr.subString(0,19).replaceAll("[^0-9]", "").toLong(); }
-
-			pickThis = false;
-			if(primaryContactId == "") { pickThis = true; }
-			else if(rR > bestRoleRank) { pickThis = true; }
-			else if(rR == bestRoleRank && cStatePref > bestStatePref) { pickThis = true; }
-			else if(rR == bestRoleRank && cStatePref == bestStatePref && cMod > bestMod) { pickThis = true; }
-			if(pickThis) { primaryContactId = crCid; primaryContactRole = crRoleName; bestRoleRank = rR; bestStatePref = cStatePref; bestMod = cMod; }
-		}
-		if(existingPrimary != "" && existingPrimary != primaryContactId)
-		{
-			exF = zoho.crm.getRecordById("Contacts", existingPrimary.toLong());
-			exSuppress = false;
-			if(!isNull(exF))
-			{
-				eDNC    = ifnull(exF.get("Do_Not_Contact_Reason"), "").toString();
-				eOptOut = ifnull(exF.get("Email_Opt_Out"), false).toString();
-				eUnsub  = ifnull(exF.get("Unsubscribed_Mode"), "").toString();
-				eMktCns = ifnull(exF.get("Marketing_Consent_Status"), "").toString();
-				eRecSt  = ifnull(exF.get("Record_Status__s"), "").toString();
-				if(eDNC != "" && eDNC != "-None-") { exSuppress = true; }
-				if(eOptOut == "true") { exSuppress = true; }
-				if(eUnsub != "" && eUnsub != "-None-") { exSuppress = true; }
-				if(eMktCns == "Not Consented" || eMktCns == "Withdrawn") { exSuppress = true; }
-				if(eRecSt == "Trash") { exSuppress = true; }
-			}
-			else { exSuppress = true; }
-			if(!exSuppress)
-			{
-				for each cr in dealRolesPC
-				{
-					if(ifnull(cr.get("id"), "").toString() == existingPrimary)
-					{
-						exRoleRaw = cr.get("Contact_Role");
-						exRoleName = "";
-						if(!isNull(exRoleRaw))
-						{
-							if(exRoleRaw.toString().startsWith("{")) { exRoleName = ifnull(exRoleRaw.get("name"), "").toString(); }
-							else { exRoleName = exRoleRaw.toString(); }
-						}
-						eR = ifnull(rankRole.get(exRoleName), 0);
-						eState = ifnull(exF.get("State"), "").toString();
-						eStPref = 0;
-						if(eState == "Open") { eStPref = 1; }
-						eMod = 0;
-						emStr = ifnull(exF.get("Modified_Time"), "").toString();
-						if(emStr.length() >= 19) { eMod = emStr.subString(0,19).replaceAll("[^0-9]", "").toLong(); }
-						if(eR == bestRoleRank && eStPref == bestStatePref && eMod == bestMod)
-						{
-							primaryContactId = existingPrimary;
-							primaryContactRole = exRoleName;
-						}
-						break;
-					}
-				}
-			}
-		}
-	}
-	info "Primary Contact: id=" + primaryContactId + " role=" + primaryContactRole + " existing=" + existingPrimary;
-	if(primaryContactId != "" && primaryContactId != existingPrimary)
-	{
-		primaryUpd = Map();
-		primaryUpd.put("Contact_Name", primaryContactId);
-		primTrig = Map();
-		primTrig.put("trigger", List());
-		zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), primaryUpd, primTrig);
-	}
-
 	// ---- 9. Resolve Products + attach via Products related list ----
 	// Pre-fetch the Products catalog once and match client-side (case + whitespace tolerant).
 	info "Aggregated PI list before product search: " + aggregatedPIList;
@@ -725,10 +571,43 @@ void automation.processContact(string contact_id)
 	}
 	info "Product catalog loaded: " + productCatalog.size() + " products";
 
-	// Collect resolved Product IDs from aggregatedPIList. syncDealProductsAndValue
-	// (called after dUpd write) owns Product_Details merge + Amount summation
-	// (FUNCTION_SPEC §20 + Test 25). Inline list_price → Amount removed in Round 7c.
-	incomingProductIds = List();
+	// Deals' Products related list is the Product_Details field (embedded line items),
+	// NOT a true association. updateRelatedRecord("Products", ...) returns a no-op success.
+	// The reliable write path is updateRecord with a merged Product_Details array.
+	existingPDList = targetDeal.get("Product_Details");
+	mergedPDList = List();
+	seenProdIds = List();
+	if(existingPDList != null && existingPDList.size() > 0)
+	{
+		for each pd in existingPDList
+		{
+			prodLookup = pd.get("product");
+			if(prodLookup != null && prodLookup.get("id") != null)
+			{
+				pid_existing = prodLookup.get("id").toString();
+				if(!seenProdIds.contains(pid_existing))
+				{
+					seenProdIds.add(pid_existing);
+					mergedPDList.add(pd);
+				}
+			}
+		}
+	}
+	info "Existing Product_Details on Deal " + canonicalDealId + ": " + seenProdIds.size();
+
+	totalAmount = 0.0;
+	prodAddedCount = 0;
+
+	// Sum existing line-item prices FIRST (workflow-cascade safety — see processLead).
+	for each pdExisting in mergedPDList
+	{
+		if(pdExisting.get("list_price") != null)
+		{
+			totalAmount = totalAmount + ifnull(pdExisting.get("list_price"), "0").toDecimal();
+		}
+	}
+	info "Sum from existing line items: " + totalAmount;
+
 	for each pName in aggregatedPIList
 	{
 		safeName = pName.trim().replaceAll("  ", " ");
@@ -752,10 +631,26 @@ void automation.processContact(string contact_id)
 			if(prod != null)
 			{
 				prodId = prod.get("id").toString();
-				if(!incomingProductIds.contains(prodId))
+				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
+
+				if(!seenProdIds.contains(prodId))
 				{
-					incomingProductIds.add(prodId);
-					info "Queueing Product for Deal: " + safeName + " (id=" + prodId + ")";
+					// Only count NEW products in totalAmount (existing summed in pre-pass)
+					totalAmount = totalAmount + price;
+					newPD = Map();
+					newProdLookup = Map();
+					newProdLookup.put("id", prodId);
+					newPD.put("product", newProdLookup);
+					newPD.put("quantity", 1);
+					newPD.put("list_price", price);
+				newPD.put("Discount", 0);
+				newPD.put("Tax", 0);
+				newPD.put("total", price);
+				newPD.put("net_total", price);
+					mergedPDList.add(newPD);
+					seenProdIds.add(prodId);
+					prodAddedCount = prodAddedCount + 1;
+					info "Queueing Product for Deal: " + safeName + " (id=" + prodId + ", price=" + price + ")";
 				}
 			}
 			else
@@ -764,13 +659,24 @@ void automation.processContact(string contact_id)
 			}
 		}
 	}
-	info "Products resolved for Deal " + canonicalDealId + ": " + incomingProductIds.size();
+	info "Products summary: newlyQueued=" + prodAddedCount + " totalAmount=" + totalAmount + " totalLineItems=" + mergedPDList.size();
 
 	// ---- 10. Update canonical Deal ----
-	// Contact_Name / Amount / Product_Details NOT written here — see §8b for primary
-	// Contact and §9a-bis (after this dUpd write) for Amount + Product_Details.
 	dUpd = Map();
 	if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey) { dUpd.put("Deal_Key", dealKey); }
+
+	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
+	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+
+	if(prodAddedCount > 0)
+	{
+		dUpd.put("Product_Details", mergedPDList);
+	}
+
+	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
+	{
+		dUpd.put("Contact_Name", furthestContactId);
+	}
 
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
 	dealLostReasons = ifnull(targetDeal.get("Lost_Reasons"), "").toString();
@@ -784,17 +690,8 @@ void automation.processContact(string contact_id)
 	else
 	{
 		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		// Never-regress Stage1: when this function fires in parallel with a field-specific
-		// activity-layer handler advancing Stage1, the Contact-derived bestStage may still
-		// be at an earlier rank. Only ADVANCE Stage1, never regress.
-		currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
-		currentStageRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
-		bestStageRank    = ifnull(stageRanks.get(bestStage), 0).toLong();
-		if(bestStageRank > currentStageRank)
-		{
-			dUpd.put("Stage1", bestStage);
-			dUpd.put("Stage", bestOpp);
-		}
+		if(ifnull(targetDeal.get("Stage1"), "") != bestStage) { dUpd.put("Stage1", bestStage); }
+		if(ifnull(targetDeal.get("Stage"), "") != bestOpp) { dUpd.put("Stage", bestOpp); }
 	}
 
 	if(dUpd.size() > 0)
@@ -806,75 +703,6 @@ void automation.processContact(string contact_id)
 		dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd, suppressTrigger);
 		info "Deal updateRecord resp: " + dealUpdResp;
 	}
-
-	// ---- 9a-bis. Link Products + recompute Amount (inlined sync — §20) ----
-	syncDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
-	syncSkip = false;
-	if(!isNull(syncDeal))
-	{
-		syncState = ifnull(syncDeal.get("State"), "").toString();
-		syncStatus = ifnull(syncDeal.get("Status"), "").toString();
-		if(syncState == "Lost" || syncStatus == "Closed") { syncSkip = true; }
-	}
-	else { syncSkip = true; }
-	if(!syncSkip)
-	{
-		syncMerged = List();
-		syncSeen = Map();
-		syncExisting = syncDeal.get("Product_Details");
-		if(!isNull(syncExisting) && syncExisting.toString().startsWith("["))
-		{
-			for each pdE in syncExisting
-			{
-				pLk = pdE.get("product");
-				pIdS = "";
-				if(!isNull(pLk) && !isNull(pLk.get("id"))) { pIdS = pLk.get("id").toString(); }
-				if(pIdS != "" && isNull(syncSeen.get(pIdS))) { syncMerged.add(pdE); syncSeen.put(pIdS, true); }
-			}
-		}
-		for each pidRaw in incomingProductIds
-		{
-			pid = ifnull(pidRaw, "").toString();
-			if(pid == "" || !isNull(syncSeen.get(pid))) { continue; }
-			ne = Map(); nl = Map(); nl.put("id", pid); ne.put("product", nl); ne.put("quantity", 1);
-			syncMerged.add(ne); syncSeen.put(pid, true);
-		}
-		syncAmt = 0.0;
-		syncAllIds = List();
-		syncWith = 0;
-		for each pK in syncSeen.keys()
-		{
-			syncAllIds.add(pK);
-			pp = zoho.crm.getRecordById("Products", pK.toLong());
-			if(isNull(pp) || isNull(pp.get("id"))) { continue; }
-			pdv = pp.get("Unit_Price");
-			if(isNull(pdv) || pdv.toString() == "") { continue; }
-			syncWith = syncWith + 1;
-			syncAmt = syncAmt + pdv.toDecimal();
-		}
-		syncStatusOut = "Missing Product Interest";
-		if(syncAllIds.size() > 0 && syncWith == syncAllIds.size()) { syncStatusOut = "Resolved"; }
-		else if(syncWith > 0) { syncStatusOut = "Manual Review"; }
-		else if(syncAllIds.size() > 0) { syncStatusOut = "Failed"; }
-		if(syncMerged.size() > 0)
-		{
-			sUpd = Map();
-			sUpd.put("Product_Details", syncMerged);
-			sUpd.put("Amount", syncAmt);
-			sUpd.put("Deal_Value_Source", "Product Derived");
-			sUpd.put("Product_Resolution_Status", syncStatusOut);
-			sTrig = Map(); sTrig.put("trigger", List());
-			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), sUpd, sTrig);
-			info "Product sync: amount=" + syncAmt + " products=" + syncAllIds.size() + " status=" + syncStatusOut;
-		}
-	}
-	else { info "Product sync skipped: Deal Lost/Closed or missing"; }
-
-	// ---- 10b. Activity layer hook ----
-	// Removed: was calling automation.sequenceRouter(canonicalDealId.toLong()) here.
-	// Reason: dup-Call race. processContact's Deal write triggers WF001d → processDeal,
-	// which is the single entry point for sequenceRouter. See processLead.deluge for full
-	// rationale.
 
 	// ---- 11. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());

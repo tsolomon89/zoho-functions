@@ -229,14 +229,14 @@ The Deal stage comes from the furthest viable open Contact under the Account.
 
 Rank:
 
-1. `Marketing Qualification`
-2. `Demo Booking`
-3. `Demo Confirmation`
-4. `Demo Hosted`
-5. `Proposal Preparation`
-6. `Commercial Agreement`
-7. `Onboarding`
-8. `Renewal`
+1. `Marketing Qualification` -> MQL
+2. `Demo Booking` -> SQL
+3. `Demo Confirmation` -> SQL
+4. `Demo Hosted` -> SQL
+5. `Proposal Preparation` -> FTP
+6. `Commercial Agreement`->FTP
+7. `Onboarding` -> RTP
+8. `Renewal`-> RTP
 
 The furthest viable open Contact determines:
 
