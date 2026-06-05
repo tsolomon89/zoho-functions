@@ -78,12 +78,13 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	}
 	else
 	{
-		// Pass zoho.currenttime as a DateTime object — NO toString format conversion.
-		// Round 8 confirmed both formats are wrong by 1hr in opposite directions:
-		//   - 'Z' literal: keeps local time digits but tags as UTC → +1hr ahead
-		//   - XXX:        converts to UTC digits but tags with org offset → -1hr behind
-		// Letting Zoho handle the DateTime → ISO serialization avoids both quirks.
-		dueDate = zoho.currenttime;
+		// XXX format produces a valid ISO-8601 string Zoho accepts. The 1hr offset
+		// observed in Round 8 (Call_Start_Time stamps -1hr behind wall-clock) is a
+		// known display-only annoyance; the Call is still created correctly. The
+		// DateTime-direct attempt (just passing zoho.currenttime) caused createRecord
+		// to silently fail — no Call written at all. We accept the cosmetic offset
+		// in exchange for a reliably-created Call until a cleaner fix is identified.
+		dueDate = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 	}
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
