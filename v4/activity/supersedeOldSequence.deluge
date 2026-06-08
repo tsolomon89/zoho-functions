@@ -43,7 +43,7 @@ void automation.supersedeOldSequence(string dealIdStr)
 
 	staleCallCount = 0;
 	relCalls = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
-	if(!isNull(relCalls) && relCalls.size() > 0 && !relCalls.toString().startsWith("{"))
+	if(!isNull(relCalls) && relCalls.size() > 0 && !relCalls.toString().startsWith("{\"code\""))
 	{
 		for each call in relCalls
 		{
@@ -65,7 +65,7 @@ void automation.supersedeOldSequence(string dealIdStr)
 
 	deferredTaskCount = 0;
 	relTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
-	if(!isNull(relTasks) && relTasks.size() > 0 && !relTasks.toString().startsWith("{"))
+	if(!isNull(relTasks) && relTasks.size() > 0 && !relTasks.toString().startsWith("{\"code\""))
 	{
 		for each tk in relTasks
 		{

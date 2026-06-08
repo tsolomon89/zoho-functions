@@ -125,7 +125,7 @@ void automation.processLead(string lead_id)
 	accountRecord = null;
 
 	searchAcc = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + accountKey + ")");
-	if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{"))
+	if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{\"code\""))
 	{
 		accountRecord = searchAcc.get(0);
 		accountId = accountRecord.get("id").toString();
@@ -134,7 +134,7 @@ void automation.processLead(string lead_id)
 	if(accountId == "" && normalizedDomain != "")
 	{
 		searchAcc = zoho.crm.searchRecords("Accounts", "(Website:equals:" + normalizedDomain + ")");
-		if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{"))
+		if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{\"code\""))
 		{
 			accountRecord = searchAcc.get(0);
 			accountId = accountRecord.get("id").toString();
@@ -145,7 +145,7 @@ void automation.processLead(string lead_id)
 	{
 		safeCompany = company.replaceAll("[\\(\\)\\:\\,]", "").trim();
 		searchAcc = zoho.crm.searchRecords("Accounts", "(Account_Name:equals:" + safeCompany + ")");
-		if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{"))
+		if(searchAcc != null && searchAcc.size() > 0 && !searchAcc.toString().startsWith("{\"code\""))
 		{
 			accountRecord = searchAcc.get(0);
 			accountId = accountRecord.get("id").toString();
@@ -173,7 +173,7 @@ void automation.processLead(string lead_id)
 		if(accountId == "")
 		{
 			postSearch = zoho.crm.searchRecords("Accounts", "(Account_Key:equals:" + accountKey + ")");
-			if(postSearch != null && postSearch.size() > 0 && !postSearch.toString().startsWith("{"))
+			if(postSearch != null && postSearch.size() > 0 && !postSearch.toString().startsWith("{\"code\""))
 			{
 				accountId = postSearch.get(0).get("id").toString();
 			}
@@ -204,7 +204,7 @@ void automation.processLead(string lead_id)
 	if(email != "")
 	{
 		searchCon = zoho.crm.searchRecords("Contacts", "(Email:equals:" + email + ")");
-		if(searchCon != null && searchCon.size() > 0 && !searchCon.toString().startsWith("{"))
+		if(searchCon != null && searchCon.size() > 0 && !searchCon.toString().startsWith("{\"code\""))
 		{
 			contactId = searchCon.get(0).get("id").toString();
 		}
@@ -301,7 +301,7 @@ void automation.processLead(string lead_id)
 	dealId = "";
 
 	searchDeal = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{"))
+	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{\"code\""))
 	{
 		dealId = searchDeal.get(0).get("id").toString();
 	}
@@ -349,7 +349,7 @@ void automation.processLead(string lead_id)
 		}
 
 		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{"))
+		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{\"code\""))
 		{
 			minDealId = 999999999999999999;
 			for each pd in postDealSearch
@@ -574,10 +574,11 @@ void automation.processLead(string lead_id)
 
 	info "Rollup: bestStage=" + bestStage + " bestOpp=" + bestOpp + " maxRank=" + maxRank + " anyContactOpen=" + anyContactOpen;
 
-	// (c) From the existing Deal Products related list (already-staged products)
+	// Deals' Products related list is the primary mapping source.
+	// We read already-linked products via getRelatedRecords.
 	existingProds = zoho.crm.getRelatedRecords("Products", "Deals", canonicalDealId.toLong());
 	existingProdIds = List();
-	if(existingProds != null && existingProds.size() > 0 && !existingProds.toString().startsWith("{"))
+	if(existingProds != null && existingProds.size() > 0 && !existingProds.toString().startsWith("{\"code\""))
 	{
 		for each ep in existingProds
 		{
@@ -590,6 +591,7 @@ void automation.processLead(string lead_id)
 			if(ep.get("id") != null) { existingProdIds.add(ep.get("id").toString()); }
 		}
 	}
+	info "Existing associated Products count: " + existingProdIds.size();
 
 	// ---- 9. Pick primary Contact (current-primary tiebreak) ----
 	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
@@ -641,7 +643,7 @@ void automation.processLead(string lead_id)
 	// (b) Read existing Contact_Roles on the Deal
 	existingRoles = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", canonicalDealId.toLong());
 	existingRoleMap = Map();
-	if(existingRoles != null && existingRoles.size() > 0 && !existingRoles.toString().startsWith("{"))
+	if(existingRoles != null && existingRoles.size() > 0 && !existingRoles.toString().startsWith("{\"code\""))
 	{
 		for each er in existingRoles
 		{
@@ -723,19 +725,14 @@ void automation.processLead(string lead_id)
 	info "Contact_Roles summary: added=" + roleAddCount + " skipped=" + roleSkipCount + " total=" + contactsToEnsureInRoles.size();
 
 	// ---- 11. Resolve Products + attach via Products related list ----
-	// updateRelatedRecord parameter order (matching the Contact_Roles pattern):
-	//   ("Products", productId, "Deals", dealId, dataMap)
-	// We pre-fetch the full Products catalog once and match client-side (case + whitespace
-	// tolerant). searchRecords by Product_Name is unreliable for multi-word/numeric values
-	// due to Zoho's search-index lag.
 	info "Aggregated PI list before product search: " + aggregatedPIList;
 
-	// searchRecords against Product_Active:true is more reliable than getRecords —
-	// getRecords often applies owner-filtering for workflow-executing users.
+	// Fetch all Products (up to 200) and filter by active status client-side to ensure robustness
+	// and avoid searchRecord failures or owner-based filtering issues.
 	productCatalog = Map();
 	allProds = zoho.crm.getRecords("Products", 1, 200);
 	info "getRecords('Products') raw response: " + allProds;
-	if(allProds != null && allProds.size() > 0)
+	if(allProds != null && allProds.size() > 0 && !allProds.toString().startsWith("{\"code\""))
 	{
 		for each p in allProds
 		{
@@ -755,45 +752,9 @@ void automation.processLead(string lead_id)
 	}
 	info "Product catalog loaded: " + productCatalog.size() + " products";
 
-	// Deals' Products related list is the Product_Details field (embedded line items),
-	// NOT a true association. updateRelatedRecord("Products", ...) returns a no-op success.
-	// The reliable write path is updateRecord with a merged Product_Details array.
-	existingPDList = targetDeal.get("Product_Details");
-	mergedPDList = List();
-	seenProdIds = List();
-	if(existingPDList != null && existingPDList.size() > 0)
-	{
-		for each pd in existingPDList
-		{
-			prodLookup = pd.get("product");
-			if(prodLookup != null && prodLookup.get("id") != null)
-			{
-				pid_existing = prodLookup.get("id").toString();
-				if(!seenProdIds.contains(pid_existing))
-				{
-					seenProdIds.add(pid_existing);
-					mergedPDList.add(pd);
-				}
-			}
-		}
-	}
-	info "Existing Product_Details on Deal " + canonicalDealId + ": " + seenProdIds.size();
-
 	totalAmount = 0.0;
 	prodAddedCount = 0;
-
-	// Sum existing line-item prices FIRST. Critical for workflow-cascade safety:
-	// when processDeal/processContact/processAccount fire after a previous run that
-	// already attached Products, aggregatedPIList may be empty. Without this pre-pass,
-	// totalAmount stays 0 and the cascade wipes Amount to 0 on the next Deal update.
-	for each pdExisting in mergedPDList
-	{
-		if(pdExisting.get("list_price") != null)
-		{
-			totalAmount = totalAmount + ifnull(pdExisting.get("list_price"), "0").toDecimal();
-		}
-	}
-	info "Sum from existing line items: " + totalAmount;
+	seenProdIds = List();
 
 	for each pName in aggregatedPIList
 	{
@@ -804,7 +765,7 @@ void automation.processLead(string lead_id)
 			prod = productCatalog.get(nameKey);
 			if(prod == null)
 			{
-				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:\"" + safeName + "\")");
+				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
 				info "Catalog miss for '" + safeName + "', fallback searchRecords resp=" + sProd;
 				if(sProd != null && sProd.size() > 0)
 				{
@@ -818,26 +779,27 @@ void automation.processLead(string lead_id)
 			if(prod != null)
 			{
 				prodId = prod.get("id").toString();
-				price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
+				fullProd = zoho.crm.getRecordById("Products", prodId.toLong());
+				price = 0.0;
+				if(fullProd != null && fullProd.get("id") != null)
+				{
+					price = ifnull(fullProd.get("Unit_Price"), "0").toDecimal();
+				}
+				else
+				{
+					price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
+				}
 
 				if(!seenProdIds.contains(prodId))
 				{
-					// Only count NEW products in totalAmount (existing summed in pre-pass)
-					totalAmount = totalAmount + price;
-					newPD = Map();
-					newProdLookup = Map();
-					newProdLookup.put("id", prodId);
-					newPD.put("product", newProdLookup);
-					newPD.put("quantity", 1);
-					newPD.put("list_price", price);
-				newPD.put("Discount", 0);
-				newPD.put("Tax", 0);
-				newPD.put("total", price);
-				newPD.put("net_total", price);
-					mergedPDList.add(newPD);
 					seenProdIds.add(prodId);
-					prodAddedCount = prodAddedCount + 1;
-					info "Queueing Product for Deal: " + safeName + " (id=" + prodId + ", price=" + price + ")";
+					totalAmount = totalAmount + price;
+					if(!existingProdIds.contains(prodId))
+					{
+						linkResp = zoho.crm.updateRelatedRecord("Products", prodId.toLong(), "Deals", canonicalDealId.toLong(), Map());
+						info "Linked product to Deal: name=" + safeName + " (id=" + prodId + ", price=" + price + ") resp=" + linkResp;
+						prodAddedCount = prodAddedCount + 1;
+					}
 				}
 			}
 			else
@@ -846,7 +808,7 @@ void automation.processLead(string lead_id)
 			}
 		}
 	}
-	info "Products summary: newlyQueued=" + prodAddedCount + " totalAmount=" + totalAmount + " totalLineItems=" + mergedPDList.size();
+	info "Products summary: newlyLinked=" + prodAddedCount + " totalAmount=" + totalAmount;
 
 	// ---- 12. Update canonical Deal ----
 	dUpd = Map();
@@ -854,11 +816,6 @@ void automation.processLead(string lead_id)
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
-
-	if(prodAddedCount > 0)
-	{
-		dUpd.put("Product_Details", mergedPDList);
-	}
 
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
