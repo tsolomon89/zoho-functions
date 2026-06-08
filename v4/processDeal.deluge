@@ -343,18 +343,22 @@ void automation.processDeal(string deal_id)
 	// searchRecords against Product_Active:true is more reliable than getRecords —
 	// getRecords often applies owner-filtering for workflow-executing users.
 	productCatalog = Map();
-	allProds = zoho.crm.searchRecords("Products", "(Product_Active:equals:true)");
-	info "searchRecords('Products', Product_Active=true) raw response: " + allProds;
+	allProds = zoho.crm.getRecords("Products", 1, 200);
+	info "getRecords('Products') raw response: " + allProds;
 	if(allProds != null && allProds.size() > 0)
 	{
 		for each p in allProds
 		{
 			if(p != null && p.get("Product_Name") != null)
 			{
-				pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
-				if(pNameRaw != "")
+				isActive = ifnull(p.get("Product_Active"), false);
+				if(isActive == true || isActive == "true")
 				{
-					productCatalog.put(pNameRaw.toLowerCase(), p);
+					pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
+					if(pNameRaw != "")
+					{
+						productCatalog.put(pNameRaw.toLowerCase(), p);
+					}
 				}
 			}
 		}
@@ -407,7 +411,7 @@ void automation.processDeal(string deal_id)
 			prod = productCatalog.get(nameKey);
 			if(prod == null)
 			{
-				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
+				sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:\"" + safeName + "\")");
 				info "Catalog miss for '" + safeName + "', fallback searchRecords resp=" + sProd;
 				if(sProd != null && sProd.size() > 0)
 				{
