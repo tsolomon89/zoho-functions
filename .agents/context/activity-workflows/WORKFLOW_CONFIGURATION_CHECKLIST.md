@@ -69,6 +69,50 @@ Hub → Functions) under the same name (`automation.<functionName>`).
       `Active_Sequence_Stage != Stage1` branch triggers `supersedeOldSequence`
       then bootstraps the new Stage.
 
+### WF003 — Zoho UI configuration spec (exact field-by-field)
+
+This rule sits under **Setup → Automation → Workflow Rules → WF003 Deal Stage Change Router**.
+The current Zoho UI layout (verified against the configurator screenshot) requires the following exact settings:
+
+| UI section | Setting | Value | Notes |
+|---|---|---|---|
+| Module | (top of editor) | **Deals** | |
+| WHEN block — "Execute this workflow rule based on" | dropdown 1 | **Record action** | |
+| WHEN block — sub-action | dropdown 2 | **Edit** | (not "Create or Edit") |
+| WHEN block — sub-scope | dropdown 3 | **Specific field(s) gets modified** | |
+| WHEN block — **Repeat toggle** | checkbox | ☑ **Repeat this workflow whenever a deal is edited** — **MUST BE CHECKED** | This is the field that was unchecked and blocking TC14/TC20. With it unchecked, the rule fires ONCE per Deal lifetime — and that single fire is consumed at Deal creation when `processLead` sets `Stage1 = "Marketing Qualification"`. Subsequent Stage1 changes don't fire because the rule has been "spent". |
+| WHEN block — field row | "When [field] is modified to [value]" | **Stage** → **any value** | The picklist labeled "Stage" in the UI maps to the api_name `Stage1`. Verify by clicking the field dropdown — it should be the pipeline stage field (Marketing Qualification / Demo Booking / Demo Confirmation / Demo Hosted / Proposal Preparation / Commercial Agreement / Onboarding / Renewal), NOT the Opportunity field (MQL / SQL / FTP / RTP). |
+| CONDITION 1 | left | **Automation Suppressed** | The api_name `Automation_Suppressed` (boolean). |
+| CONDITION 1 | comparator | **NOT_EQUAL** | |
+| CONDITION 1 | right | **Selected** | "Selected" means TRUE for boolean fields. The condition reads "fire only when Automation_Suppressed is NOT true" — i.e., the Deal hasn't been suppressed. |
+| Instant Actions → Function | function | **sequenceRouter** | The Custom Function. |
+| Instant Actions → Function argument | parameter name | **deal_id** | (the function parameter name) |
+| Instant Actions → Function argument | mapped to | **`${Deals.id}`** | Standard Zoho merge field. |
+| Scheduled Actions | (empty) | — | No scheduled actions needed. |
+
+### Why the "Repeat" toggle matters (root cause of TC14 / TC20 not firing)
+
+Comparison to the other field_update workflows in this org:
+
+| Workflow | Field watched | Field value at Deal create | First fire happens at... |
+|---|---|---|---|
+| WF004 Commercials Status Handler | `Commercials_Status` | `null` (unset) | Whenever the rep first PATCHes it (later in the pipeline) |
+| WF005 Demo Outcome Handler | `Demo_Outcome` | `null` (unset) | Whenever the rep first PATCHes it (later in the pipeline) |
+| **WF003 Deal Stage Change Router** | `Stage1` | **`"Marketing Qualification"`** — set by `processLead` at the moment of Deal creation | **At Deal creation** — the single allowed fire is consumed immediately |
+
+WF004 and WF005 work fine with `Repeat` unchecked because their watched fields are null at create, so their "first criteria match" happens when the rep PATCHes the field later — exactly when the rule should fire.
+
+WF003 watches a field that processLead always populates at create. Without `Repeat` checked, the rule's single fire is consumed at Deal creation (when no supersede is actually needed — Stage1 transitions from null → MQ), leaving zero fires available for any subsequent rep-driven Stage1 changes. The Zoho Workflow Logs show **no entries at all** for WF003 because once the rule has been "spent" for a Deal, Zoho doesn't even attempt to re-evaluate it.
+
+### Fix instructions
+
+1. Open Setup → Automation → Workflow Rules → WF003 Deal Stage Change Router.
+2. Click into the WHEN block.
+3. Check the **"Repeat this workflow whenever a deal is edited"** checkbox.
+4. Click **Done** to close the WHEN editor.
+5. Click **Save** at the bottom of the rule editor.
+6. Verify via API or MCP: `repeat` should now show as `true` in the rule's `execute_when.details` payload.
+
 ## WF004 — Deal Commercial Status Handler
 
 - [ ] **Module:** Deals

@@ -31,4 +31,5 @@
   1. Replaced product catalog retrieval with `zoho.crm.getRecords("Products", 1, 200)` and filtered active products locally in Deluge.
   2. Wrapped product names in escaped double quotes `\"` in fallback searches.
   3. Modified files: `v4/processLead.deluge`, `v4/processContact.deluge`, `v4/processDeal.deluge`, `v4/processAccount.deluge`.
+* **Git Commit SHA:** `b2a15a21995ae4a81efeab87e3b6c57717b2d30c`
 * **Actions Required:** Republish all 4 deluge functions in Zoho CRM.

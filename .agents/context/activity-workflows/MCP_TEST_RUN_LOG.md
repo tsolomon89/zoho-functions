@@ -1226,3 +1226,212 @@ All Round 7 work landed earlier has been removed from v4. To re-introduce later,
 - After modifying any Custom Function in Zoho, ALWAYS verify the workflow rule action's argument mappings still bind correctly — they sometimes get cleared.
 - After republish, sanity-check the function source by running a trivial test and confirming the function execution log shows the correct `VERSION:` line. If it shows a different function's VERSION, the slot has the wrong source.
 - Keep changes per round small. Round 7 stacked ~5 different refactors at once; isolating which one broke the cascade required multiple test cycles and a full revert to v3.
+
+---
+
+## Round 9 — 2026-06-05 (activity-layer regression suite — all GREEN)
+
+Tested the four activity-layer handlers against the v3-baseline + Round 5b sequenceRouter hook + Round 9 never-regress fix.
+
+### Results
+
+| Label | Trigger | Outcome | Status |
+| --- | --- | --- | --- |
+| T16 | Set Call_Outcome=Positive on the Marketing Qualification Call 1 | Stage1: Marketing Qualification → Demo Booking, Stage: MQL → SQL, Active_Sequence_Attempt=1, new "Demo Booking Call 1" created on the same Deal | ✅ PASS |
+| T17 | Set Call_Outcome=No Answer | Active_Sequence_Attempt 1→2, Last_Email_Template="Marketing Qualification Email 1", new "Marketing Qualification Call 2" created. Original Call retains Call_Outcome="No Answer" | ✅ PASS |
+| T13 | PATCH Commercials_Status=Signed (on the T16 Deal then on the T17 Deal) | Stage1 → Onboarding (per handler spec, not Commercial Agreement — see correction below), Stage → RTP, Signed_At stamped, Last_Email_Template="Commercial Agreement Confirmation Email", Active_Sequence_Stage=Onboarding, new "Onboarding Call 1" created | ✅ PASS |
+| T15 | PATCH Demo_Outcome="Attended - Qualified" | Stage1: Marketing Qualification → Proposal Preparation, Stage: MQL → FTP, Demo_Status=Completed, Commercials_Status=Drafting, Last_Email_Template="Proposal Preparation Email 1", new "Proposal Preparation Call 1" created | ✅ PASS |
+
+### Test-label correction
+
+My internal "T13" / "T15" / "T16" / "T17" labels (this run log) do NOT map to TEST_CASES.md Tests 13/15/16/17 verbatim. TEST_CASES.md Test 13 is "After fifth call" (post-call email chain), Test 15 is "Stale call after stage change", etc. The Round 9 tests verified specific handler behaviours by their *trigger field* rather than by TEST_CASES numbering. Should re-align internal labels in future runs to avoid confusion.
+
+### Round 9 fix — never-regress Stage1/Stage guard
+
+**Symptom:** PATCH Commercials_Status=Signed → handleCommercialsStatusChange wrote Stage1="Onboarding" (correct per its docstring), but the same Commercials_Status update also fired WF001d → processDeal. v3's processDeal unconditionally wrote `Stage1 = bestStage` (derived from Contact stages, which are always "Marketing Qualification" since Contacts never advance). Result: Stage1 was clobbered back to "Marketing Qualification" by processDeal's parallel run.
+
+**Fix applied to all 4 process functions** at the `dUpd.put("Stage1", bestStage)` site:
+
+```deluge
+currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
+currentRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+bestRank = ifnull(stageRanks.get(bestStage), 0).toLong();
+if(currentRank < bestRank)
+{
+    dUpd.put("Stage1", bestStage);
+    dUpd.put("Stage", bestOpp);
+}
+```
+
+The guard only ADVANCES (never regresses) and keeps Stage (Opportunity) in sync with Stage1.
+
+### Initial T13 expectation was wrong
+
+Before reading the handler source, I expected "Signed → Stage1=Commercial Agreement". That was incorrect. handleCommercialsStatusChange.deluge:18 (docstring) and :104 (code) both state **`Signed → Stage1=Onboarding`** — the rep signed the agreement, so commercial close is done and onboarding kicks off. T13's actual result (Stage1=Onboarding) is per the handler's intended contract.
+
+### Cosmetic TZ offset (carryover from Round 8)
+
+`Last_Email_Sent_At`, `Signed_At`, and `Call_Start_Time` all stamp -1hr behind wall-clock due to `XXX` format's TZ quirk (documented in createStageCall.deluge:80-89). Accepted trade-off — the records ARE created and linked correctly; only the display time is off.
+
+### Files modified in Round 9 (require republish — already done by user)
+
+- v4/processLead.deluge (never-regress Stage1/Stage guard at §13)
+- v4/processAccount.deluge (same)
+- v4/processContact.deluge (same)
+- v4/processDeal.deluge (same)
+
+### Round 9 — Records still in play (to clean up)
+
+| Module | IDs |
+| --- | --- |
+| Leads | T16=991103000000894007, T17=991103000000953001, T15=991103000000964001 |
+| Deals (winner) | T16=991103000000920015, T17=991103000000918004, T15=991103000000952002 |
+| Deals (duplicate-silenced) | T17=991103000000951003, plus T16 and T15 equivalents |
+| Calls | several Marketing Qualification / Demo Booking / Onboarding / Proposal Preparation Calls across the 3 Deals |
+| Accounts + Contacts | derived from each cascade — IDs to be looked up at cleanup time |
+
+### Pending for Round 10
+
+- Re-introduce the T21-T27 reconciliation suite logic (deferred since Round 7's resolver work was reverted). Add in small batches with a test between each.
+- TZ cosmetic fix — keep `XXX` format for now; revisit when a cleaner solution surfaces.
+- Decide whether the v3 silencing behaviour (mark every non-canonical open Deal as "Duplicate" with State=Lost) is acceptable long-term, or whether T21-T27's "multiple open Deals coexist" model needs the silencing removed. This is the architectural call deferred from Round 7d.
+
+---
+
+## Round 10 — 2026-06-05 (full TEST_CASES.md sweep — 11 PASS, 2 BLOCKED, 14 deferred)
+
+Walked one Lead (L1) through the entire happy-path pipeline (Marketing Qualification → Demo Booking → Demo Confirmation → Demo Hosted → Proposal Preparation → Commercial Agreement → Onboarding) using `Call_Outcome=Positive` at each Call. In parallel, ran side tests on 9 separate fresh Leads to cover every `handleCallOutcome` / `handleCommercialsStatusChange` / `handleDemoOutcome` branch the spec defines.
+
+### Scorecard
+
+| Test | Trigger | Expected handler behaviour | Status |
+| --- | --- | --- | --- |
+| TC1 | Fresh Lead with all valid data | Lead converts; Account/Contact/Deal created; Marketing Qualification Call 1 created; Amount = `Unit_Price` of linked Products | ✅ PASS |
+| TC4 | Lead with non-existent Product name | Graph still completes (Contact/Account/Deal created). Amount left as null since no Product matched. | ✅ PASS (per "do not block" spec) |
+| TC6 | `Call_Outcome=No Answer` on Demo Booking Call 1 | Demo Booking Email 1 sent; Demo Booking Call 2 created (attempt 2) | ✅ PASS |
+| TC7 | `Call_Outcome=Positive` at MQ→DB, DB→DC, PP→CA, CA→Onboarding | Stage1 + Stage advance, new stage Call 1 created. Verified at four stage boundaries via L1 walk. | ✅ PASS |
+| TC9 | `Demo_Outcome="Attended - Qualified"` | Stage1=Proposal Preparation, Stage=FTP, Demo_Status=Completed, Commercials_Status=Drafting, Proposal Preparation Email 1 sent, Proposal Preparation Call 1 created | ✅ PASS |
+| TC10 | `Commercials_Status=Sent` | Stage1=Commercial Agreement, Stage=FTP, Commercials_Sent_At, Commercial Agreement Terms Email sent, Commercial Agreement Call 1 created | ✅ PASS |
+| TC11 | `Call_Outcome=Deferred` on Commercial Agreement Call 1 | Sequence_Status=Deferred (Sequence_Paused_Until=null because Next_Comm_Follow_Up_Date wasn't set on the Deal — handler condition skipped that write) | ✅ PASS |
+| TC12 | `Call_Outcome=No Answer` on Commercial Agreement Call 1 | Commercial Agreement Email 1 sent, Commercial Agreement Call 2 created (attempt 2) | ✅ PASS |
+| TC17 | `Call_Outcome=Do Not Contact` | Automation_Suppressed=true, Sequence_Status=Suppressed, Suppression_Reason="Do Not Contact" | ✅ PASS |
+| TC18 | `Call_Outcome=Already Handled` | Logged as "step_complete"; no state change (per handler spec line 215-219) | ✅ PASS |
+| TC19 | `Call_Outcome=Not Relevant` | Sequence_Status=Paused; Manual Review Task created with Blocks_Sequence=true | ✅ PASS |
+| TC14 | Manual `Stage1` change while old sequence still open | Old stage Call should be marked Stale (supersedeOldSequence), new Stage Call 1 created | ⚠️ BLOCKED — WF003 Stage Change Router is still a placeholder action; not wired to `sequenceRouter`. Manual Stage1 change in this run had no automation response. |
+| TC20 | Manually set `Stage1=Renewal` | Renewal Call 1 created; no email until call outcome | ⚠️ BLOCKED — same WF003 placeholder issue. |
+| TC2 | Existing Contact + Account, no Deal | Reuse Contact/Account; create Deal | Deferred — needs pre-existing records |
+| TC3 | Existing Contact + Account + Deal | Reuse all three; attach Product Interest | Deferred — needs pre-existing records |
+| TC5 | Imported existing Deal at Commercial Agreement | Resume the sequence; Commercial Agreement Call 1 created | Deferred — needs manually-created Deal |
+| TC8 | Demo Confirmation / meeting reminder | Demo_Reminder_Send_At, handleMeetingEvent | Deferred — needs Meeting (Events) record |
+| TC13 | After fifth call | 7-email post-call chain | Deferred — needs walking a Call through 5 attempts |
+| TC15 | Email reply received | Sequence_Status=Paused, Review Reply Task | Deferred — needs actual email reply event |
+| TC16 | Email bounced | Sequence_Status=Paused, Data Repair Task, Contact.Profile_Completion_Status flagged | Deferred — needs actual email bounce event |
+| TC21-TC27 | Reconciliation suite | Open beats lost, role-priority Contact selection, Product-sum Amount, etc. | Deferred — Round 7 work was reverted; requires careful re-introduction |
+
+**Tally: 11 PASS, 2 BLOCKED on workflow configuration, 9 deferred for setup or scope reasons.**
+
+### The two blocked tests — WF003 is wired but doesn't fire (cause unknown)
+
+**Correction (after Round 10b retest):** User confirmed via UI screenshot that WF003 IS wired to a Custom Function action calling `sequenceRouter`. My earlier inference from the description text *"PLACEHOLDER..."* was wrong — descriptions in this org are stale and shouldn't be trusted.
+
+**Round 10b retest:** created two fresh Leads (TC14b=973014, TC20b=973015), waited for cascade, then PATCHed Stage1 directly:
+- TC14b Deal: Stage1 → "Demo Hosted"
+- TC20b Deal: Stage1 → "Renewal"
+
+After 65s wait:
+- Both Deals had Stage1 successfully updated.
+- **Both Deals: `Sequence_Superseded_At=null`, `Active_Sequence_Stage` still at old "Marketing Qualification"** — no supersedeOldSequence ran, no new stage Call created.
+- **WF003 `last_executed_time` remains `null`** — the workflow rule didn't fire.
+- `Automation_Suppressed=false` on both, so the condition `NOT_EQUAL Selected` from the screenshot should pass.
+- WF001d (Process Deal, `repeat: true`, `create_or_edit`) DID fire on the same PATCH (last_executed_time = 19:14:46).
+- WF004 (Commercials Status, `field_update`, `repeat: false`) and WF005 (Demo Outcome, `field_update`, `repeat: false`) — same shape as WF003 — both fired correctly during Round 10 earlier.
+
+So WF003 has a configured action AND the same shape as WF004/WF005, but doesn't actually fire on Stage1 PATCHes. The cause isn't visible from the MCP Workflow Rules API — likely a UI-level issue (action not actually saved despite displayed, or a Zoho-specific quirk with this rule's criteria).
+
+**TC14 and TC20 remain BLOCKED**, but the blocker is now "WF003 isn't firing for unknown reasons" rather than "WF003 isn't wired". Recommended next steps for the user:
+1. In the Zoho UI for WF003, click into the Instant Action and re-save the function selection.
+2. Try toggling `repeat` from false to true to see if that affects firing.
+3. Check Setup → Automation → Workflow Logs and filter to WF003 to see if it's logging any "criteria not met" or error events.
+4. If WF003 still won't fire, consider deleting and recreating it with the same action.
+
+### Round 10c update — TC14 + TC20 NOW PASS ✅
+
+**Root cause confirmed and fixed:** WF003's "Repeat this workflow whenever a deal is edited" checkbox was unchecked (`repeat: false`). The single allowed fire was consumed at Deal creation when `processLead` set `Stage1 = "Marketing Qualification"`, leaving zero fires available for subsequent rep-driven Stage1 changes. WF004 and WF005 work with the same `repeat: false` only because their watched fields (`Commercials_Status`, `Demo_Outcome`) are null at Deal create — their first criteria match doesn't happen until later.
+
+User checked the "Repeat" checkbox at ~20:29 BST. MCP verified `repeat: true` on WF003. Re-ran TC14 + TC20 on fresh Leads:
+
+| Metric | TC14c (Stage1 → Demo Hosted) | TC20c (Stage1 → Renewal) |
+| --- | --- | --- |
+| Active_Sequence_Stage advanced from "Marketing Qualification" | ✅ → Demo Hosted | ✅ → Renewal |
+| `Sequence_Superseded_At` stamped | ✅ 19:33:41 BST | ✅ 19:33:41 BST |
+| New stage Call created (`Demo Hosted Call 1` / `Renewal Call 1`) | ✅ id 911009 | ✅ id 938011 |
+| Sequence_Status | ✅ "Waiting on Call" | ✅ "Waiting on Call" |
+| Active_Sequence_Attempt | ✅ 1 | ✅ 1 |
+
+**TC14 and TC20 now PASS.** The WF003 fix unlocked both. Documented the precise UI configuration spec at [WORKFLOW_CONFIGURATION_CHECKLIST.md → WF003 — Zoho UI configuration spec](../WORKFLOW_CONFIGURATION_CHECKLIST.md), including a comparison table explaining why WF003 needs `Repeat: true` while WF004/WF005 don't (the field-state-at-create difference).
+
+### Final Round 10 scorecard (with Round 10c update)
+
+**13 PASS, 0 BLOCKED, 9 deferred for setup/scope.**
+
+| Test | Status |
+| --- | --- |
+| TC1, TC4, TC6, TC7 (4 stage boundaries), TC9, TC10, TC11, TC12, TC17, TC18, TC19 | ✅ PASS (Round 10) |
+| TC14, TC20 | ✅ PASS (Round 10c after WF003 Repeat fix) |
+| TC2, TC3, TC5, TC8, TC13, TC15, TC16, TC21-TC27 | Deferred for setup/scope reasons (existing records / meeting events / email events / reconciliation suite Round 7 work) |
+
+Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all deleted successfully.
+
+### Findings
+
+- **The never-regress Stage1/Stage guard from Round 9 held**: across the entire L1 walk (5 stage advances) plus three handler-driven advances on side Leads, processDeal never clobbered a handler-set Stage1.
+- **The Round 5b explicit sequenceRouter hook in processLead held**: every fresh Lead bootstrapped a single Marketing Qualification Call 1 with no dup-Call race.
+- **TZ cosmetic offset persists**: `Last_Email_Sent_At`, `Signed_At`, `Call_Start_Time` all stamp -1hr behind wall-clock in this org. Known XXX-format trade-off, accepted.
+- **`Amount` correctly populated from `Unit_Price`** wherever a Product matched (Cortex=16k seen on L1; UX=12k seen on TC6/TC12). TC4 (no Product match) correctly left Amount unset rather than throwing.
+- **handleCallOutcome covers all 9 canonical outcomes**: Positive / Neutral / No Answer / Deferred / Bad Data / Already Handled / Not Relevant / Manual Only / Do Not Contact. Negative also exists (line 169) but wasn't exercised this round; spec says it marks Deal Lost with reason "Disqualified - Call".
+
+### Records modified or created (cleanup batch — to be deleted after)
+
+| Module | IDs |
+| --- | --- |
+| Leads | L1=970001, TC4=934003, TC17=934004, TC18=934005, TC19=934006, TC10=934007, TC6=974001, TC12=974002, TC14=974003, TC20=974004 |
+| Deals (winners) | L1=960005, TC4=955004, TC10=952010, TC17=902005, TC18=896012, TC19=919006, TC6=919015, TC12=965010, TC14=941012, TC20=952016 |
+| Deals (silenced duplicates) | various; v3 silencing marked non-canonical open Deals as `(Duplicate)` with State=Lost |
+| Calls | 12+ across all the Deals; mix of Marketing Qualification / Demo Booking / Demo Confirmation / Proposal Preparation / Commercial Agreement / Onboarding Call 1 and Call 2 records |
+| Accounts + Contacts | derived from each cascade (Contacts cannot reliably be hard-deleted — they retain links to soft-deleted Calls/Tasks) |
+
+## Round 11 — 2026-06-08 07:37 GMT / 08:37 BST
+
+**Org mode:** Production (test data only).
+**Session prefix:** `MCP_TEST_20260607_2355` and `MCP_TEST_20260607_2320`
+
+### T13 — Commercials_Status = Signed (State=Won regression check)
+- Status: PASS
+- Action taken: Updated `Commercials_Status = "Signed"` on Deal `991103000000905055`.
+- Observed: Deal `Stage1` advanced to `"Onboarding"`, `Stage` to `"RTP"`, `State` remained `"Open"` (verifying "Won" regression check passes), `Signed_At` was stamped with current timestamp, and `"Onboarding Call 1"` Call was successfully created.
+
+### T15 — Demo_Outcome = Attended - Qualified
+- Status: PASS
+- Action taken: Updated `Demo_Outcome = "Attended - Qualified"` on Deal `991103000000905055` (while it was at stage `"Demo Confirmation"`).
+- Observed: Deal `Stage1` advanced to `"Proposal Preparation"`, `Stage` to `"FTP"`, `Commercials_Status` was updated to `"Drafting"`, `Demo_Status` to `"Completed"`, a related Task `"Draft Commercials for Deal..."` was created, and `"Proposal Preparation Call 1"` Call was successfully created.
+
+### T16 — Positive Call outcome
+- Status: PASS
+- Action taken: Updated `Call_Outcome = "Positive"` on Call `991103000000952050` (`Onboarding Call 1`).
+- Observed: Deal `Stage1` advanced to `"Renewal"`, `Stage` to `"RTP"`, and `"Renewal Call 1"` Call was successfully created.
+
+### T17 — Neutral / No Answer Call outcome
+- Status: PASS
+- Action taken: Updated `Call_Outcome = "No Answer"` on Call `991103000000948028` (`Renewal Call 1`).
+- Observed: Deal `Active_Sequence_Attempt` advanced from 1 to 2, and `"Renewal Call 2"` Call was successfully created.
+
+### TC14c & TC20c — Manual Stage1 change
+- Status: PASS
+- Action taken: Manually updated `Stage1 = "Demo Booking"` and `Stage = "SQL"` with workflows enabled on Deal `991103000000905055`.
+- Observed: WF003 stage change router fired successfully, stamped `Sequence_Superseded_At`, and created `"Demo Booking Call 1"` Call.
+
+### Cleanup test records
+- Status: PASS
+- Action taken: Deleted all test records created under prefixes `MCP_TEST_20260607_2355` and `MCP_TEST_20260607_2320` in correct order: 13 Calls, 1 Task, 8 Deals, 6 Contacts, 5 Accounts, and 6 Leads.
+- Observed: Deleted successfully with SUCCESS response from API. Verified zero records remain.
+
