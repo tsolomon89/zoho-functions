@@ -1,44 +1,61 @@
-﻿Field Label,API Name,Data Type,Custom Field
+Field Label,API Name,Data Type,Custom Field
 Account Name,Account_Name,Lookup,
+Active Deal ID,Active_Deal_ID,Single Line,Yes
 Assistant,Assistant,Single Line,
 Asst Phone,Asst_Phone,Phone,
 Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
-Connected To,Connected_To__s,MultiModuleLookup,
-Contact Image,Record_Image,Record Image,
-Contact Owner,Owner,Lookup,
-Created By,Created_By,Single Line,
+Change Log Time,Change_Log_Time__s,DateTime,
+Contact Image,Record_Image,Profileimage,
+Contact Owner,Owner,Ownerlookup,
 Contact Role,Contact_Role1,Pick List,Yes
+Contact Source Class,Contact_Source_Class,Pick List,Yes
+Created By,Created_By,Ownerlookup,
+Created Time,Created_Time,DateTime,
 Date of Birth,Date_of_Birth,Date,
 Days Visited,Days_Visited,Number,
 Department,Department,Single Line,
-Description,Description,Multi Line (Large),
+Description,Description,Multi Line,
+Do Not Contact Reason,Do_Not_Contact_Reason,Pick List,Yes
 Email,Email,Email (Unique),
 Email Opt Out,Email_Opt_Out,Boolean,
-Fax,Fax,Fax,
+Enrich Status,Enrich_Status__s,Pick List,
+Fax,Fax,Single Line,
 First Name,First_Name,Single Line,
 First Page Visited,First_Visited_URL,URL,
 First Visit,First_Visited_Time,DateTime,
+Full Name,Full_Name,Single Line,
 Home Phone,Home_Phone,Phone,
 Job Title,Job_Title,Pick List,Yes
+Last Activity Time,Last_Activity_Time,DateTime,
+Last Enriched Time,Last_Enriched_Time__s,DateTime,
+Last Enrichment Status,Last_Enrichment_Status,Pick List,Yes
 Last Name,Last_Name,Single Line,
+Lead Referrer,Lead_Referrer,Single Line,Yes
 Lead Source,Lead_Source,Pick List,
+Locked,Locked__s,Boolean,
 Lost Reasons,Lost_Reasons,Pick List,Yes
+Mailing Address,Mailing_Address,Multi Line,
 Mailing Address - City,Mailing_City,Single Line,
+Mailing Address - Coordinates,Mailing_Coordinates,Multi Line,
 Mailing Address - Country / Region,Mailing_Country,Pick List,
-Mailing Address - Flat / House No./ B...,Mailing_Flat_House_No_Building_Apa...,Single Line,
+Mailing Address - Flat / House No./ Building / Apartment Name,Mailing_Flat_House_No_Building_Apartment_Name,Single Line,
 Mailing Address - Latitude,Mailing_Latitude,Decimal,
 Mailing Address - Longitude,Mailing_Longitude,Decimal,
 Mailing Address - State / Province,Mailing_State,Pick List,
 Mailing Address - Street Address,Mailing_Street,Single Line,
 Mailing Address - Zip / Postal Code,Mailing_Zip,Single Line,
-Marketing Qualification,Marketing_Consent,Boolean,Yes
+Marketing Consent,Marketing_Consent,Boolean,Yes
+Marketing Consent Status,Marketing_Consent_Status,Pick List,Yes
 Mobile,Mobile,Phone,
-Modified By,Modified_By,Single Line,
+Modified By,Modified_By,Ownerlookup,
+Modified Time,Modified_Time,DateTime,
 Most Recent Visit,Last_Visited_Time,DateTime,
 Number Of Chats,Number_Of_Chats,Number,
+Other Address,Other_Address,Multi Line,
 Other Address - City,Other_City,Single Line,
+Other Address - Coordinates,Other_Coordinates,Multi Line,
 Other Address - Country / Region,Other_Country,Pick List,
-Other Address - Flat / House No./ Bui...,Other_Flat_House_No_Building_Apar...,Single Line,
+Other Address - Flat / House No./ Building / Apartment Name,Other_Flat_House_No_Building_Apartment_Name,Single Line,
 Other Address - Latitude,Other_Latitude,Decimal,
 Other Address - Longitude,Other_Longitude,Decimal,
 Other Address - State / Province,Other_State,Pick List,
@@ -46,8 +63,14 @@ Other Address - Street Address,Other_Street,Single Line,
 Other Address - Zip / Postal Code,Other_Zip,Single Line,
 Other Phone,Other_Phone,Phone,
 Personal Linkedin,Personal_Linkedin,Single Line,Yes
+Personal Phone,Personal_Phone,Phone,Yes
 Phone,Phone,Phone,
+Preferred Contact Method,Preferred_Contact_Method,Pick List,Yes
+Product Interest Staging,Product_Interest_Staging,Multi Line,Yes
 Products Linked,Products_Linked,Multi-Select Lookup,Yes
+Profile Completion Status,Profile_Completion_Status,Pick List,Yes
+Record Id,id,Long Integer,
+Record Status,Record_Status__s,Pick List,
 Referrer,Referrer,URL,
 Reporting To,Reporting_To,Lookup,
 Salutation,Salutation,Pick List,
@@ -57,7 +80,8 @@ Stage,Stage,Pick List,Yes
 State,State,Pick List,Yes
 Status,Status,Pick List,Yes
 Tag,Tag,Single Line,
-Title,Title,Single Line,
 Twitter,Twitter,Single Line,
+Unsubscribed Mode,Unsubscribed_Mode,Pick List,
+Unsubscribed Time,Unsubscribed_Time,DateTime,
 Vendor Name,Vendor_Name,Lookup,
 Visitor Score,Visitor_Score,Long Integer,

@@ -158,6 +158,19 @@ void automation.processDeal(string deal_id)
 					info "processDeal: stamped Contact_Role1 on " + cId + " title='" + cJobTitleLoop + "' → '" + resolvedRoleLoop + "' resp=" + stampResp;
 				}
 
+				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
+				if(cPIStaging != "")
+				{
+					for each part in cPIStaging.toList(",")
+					{
+						pTrim = part.trim();
+						if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+						{
+							aggregatedPIList.add(pTrim);
+							lowercasePIList.add(pTrim.toLowerCase());
+						}
+					}
+				}
 				cPI = fullC.get("Products_Linked");
 				if(cPI != null)
 				{
@@ -450,6 +463,15 @@ void automation.processDeal(string deal_id)
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
 		dUpd.put("Contact_Name", furthestContactId);
+	}
+	aggregatedPIStr = "";
+	for each apiItem in aggregatedPIList
+	{
+		aggregatedPIStr = aggregatedPIStr + if(aggregatedPIStr != "", ", ", "") + apiItem;
+	}
+	if(aggregatedPIStr != "" && ifnull(targetDeal.get("Product_Interest_Staging"), "") != aggregatedPIStr)
+	{
+		dUpd.put("Product_Interest_Staging", aggregatedPIStr);
 	}
 
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();

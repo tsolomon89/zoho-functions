@@ -1,17 +1,43 @@
-﻿Field Label,API Name,Data Type,Custom Field
+Field Label,API Name,Data Type,Custom Field
 All day,All_day,Boolean,
+Check-In Address,Check_In_Address,Multi Line,
+Check-In By,Check_In_By,Ownerlookup,
+Check-In City,Check_In_City,Single Line,
+Check-In Comment,Check_In_Comment,Multi Line,
+Check-In Country,Check_In_Country,Single Line,
+Check-In State,Check_In_State,Single Line,
+Check-In Sub-Locality,Check_In_Sub_Locality,Single Line,
+Check-In Time,Check_In_Time,DateTime,
+Checked In Status,Check_In_Status,Single Line,
 Contact Name,Who_Id,Lookup,
-Created By,Created_By,Single Line,
-Description,Description,Multi Line (Large),
+Created By,Created_By,Ownerlookup,
+Created Time,Created_Time,DateTime,
+Description,Description,Multi Line,
+Ext Calendar Booking ID,Ext_Calendar_Booking_ID,Single Line,Yes
+Follow-Up Required,Follow_Up_Required,Pick List,Yes
+Follow-Up Stage,Follow_Up_Stage,Pick List,Yes
 From,Start_DateTime,DateTime,
-Host,Owner,Lookup,
+Host,Owner,Ownerlookup,
+Last Activity Time,Last_Activity_Time,DateTime,
+Latitude,Latitude,Decimal,
 Location,Venue,Single Line,
+Longitude,Longitude,Decimal,
+Meeting Outcome,Meeting_Outcome,Pick List,Yes
+Meeting Status,Meeting_Status,Pick List,Yes
+Meeting Type,Meeting_Type,Pick List,Yes
 Meeting Venue,Meeting_Venue__s,Pick List,
-Modified By,Modified_By,Single Line,
-Participants Reminder,Remind_Participants,Single Line,
+Modified By,Modified_By,Ownerlookup,
+Modified Time,Modified_Time,DateTime,
+Participants,Participants,Long Integer,
+Participants Reminder,Remind_Participants,Multireminder,
 Provider,Meeting_Provider__s,Pick List,
+Record Id,id,Long Integer,
+Record Status,Record_Status__s,Pick List,
 Related To,What_Id,Lookup,
-Repeat,Recurring_Activity,Single Line,
+Reminder,Remind_At,Multireminder,
+Reminder Send At,Reminder_Send_At,DateTime,Yes
+Repeat,Recurring_Activity,Rrule,
 Tag,Tag,Single Line,
 Title,Event_Title,Single Line,
 To,End_DateTime,DateTime,
+Zip Code,ZIP_Code,Single Line,

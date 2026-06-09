@@ -264,6 +264,19 @@ void automation.processContact(string contact_id)
 	contactJobTitleMap = Map();
 
 	// (a) Triggering Contact's Product_Interest (full record — Multi-Select Lookup)
+	triggerPIStaging = ifnull(contactRecord.get("Product_Interest_Staging"), "").toString().trim();
+	if(triggerPIStaging != "")
+	{
+		for each part in triggerPIStaging.toList(",")
+		{
+			pTrim = part.trim();
+			if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+			{
+				aggregatedPIList.add(pTrim);
+				lowercasePIList.add(pTrim.toLowerCase());
+			}
+		}
+	}
 	triggerPI = contactRecord.get("Products_Linked");
 	if(triggerPI != null)
 	{
@@ -315,6 +328,19 @@ void automation.processContact(string contact_id)
 				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId, ifnull(fullC.get("Job_Title"), "").toString().trim());
 
+				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
+				if(cPIStaging != "")
+				{
+					for each part in cPIStaging.toList(",")
+					{
+						pTrim = part.trim();
+						if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+						{
+							aggregatedPIList.add(pTrim);
+							lowercasePIList.add(pTrim.toLowerCase());
+						}
+					}
+				}
 				cPI = fullC.get("Products_Linked");
 				if(cPI != null)
 				{
@@ -645,6 +671,15 @@ void automation.processContact(string contact_id)
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
 		dUpd.put("Contact_Name", furthestContactId);
+	}
+	aggregatedPIStr = "";
+	for each apiItem in aggregatedPIList
+	{
+		aggregatedPIStr = aggregatedPIStr + if(aggregatedPIStr != "", ", ", "") + apiItem;
+	}
+	if(aggregatedPIStr != "" && ifnull(targetDeal.get("Product_Interest_Staging"), "") != aggregatedPIStr)
+	{
+		dUpd.put("Product_Interest_Staging", aggregatedPIStr);
 	}
 
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();

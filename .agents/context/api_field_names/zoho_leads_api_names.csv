@@ -1,8 +1,10 @@
-﻿Field Label,API Name,Data Type,Custom Field
+Field Label,API Name,Data Type,Custom Field
 Account Key,Account_Key,Single Line (Unique),Yes
+Address,Address,Multi Line,
 Address - City,City,Single Line,
+Address - Coordinates,Coordinates,Multi Line,
 Address - Country / Region,Country,Pick List,
-Address - Flat / House No./ Building /...,Flat_House_No_Building_Apartment_...,Single Line,
+Address - Flat / House No./ Building / Apartment Name,Flat_House_No_Building_Apartment_Name,Single Line,
 Address - Latitude,Latitude,Decimal,
 Address - Longitude,Longitude,Decimal,
 Address - State / Province,State,Pick List,
@@ -10,51 +12,105 @@ Address - Street Address,Street,Single Line,
 Address - Zip / Postal Code,Zip_Code,Single Line,
 Annual Revenue,Annual_Revenue,Currency,
 Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
+Change Log Time,Change_Log_Time__s,DateTime,
+Commercial Agreement Completed At,Commercial_Agreement_Completed_At,DateTime,Yes
 Company,Company,Single Line,
 Company Linkedin,Company_Linkedin,Single Line,Yes
 Company Phone,Phone,Phone,
-Connected To,Connected_To__s,MultiModuleLookup,
 Contact Role,Contact_Role1,Pick List,Yes
+Continent AOR,Continent_AOR,Multiselect,Yes
+Continent Expansion,Continent_Expansion,Multiselect,Yes
+Contract ACV Current,Contract_ACV_Current,Currency,Yes
+Contract ACV Intial,Contract_ACV_Intial,Currency,Yes
+Contract Currency,Contract_Currency,Pick List,Yes
+Contract End Date,Contract_End_Date,Date,Yes
+Contract Renewal Date,Contract_Renewal_Date,Date,Yes
+Contract Start Date,Contract_Start_Date,Date,Yes
+Contract Type,Contract_Type,Pick List,Yes
+Conversion Outcome,Conversion_Outcome,Multi Line,Yes
 Converted Account,Converted_Account,Lookup,
 Converted Contact,Converted_Contact,Lookup,
+Converted Date Time,Converted_Date_Time,DateTime,
 Converted Deal,Converted_Deal,Lookup,
-Created By,Created_By,Single Line,
+Country AOR,Country_AOR,Multiselect,Yes
+Country Expansion,Country_Expansion,Multiselect,Yes
+Created By,Created_By,Ownerlookup,
+Created Time,Created_Time,DateTime,
 Days Visited,Days_Visited,Number,
 Deal Key,Deal_Key,Single Line (Unique),Yes
-Description,Description,Multi Line (Large),
+Demo Booking Completed At,Demo_Booking_Completed_At,DateTime,Yes
+Demo Confirmation Completed At,Demo_Confirmation_Completed_At,DateTime,Yes
+Demo Hosted Completed At,Demo_Hosted_Completed_At,DateTime,Yes
+Description,Description,Multi Line,
 Email,Email,Email,
 Email Opt Out,Email_Opt_Out,Boolean,
-Fax,Fax,Fax,
+Enrich Status,Enrich_Status__s,Pick List,
+Fax,Fax,Single Line,
 First Name,First_Name,Single Line,
 First Page Visited,First_Visited_URL,URL,
 First Visit,First_Visited_Time,DateTime,
+Full Name,Full_Name,Single Line,
+Imported Record Type,Imported_Record_Type,Pick List,Yes
 Industry,Industry,Pick List,
+Initial Opportunity,Initial_Opportunity,Pick List,Yes
+Initial Stage,Initial_Stage,Pick List,Yes
+Is Converted,Converted__s,Boolean,
 Job Title,Job_Title,Pick List,Yes
+Last Activity Time,Last_Activity_Time,DateTime,
+Last Enriched Time,Last_Enriched_Time__s,DateTime,
 Last Name,Last_Name,Single Line,
-Lead Image,Record_Image,Record Image,
-Lead Owner,Owner,Lookup,
+Lead Conversion Time,Lead_Conversion_Time,Number,
+Lead Image,Record_Image,Profileimage,
+Lead Owner,Owner,Ownerlookup,
+Lead Processing Status,Lead_Processing_Status,Pick List,Yes
+Lead Referrer,Lead_Referrer,Single Line,Yes
 Lead Source,Lead_Source,Pick List,
 Lead Status,Lead_Status,Pick List,
+Locked,Locked__s,Boolean,
 Lost Reasons,Lost_Reasons,Pick List,Yes
-Marketing Qualification,Marketing_Consent,Boolean,Yes
+Marketing Consent,Marketing_Consent,Boolean,Yes
+Marketing Qualification Completed At,Marketing_Qualification_Completed_At,DateTime,Yes
 Mobile,Mobile,Phone,
-Modified By,Modified_By,Single Line,
+Modified By,Modified_By,Ownerlookup,
+Modified Time,Modified_Time,DateTime,
 Most Recent Visit,Last_Visited_Time,DateTime,
 No of Employees,No_of_Employees,Number,
 Number Of Chats,Number_Of_Chats,Number,
+Onboarding Completed At,Onboarding_Completed_At,DateTime,Yes
 Personal Linkedin,Personal_Linkedin,Single Line,Yes
 Personal Phone,Personal_Phone,Phone,Yes
+Processing Error,Processing_Error,Multi Line,Yes
 Product Interest,Product_Interest,Multiselect,Yes
+Product Resolution Status,Product_Resolution_Status,Pick List,Yes
 Products Linked,Products_Linked,Multi-Select Lookup,Yes
+Proposal Preparation Completed At,Proposal_Preparation_Completed_At,DateTime,Yes
 Rating,Rating,Pick List,
+Ready for Conversion,Ready_for_Conversion,Boolean,Yes
+Record Id,id,Long Integer,
+Record Status,Record_Status__s,Pick List,
 Referrer,Referrer,URL,
+Region AOR,Region_AOR,Multiselect,Yes
+Region Expansion,Region_Expansion,Multiselect,Yes
+Regional AOR,Regional_AOR,Boolean,Yes
+Regional Expansion,Regional_Expansion,Boolean,Yes
+Renewal Completed At,Renewal_Completed_At,DateTime,Yes
+Role AOR,Role_AOR,Multi Line,Yes
+Role Priority 1,Role_Priority_1,Multi Line,Yes
+Role Priority 2,Role_Priority_2,Multi Line,Yes
+Role Priority 3,Role_Priority_3,Multi Line,Yes
 Salutation,Salutation,Pick List,
 Secondary Email,Secondary_Email,Email,
 Skype ID,Skype_ID,Single Line,
 Stage,Stage,Pick List,Yes
 Status,Status,Pick List,Yes
+Sub Region AOR,Sub_Region_AOR,Multiselect,Yes
+Sub Region Expansion,Sub_Region_Expansion,Multiselect,Yes
 Tag,Tag,Single Line,
-Title,Designation,Single Line,
+Technographics,Technographics,Multiselect,Yes
+Technographics Evaluating,Technographics_Evaluating,Multiselect,Yes
+Timeline Expansion,Timeline_Expansion,DateTime,Yes
 Twitter,Twitter,Single Line,
+Unsubscribed Mode,Unsubscribed_Mode,Pick List,
+Unsubscribed Time,Unsubscribed_Time,DateTime,
 Visitor Score,Visitor_Score,Long Integer,
 Website,Website,URL,

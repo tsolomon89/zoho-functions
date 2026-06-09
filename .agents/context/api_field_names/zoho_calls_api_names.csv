@@ -1,19 +1,38 @@
-﻿Field Label,API Name,Data Type,Custom Field
+Field Label,API Name,Data Type,Custom Field
+Block Email Until Done,Block_Email_Until_Done,Pick List,Yes
+CTI Entry,CTI_Entry,Boolean,
 Call Agenda,Call_Agenda,Single Line,
 Call Duration,Call_Duration,Single Line,
-Call Owner,Owner,Lookup,
+Call Duration (in seconds),Call_Duration_in_seconds,Number,
+Call Outcome,Call_Outcome,Pick List,Yes
+Call Owner,Owner,Ownerlookup,
 Call Purpose,Call_Purpose,Pick List,
+Call Purpose Detail,Call_Purpose_Detail,Pick List,Yes
 Call Result,Call_Result,Pick List,
 Call Start Time,Call_Start_Time,DateTime,
 Call Type,Call_Type,Pick List,
 Caller ID,Caller_ID,Single Line,
 Contact Name,Who_Id,Lookup,
-Created By,Created_By,Single Line,
-Description,Description,Multi Line (Large),
+Created By,Created_By,Ownerlookup,
+Created Time,Created_Time,DateTime,
+Description,Description,Multi Line,
 Dialled Number,Dialled_Number,Single Line,
-Modified By,Modified_By,Single Line,
+Email Trigger Template,Email_Trigger_Template,Single Line,Yes
+Last Activity Time,Last_Activity_Time,DateTime,
+Modified By,Modified_By,Ownerlookup,
+Modified Time,Modified_Time,DateTime,
+Next Follow-Up Date,Next_Follow_Up_Date,DateTime,Yes
+Outcome Notes,Outcome_Notes,Multi Line,Yes
 Outgoing Call Status,Outgoing_Call_Status,Pick List,
+Record Id,id,Long Integer,
+Record Status,Record_Status__s,Pick List,
 Related To,What_Id,Lookup,
+Reminder,Reminder,Pick List,
 Scheduled in CRM,Scheduled_In_CRM,Pick List,
+Sequence Attempt,Sequence_Attempt,Number,Yes
+Sequence Managed,Sequence_Managed,Pick List,Yes
+Sequence Stage,Sequence_Stage,Pick List,Yes
+Stale,Stale,Pick List,Yes
+Subject,Subject,Single Line,
 Tag,Tag,Single Line,
 Voice Recording,Voice_Recording__s,URL,

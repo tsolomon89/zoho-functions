@@ -47,6 +47,23 @@ void automation.processLead(string lead_id)
 	leadSource = ifnull(leadRecord.get("Lead_Source"), "").toString().trim();
 	leadLostReasons = ifnull(leadRecord.get("Lost_Reasons"), "").toString().trim();
 	leadJobTitle = ifnull(leadRecord.get("Job_Title"), "").toString().trim();
+	personalPhone = ifnull(leadRecord.get("Personal_Phone"), "").toString().trim();
+	leadReferrer = ifnull(leadRecord.get("Lead_Referrer"), "").toString().trim();
+	contractStartDate = leadRecord.get("Contract_Start_Date");
+	contractEndDate = leadRecord.get("Contract_End_Date");
+	contractRenewalDate = leadRecord.get("Contract_Renewal_Date");
+	contractACVInitial = ifnull(leadRecord.get("Contract_ACV_Intial"), "0").toDecimal();
+	contractACVCurrent = ifnull(leadRecord.get("Contract_ACV_Current"), "0").toDecimal();
+	contractType = ifnull(leadRecord.get("Contract_Type"), "").toString().trim();
+	contractCurrency = ifnull(leadRecord.get("Contract_Currency"), "").toString().trim();
+	mqCompletedAt = leadRecord.get("Marketing_Qualification_Completed_At");
+	dbCompletedAt = leadRecord.get("Demo_Booking_Completed_At");
+	dcCompletedAt = leadRecord.get("Demo_Confirmation_Completed_At");
+	dhCompletedAt = leadRecord.get("Demo_Hosted_Completed_At");
+	ppCompletedAt = leadRecord.get("Proposal_Preparation_Completed_At");
+	caCompletedAt = leadRecord.get("Commercial_Agreement_Completed_At");
+	obCompletedAt = leadRecord.get("Onboarding_Completed_At");
+	rnCompletedAt = leadRecord.get("Renewal_Completed_At");
 
 	// ---- 1b. Resolve Contact_Role from Job_Title and stamp on Lead BEFORE conversion ----
 	// Inlined here because standalone cross-function calls silently fail in some CRM configs.
@@ -284,6 +301,18 @@ void automation.processLead(string lead_id)
 	{
 		updCon.put("Contact_Role1", leadContactRole);
 	}
+	if(personalPhone != "" && ifnull(contactRecord.get("Personal_Phone"), "") == "")
+	{
+		updCon.put("Personal_Phone", personalPhone);
+	}
+	if(leadReferrer != "" && ifnull(contactRecord.get("Lead_Referrer"), "") == "")
+	{
+		updCon.put("Lead_Referrer", leadReferrer);
+	}
+	if(leadPIStr != "" && ifnull(contactRecord.get("Product_Interest_Staging"), "") == "")
+	{
+		updCon.put("Product_Interest_Staging", leadPIStr);
+	}
 
 	if(updCon.size() > 0)
 	{
@@ -337,6 +366,22 @@ void automation.processLead(string lead_id)
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", newContactId);
 		if(leadSource != "") { dealMap.put("Lead_Source", leadSource); }
+		if(contractStartDate != null) { dealMap.put("Contract_Start_Date", contractStartDate); }
+		if(contractEndDate != null) { dealMap.put("Contract_End_Date", contractEndDate); }
+		if(contractRenewalDate != null) { dealMap.put("Contract_Renewal_Date", contractRenewalDate); }
+		if(contractACVInitial != 0) { dealMap.put("Contract_ACV_Intial", contractACVInitial); }
+		if(contractACVCurrent != 0) { dealMap.put("Contract_ACV_Current", contractACVCurrent); }
+		if(contractType != "") { dealMap.put("Contract_Type", contractType); }
+		if(contractCurrency != "") { dealMap.put("Contract_Currency", contractCurrency); }
+		if(mqCompletedAt != null) { dealMap.put("Marketing_Qualification_Completed_At", mqCompletedAt); }
+		if(dbCompletedAt != null) { dealMap.put("Demo_Booking_Completed_At", dbCompletedAt); }
+		if(dcCompletedAt != null) { dealMap.put("Demo_Confirmation_Completed_At", dcCompletedAt); }
+		if(dhCompletedAt != null) { dealMap.put("Demo_Hosted_Completed_At", dhCompletedAt); }
+		if(ppCompletedAt != null) { dealMap.put("Proposal_Preparation_Completed_At", ppCompletedAt); }
+		if(caCompletedAt != null) { dealMap.put("Commercial_Agreement_Completed_At", caCompletedAt); }
+		if(obCompletedAt != null) { dealMap.put("Onboarding_Completed_At", obCompletedAt); }
+		if(rnCompletedAt != null) { dealMap.put("Renewal_Completed_At", rnCompletedAt); }
+		if(leadPIStr != "") { dealMap.put("Product_Interest_Staging", leadPIStr); }
 
 		dRes = zoho.crm.createRecord("Deals", dealMap);
 		if(dRes.get("id") != null)
@@ -480,6 +525,19 @@ void automation.processLead(string lead_id)
 				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId_loop, ifnull(fullC.get("Job_Title"), "").toString().trim());
 
+				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
+				if(cPIStaging != "")
+				{
+					for each part in cPIStaging.toList(",")
+					{
+						pTrim = part.trim();
+						if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+						{
+							aggregatedPIList.add(pTrim);
+							lowercasePIList.add(pTrim.toLowerCase());
+						}
+					}
+				}
 				cPI = fullC.get("Products_Linked");
 				if(cPI != null)
 				{
@@ -820,6 +878,30 @@ void automation.processLead(string lead_id)
 	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
 	{
 		dUpd.put("Contact_Name", furthestContactId);
+	}
+	if(contractStartDate != null && targetDeal.get("Contract_Start_Date") == null) { dUpd.put("Contract_Start_Date", contractStartDate); }
+	if(contractEndDate != null && targetDeal.get("Contract_End_Date") == null) { dUpd.put("Contract_End_Date", contractEndDate); }
+	if(contractRenewalDate != null && targetDeal.get("Contract_Renewal_Date") == null) { dUpd.put("Contract_Renewal_Date", contractRenewalDate); }
+	if(contractACVInitial != 0 && ifnull(targetDeal.get("Contract_ACV_Intial"), 0).toDecimal() == 0) { dUpd.put("Contract_ACV_Intial", contractACVInitial); }
+	if(contractACVCurrent != 0 && ifnull(targetDeal.get("Contract_ACV_Current"), 0).toDecimal() == 0) { dUpd.put("Contract_ACV_Current", contractACVCurrent); }
+	if(contractType != "" && ifnull(targetDeal.get("Contract_Type"), "") == "") { dUpd.put("Contract_Type", contractType); }
+	if(contractCurrency != "" && ifnull(targetDeal.get("Contract_Currency"), "") == "") { dUpd.put("Contract_Currency", contractCurrency); }
+	if(mqCompletedAt != null && targetDeal.get("Marketing_Qualification_Completed_At") == null) { dUpd.put("Marketing_Qualification_Completed_At", mqCompletedAt); }
+	if(dbCompletedAt != null && targetDeal.get("Demo_Booking_Completed_At") == null) { dUpd.put("Demo_Booking_Completed_At", dbCompletedAt); }
+	if(dcCompletedAt != null && targetDeal.get("Demo_Confirmation_Completed_At") == null) { dUpd.put("Demo_Confirmation_Completed_At", dcCompletedAt); }
+	if(dhCompletedAt != null && targetDeal.get("Demo_Hosted_Completed_At") == null) { dUpd.put("Demo_Hosted_Completed_At", dhCompletedAt); }
+	if(ppCompletedAt != null && targetDeal.get("Proposal_Preparation_Completed_At") == null) { dUpd.put("Proposal_Preparation_Completed_At", ppCompletedAt); }
+	if(caCompletedAt != null && targetDeal.get("Commercial_Agreement_Completed_At") == null) { dUpd.put("Commercial_Agreement_Completed_At", caCompletedAt); }
+	if(obCompletedAt != null && targetDeal.get("Onboarding_Completed_At") == null) { dUpd.put("Onboarding_Completed_At", obCompletedAt); }
+	if(rnCompletedAt != null && targetDeal.get("Renewal_Completed_At") == null) { dUpd.put("Renewal_Completed_At", rnCompletedAt); }
+	aggregatedPIStr = "";
+	for each apiItem in aggregatedPIList
+	{
+		aggregatedPIStr = aggregatedPIStr + if(aggregatedPIStr != "", ", ", "") + apiItem;
+	}
+	if(aggregatedPIStr != "" && ifnull(targetDeal.get("Product_Interest_Staging"), "") != aggregatedPIStr)
+	{
+		dUpd.put("Product_Interest_Staging", aggregatedPIStr);
 	}
 
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
