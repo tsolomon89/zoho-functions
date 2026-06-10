@@ -31,6 +31,7 @@ void automation.processContact(string contact_id)
 	if(contactRecord.get("id") == null) { return; }
 
 	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+	stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
 
 	// ---- 1. Read Contact ----
 	accountId = "";
@@ -121,13 +122,18 @@ void automation.processContact(string contact_id)
 
 	if(accountId == "" || accountId == "null") { return; }
 
-	// ---- 3. Normalize Contact defaults ----
+	// ---- 3. Normalize Contact defaults and completed dates ----
 	updConInit = Map();
 	if(accNameMap == null || accNameMap.get("id") == null || accNameMap.get("id").toString() != accountId)
 	{
 		updConInit.put("Account_Name", accountId);
 	}
-	if(ifnull(contactRecord.get("Stage"), "") == "") { updConInit.put("Stage", "Marketing Qualification"); }
+	contactStage = ifnull(contactRecord.get("Stage"), "").toString().trim();
+	if(contactStage == "")
+	{
+		contactStage = "Marketing Qualification";
+		updConInit.put("Stage", contactStage);
+	}
 	if(ifnull(contactRecord.get("State"), "") == "") { updConInit.put("State", "Open"); }
 
 	// Resolve and populate custom Contact_Role field if empty (inlined — no cross-function call)
@@ -143,6 +149,31 @@ void automation.processContact(string contact_id)
 		else if(infTitles.contains(titleKey)) { resolvedRoleVal = "Influencer"; }
 		info "processContact: resolved Contact_Role title='" + cJobTitle + "' → role='" + resolvedRoleVal + "'";
 		updConInit.put("Contact_Role1", resolvedRoleVal);
+	}
+
+	// Stage completion date dynamic stamping on Contact itself
+	contactStageFields = Map();
+	contactStageFields.put("Marketing Qualification", "Contact_Completed_Marketing_Qualification_At");
+	contactStageFields.put("Demo Booking", "Contact_Completed_Demo_Booking_At");
+	contactStageFields.put("Demo Confirmation", "Contact_Completed_Demo_Confirmation_At");
+	contactStageFields.put("Demo Hosted", "Contact_Completed_Demo_Hosted_At");
+	contactStageFields.put("Proposal Preparation", "Contact_Completed_Proposal_Preparation_At");
+	contactStageFields.put("Commercial Agreement", "Contact_Completed_Commercial_Agreement_At");
+	contactStageFields.put("Onboarding", "Contact_Completed_Onboarding_At");
+	contactStageFields.put("Renewal", "Contact_Completed_Renewal_At");
+
+	contactRank = ifnull(stageRanks.get(contactStage), 1).toLong();
+	for each stageItem in stagesList
+	{
+		stageItemRank = ifnull(stageRanks.get(stageItem), 0).toLong();
+		if(stageItemRank <= contactRank)
+		{
+			fieldApi = contactStageFields.get(stageItem);
+			if(fieldApi != null && contactRecord.get(fieldApi) == null)
+			{
+				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+			}
+		}
 	}
 
 	if(updConInit.size() > 0)
@@ -263,6 +294,8 @@ void automation.processContact(string contact_id)
 	processedContactIds = List();
 	contactJobTitleMap = Map();
 	contactRoleMap = Map();
+	contactStageMap = Map();
+	contactDatesMap = Map();
 
 	// (a) Triggering Contact's Product_Interest (full record — Multi-Select Lookup)
 	triggerPIStaging = ifnull(contactRecord.get("Product_Interest_Staging"), "").toString().trim();
@@ -329,6 +362,18 @@ void automation.processContact(string contact_id)
 				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId, ifnull(fullC.get("Job_Title"), "").toString().trim());
 				contactRoleMap.put(cId, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
+				contactStageMap.put(cId, cStage);
+				
+				cDates = Map();
+				cDates.put("Marketing Qualification", ifnull(fullC.get("Contact_Completed_Marketing_Qualification_At"), ""));
+				cDates.put("Demo Booking", ifnull(fullC.get("Contact_Completed_Demo_Booking_At"), ""));
+				cDates.put("Demo Confirmation", ifnull(fullC.get("Contact_Completed_Demo_Confirmation_At"), ""));
+				cDates.put("Demo Hosted", ifnull(fullC.get("Contact_Completed_Demo_Hosted_At"), ""));
+				cDates.put("Proposal Preparation", ifnull(fullC.get("Contact_Completed_Proposal_Preparation_At"), ""));
+				cDates.put("Commercial Agreement", ifnull(fullC.get("Contact_Completed_Commercial_Agreement_At"), ""));
+				cDates.put("Onboarding", ifnull(fullC.get("Contact_Completed_Onboarding_At"), ""));
+				cDates.put("Renewal", ifnull(fullC.get("Contact_Completed_Renewal_At"), ""));
+				contactDatesMap.put(cId, cDates);
 
 				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
 				if(cPIStaging != "")
@@ -405,6 +450,18 @@ void automation.processContact(string contact_id)
 		cState = ifnull(contactRecord.get("State"), "Open").toString();
 		contactJobTitleMap.put(cleanId.toString(), ifnull(contactRecord.get("Job_Title"), "").toString().trim());
 		contactRoleMap.put(cleanId.toString(), ifnull(contactRecord.get("Contact_Role1"), "Decision Maker").toString());
+		contactStageMap.put(cleanId.toString(), cStage);
+		
+		cDates = Map();
+		cDates.put("Marketing Qualification", ifnull(contactRecord.get("Contact_Completed_Marketing_Qualification_At"), ""));
+		cDates.put("Demo Booking", ifnull(contactRecord.get("Contact_Completed_Demo_Booking_At"), ""));
+		cDates.put("Demo Confirmation", ifnull(contactRecord.get("Contact_Completed_Demo_Confirmation_At"), ""));
+		cDates.put("Demo Hosted", ifnull(contactRecord.get("Contact_Completed_Demo_Hosted_At"), ""));
+		cDates.put("Proposal Preparation", ifnull(contactRecord.get("Contact_Completed_Proposal_Preparation_At"), ""));
+		cDates.put("Commercial Agreement", ifnull(contactRecord.get("Contact_Completed_Commercial_Agreement_At"), ""));
+		cDates.put("Onboarding", ifnull(contactRecord.get("Contact_Completed_Onboarding_At"), ""));
+		cDates.put("Renewal", ifnull(contactRecord.get("Contact_Completed_Renewal_At"), ""));
+		contactDatesMap.put(cleanId.toString(), cDates);
 		if(cState == "Open")
 		{
 			anyContactOpen = true;
@@ -689,9 +746,74 @@ void automation.processContact(string contact_id)
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
 
-	if(furthestContactId != "" && furthestContactId != currentPrimaryId)
+	// Ensure Deal has Primary_Contact set
+	primaryContactsRaw = targetDeal.get("Primary_Contact");
+	hasPrimaryContact = false;
+	primaryContactIdsList = List();
+	if(primaryContactsRaw != null)
 	{
-		dUpd.put("Contact_Name", furthestContactId);
+		pcStr = primaryContactsRaw.toString();
+		if(pcStr.startsWith("[") && pcStr.endsWith("]") && pcStr.contains("{"))
+		{
+			for each pcItem in primaryContactsRaw
+			{
+				if(pcItem != null && pcItem.get("id") != null)
+				{
+					primaryContactIdsList.add(pcItem.get("id").toString());
+					hasPrimaryContact = true;
+				}
+			}
+		}
+	}
+
+	// Reconcile standard lookup and multi-select lookup
+	if(furthestContactId != "")
+	{
+		if(furthestContactId != currentPrimaryId)
+		{
+			dUpd.put("Contact_Name", furthestContactId);
+		}
+		if(!primaryContactIdsList.contains(furthestContactId))
+		{
+			pcList = List();
+			for each existingPcId in primaryContactIdsList
+			{
+				existingPcMap = Map();
+				existingPcMap.put("id", existingPcId.toLong());
+				pcList.add(existingPcMap);
+			}
+			newPcMap = Map();
+			newPcMap.put("id", furthestContactId.toLong());
+			pcList.add(newPcMap);
+			dUpd.put("Primary_Contact", pcList);
+			primaryContactIdsList.add(furthestContactId);
+		}
+	}
+
+	// Fetch completion dates from the furthest primary contact
+	dealPcDates = Map();
+	dealPcMaxRank = -1;
+	dealPcBestContactId = "";
+	for each pcId in primaryContactIdsList
+	{
+		pcStage = contactStageMap.get(pcId);
+		if(pcStage != null && pcStage != "")
+		{
+			pcRank = ifnull(stageRanks.get(pcStage), 1).toLong();
+			if(pcRank > dealPcMaxRank)
+			{
+				dealPcMaxRank = pcRank;
+				dealPcBestContactId = pcId;
+			}
+		}
+	}
+	if(dealPcBestContactId == "" && furthestContactId != "")
+	{
+		dealPcBestContactId = furthestContactId;
+	}
+	if(dealPcBestContactId != "")
+	{
+		dealPcDates = contactDatesMap.get(dealPcBestContactId);
 	}
 	aggregatedPIStr = "";
 	for each apiItem in aggregatedPIList
@@ -727,7 +849,6 @@ void automation.processContact(string contact_id)
 	}
 
 	// Stage completion date dynamic stamping
-	stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
 	stageFields = Map();
 	stageFields.put("Marketing Qualification", "Marketing_Qualification_Completed_At");
 	stageFields.put("Demo Booking", "Demo_Booking_Completed_At");
@@ -749,7 +870,17 @@ void automation.processContact(string contact_id)
 			fieldApi = stageFields.get(stageItem);
 			if(fieldApi != null && targetDeal.get(fieldApi) == null && dUpd.get(fieldApi) == null)
 			{
-				dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				pcDateVal = "";
+				if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
+				
+				if(pcDateVal != "")
+				{
+					dUpd.put(fieldApi, pcDateVal.toString());
+				}
+				else
+				{
+					dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				}
 			}
 		}
 	}

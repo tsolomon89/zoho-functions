@@ -62,6 +62,7 @@ Opportunity,Stage,Pick List,
 Overall Sales Duration,Overall_Sales_Duration,Number,
 Pipeline,Pipeline,Pick List,
 Probability (%),Probability,Number,
+Primary Contact,Primary_Contact,Multi-Select Lookup,Yes
 Product Interest Staging,Product_Interest_Staging,Multi Line,Yes
 Product Resolution Status,Product_Resolution_Status,Pick List,Yes
 Proposal Preparation Completed At,Proposal_Preparation_Completed_At,DateTime,Yes

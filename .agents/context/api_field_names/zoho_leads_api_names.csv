@@ -13,17 +13,33 @@ Address - Zip / Postal Code,Zip_Code,Single Line,
 Annual Revenue,Annual_Revenue,Currency,
 Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
 Change Log Time,Change_Log_Time__s,DateTime,
-Commercial Agreement Completed At,Commercial_Agreement_Completed_At,DateTime,Yes
 Company,Company,Single Line,
-Company Continent AOO,Company_Continent_AOO,Multiselect,Yes
-Company Country AOO,Company_Country_AOO,Multiselect,Yes
+Company AOO Continent,Company_AOO_Continent,Multiselect,Yes
+Company AOO Country,Company_AOO_Country,Multiselect,Yes
+Company AOO Region,Company_AOO_Region,Multiselect,Yes
+Company AOO Sub Region,Company_AOO_Sub_Region,Multiselect,Yes
+Company Expansion Continent,Company_Expansion_Continent,Multiselect,Yes
+Company Expansion Country,Company_Expansion_Country,Multiselect,Yes
+Company Expansion Region,Company_Expansion_Region,Multiselect,Yes
+Company Expansion Regional,Company_Expansion_Regional,Boolean,Yes
+Company Expansion Sub Region,Company_Expansion_Sub_Region,Multiselect,Yes
+Company Expansion Timeline,Company_Expansion_Timeline,DateTime,Yes
 Company Linkedin,Company_Linkedin,Single Line,Yes
-Company Phone,Phone,Phone,
-Company Regional AOO,Company_Regional_AOO,Multiselect,Yes
-Company Sub Region AOO,Company_Sub_Region_AOO,Multiselect,Yes
+Company Phone,Phone,,
+Contact AOR Continent,Contact_AOR_Continent,Multiselect,Yes
+Contact AOR Country,Contact_AOR_Country,Multiselect,Yes
+Contact AOR Region,Contact_AOR_Region,Multiselect,Yes
+Contact AOR Regional,Contact_AOR_Regional,Boolean,Yes
+Contact AOR Sub Region,Contact_AOR_Sub_Region,Multiselect,Yes
+Contact Completed Commercial Agreement At,Contact_Completed_Commercial_Agreement_At,DateTime,Yes
+Contact Completed Demo Booking At,Contact_Completed_Demo_Booking_At,DateTime,Yes
+Contact Completed Demo Confirmation At,Contact_Completed_Demo_Confirmation_At,DateTime,Yes
+Contact Completed Demo Hosted At,Contact_Completed_Demo_Hosted_At,DateTime,Yes
+Contact Completed Marketing Qualification At,Contact_Completed_Marketing_Qualification_At,DateTime,Yes
+Contact Completed Onboarding At,Contact_Completed_Onboarding_At,DateTime,Yes
+Contact Completed Proposal Preparation At,Contact_Completed_Proposal_Preparation_At,DateTime,Yes
+Contact Completed Renewal At,Contact_Completed_Renewal_At,DateTime,Yes
 Contact Role,Contact_Role1,Pick List,Yes
-Continent AOR,Continent_AOR,Multiselect,Yes
-Continent Expansion,Continent_Expansion,Multiselect,Yes
 Contract ACV Current,Contract_ACV_Current,Currency,Yes
 Contract ACV Intial,Contract_ACV_Intial,Currency,Yes
 Contract Currency,Contract_Currency,Pick List,Yes
@@ -36,15 +52,10 @@ Converted Account,Converted_Account,Lookup,
 Converted Contact,Converted_Contact,Lookup,
 Converted Date Time,Converted_Date_Time,DateTime,
 Converted Deal,Converted_Deal,Lookup,
-Country AOR,Country_AOR,Multiselect,Yes
-Country Expansion,Country_Expansion,Multiselect,Yes
 Created By,Created_By,Ownerlookup,
 Created Time,Created_Time,DateTime,
 Days Visited,Days_Visited,Number,
 Deal Key,Deal_Key,Single Line (Unique),Yes
-Demo Booking Completed At,Demo_Booking_Completed_At,DateTime,Yes
-Demo Confirmation Completed At,Demo_Confirmation_Completed_At,DateTime,Yes
-Demo Hosted Completed At,Demo_Hosted_Completed_At,DateTime,Yes
 Description,Description,Multi Line,
 Email,Email,Email,
 Email Opt Out,Email_Opt_Out,Boolean,
@@ -73,31 +84,23 @@ Lead Status,Lead_Status,Pick List,
 Locked,Locked__s,Boolean,
 Lost Reasons,Lost_Reasons,Pick List,Yes
 Marketing Consent,Marketing_Consent,Boolean,Yes
-Marketing Qualification Completed At,Marketing_Qualification_Completed_At,DateTime,Yes
 Mobile,Mobile,Phone,
 Modified By,Modified_By,Ownerlookup,
 Modified Time,Modified_Time,DateTime,
 Most Recent Visit,Last_Visited_Time,DateTime,
 No of Employees,No_of_Employees,Number,
 Number Of Chats,Number_Of_Chats,Number,
-Onboarding Completed At,Onboarding_Completed_At,DateTime,Yes
 Personal Linkedin,Personal_Linkedin,Single Line,Yes
 Personal Phone,Personal_Phone,Phone,Yes
 Processing Error,Processing_Error,Multi Line,Yes
 Product Interest,Product_Interest,Multiselect,Yes
 Product Resolution Status,Product_Resolution_Status,Pick List,Yes
 Products Linked,Products_Linked,Multi-Select Lookup,Yes
-Proposal Preparation Completed At,Proposal_Preparation_Completed_At,DateTime,Yes
 Rating,Rating,Pick List,
 Ready for Conversion,Ready_for_Conversion,Boolean,Yes
 Record Id,id,Long Integer,
 Record Status,Record_Status__s,Pick List,
 Referrer,Referrer,URL,
-Region AOR,Region_AOR,Multiselect,Yes
-Region Expansion,Region_Expansion,Multiselect,Yes
-Regional AOR,Regional_AOR,Boolean,Yes
-Regional Expansion,Regional_Expansion,Boolean,Yes
-Renewal Completed At,Renewal_Completed_At,DateTime,Yes
 Role AOR,Role_AOR,Multi Line,Yes
 Role Priority 1,Role_Priority_1,Multi Line,Yes
 Role Priority 2,Role_Priority_2,Multi Line,Yes
@@ -107,12 +110,9 @@ Secondary Email,Secondary_Email,Email,
 Skype ID,Skype_ID,Single Line,
 Stage,Stage,Pick List,Yes
 Status,Status,Pick List,Yes
-Sub Region AOR,Sub_Region_AOR,Multiselect,Yes
-Sub Region Expansion,Sub_Region_Expansion,Multiselect,Yes
 Tag,Tag,Single Line,
 Technographics,Technographics,Multiselect,Yes
 Technographics Evaluating,Technographics_Evaluating,Multiselect,Yes
-Timeline Expansion,Timeline_Expansion,DateTime,Yes
 Twitter,Twitter,Single Line,
 Unsubscribed Mode,Unsubscribed_Mode,Pick List,
 Unsubscribed Time,Unsubscribed_Time,DateTime,

@@ -5,16 +5,28 @@ Assistant,Assistant,Single Line,
 Asst Phone,Asst_Phone,Phone,
 Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
 Change Log Time,Change_Log_Time__s,DateTime,
+Contact AOR Continent,Contact_AOR_Continent,Multiselect,Yes
+Contact AOR Country,Contact_AOR_Country,Multiselect,Yes
+Contact AOR Region,Contact_AOR_Region,Multiselect,Yes
+Contact AOR Regional,Contact_AOR_Regional,Boolean,Yes
+Contact AOR Sub Region,Contact_AOR_Sub_Region,Multiselect,Yes
+Contact Completed Commercial Agreement At,Contact_Completed_Commercial_Agreement_At,DateTime,Yes
+Contact Completed Demo Booking At,Contact_Completed_Demo_Booking_At,DateTime,Yes
+Contact Completed Demo Confirmation At,Contact_Completed_Demo_Confirmation_At,DateTime,Yes
+Contact Completed Demo Hosted At,Contact_Completed_Demo_Hosted_At,DateTime,Yes
+Contact Completed Marketing Qualification At,Contact_Completed_Marketing_Qualification_At,DateTime,Yes
+Contact Completed Onboarding At,Contact_Completed_Onboarding_At,DateTime,Yes
+Contact Completed Proposal Preparation At,Contact_Completed_Proposal_Preparation_At,DateTime,Yes
+Contact Completed Renewal At,Contact_Completed_Renewal_At,DateTime,Yes
 Contact Image,Record_Image,Profileimage,
 Contact Owner,Owner,Ownerlookup,
 Contact Role,Contact_Role1,Pick List,Yes
 Contact Source Class,Contact_Source_Class,Pick List,Yes
-Continent AOR,Continent_AOR,Multiselect,Yes
-Country AOR,Country_AOR,Multiselect,Yes
 Created By,Created_By,Ownerlookup,
 Created Time,Created_Time,DateTime,
 Date of Birth,Date_of_Birth,Date,
 Days Visited,Days_Visited,Number,
+Deal Primary Contacts,Deal_Primary_Contacts,Multi-Select Lookup,Yes
 Department,Department,Single Line,
 Description,Description,Multi Line,
 Do Not Contact Reason,Do_Not_Contact_Reason,Pick List,Yes
@@ -74,8 +86,6 @@ Profile Completion Status,Profile_Completion_Status,Pick List,Yes
 Record Id,id,Long Integer,
 Record Status,Record_Status__s,Pick List,
 Referrer,Referrer,URL,
-Region AOR,Region_AOR,Multiselect,Yes
-Regional AOR,Regional_AOR,Boolean,Yes
 Reporting To,Reporting_To,Lookup,
 Role AOR,Role_AOR,Multi Line,Yes
 Role Priority 1,Role_Priority_1,Multi Line,Yes
@@ -87,7 +97,6 @@ Skype ID,Skype_ID,Single Line,
 Stage,Stage,Pick List,Yes
 State,State,Pick List,Yes
 Status,Status,Pick List,Yes
-Sub Region AOR,Sub_Region_AOR,Multiselect,Yes
 Tag,Tag,Single Line,
 Twitter,Twitter,Single Line,
 Unsubscribed Mode,Unsubscribed_Mode,Pick List,

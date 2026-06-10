@@ -157,39 +157,73 @@ Call Outcome = Positive
 
 ---
 
-# Test 8 — Demo Confirmation / meeting reminder
-
-## Expected
-
-- Demo Reminder Send At calculated as one business day before in the AM.
-- Reminder sends only when reminder date is reached.
-- If meeting rescheduled, Demo Reminder Send At recalculates.
-
-## Fail if
-
-- reminder sends immediately on import;
-- old reminder remains active after reschedule.
-
----
-
-# Test 9 — Demo Outcome = Attended - Qualified
+# Test 8 — Demo Event Lifecycle (Scheduled, Rescheduled, Confirmed, Cancelled, No Show)
 
 ## Action
 
-Rep sets:
+Create an Event fixture under the Events module linked to the open Deal (at Demo Confirmation stage):
+- Subject = `<sessionPrefix>_Demo`
+- What_Id = canonical Deal ID
+- $se_module = Deals
+- Who_Id = primary Contact ID
+- Sequence_Managed = Yes
+- Meeting_Type = Demo
+- Meeting_Status = Scheduled
+- Start_DateTime = future datetime
+- End_DateTime = future datetime
 
-```text
-Demo Outcome = Attended - Qualified
-```
+Then:
+1. Update Event Meeting_Status = "Rescheduled" (and shift Start_DateTime / End_DateTime).
+2. Update Event Meeting_Status = "Confirmed".
+3. Update Event Meeting_Status = "Cancelled".
+4. Update Event Meeting_Status = "No Show".
 
 ## Expected
 
-- Stage moves to Demo Hosted.
-- Post-demo email sent.
-- Commercials Status = Drafting.
-- Task created: Draft Commercials.
-- Opportunity remains SQL.
-- Stage does not move to Commercial Agreement until commercials are actually sent.
+- Event is created and successfully linked to the Deal via `What_Id` and the primary Contact via `Who_Id`.
+- Deal `Demo_Meeting_ID` is populated with the Event's ID.
+- Deal `Demo_Status = "Scheduled"`.
+- Deal `Demo_Start_DateTime` and `Demo_End_DateTime` match the Event.
+- Deal `Demo_Reminder_Send_At` and Event `Reminder_Send_At` are populated correctly (-1 business day AM).
+- **On Reschedule**: Deal dates and `Demo_Reminder_Send_At` / Event `Reminder_Send_At` are recomputed and updated.
+- **On Confirmed**: Deal `Demo_Status` mirrors this.
+- **On Cancelled**: Deal `Demo_Status` is cancelled, and a recovery Call (e.g. `Demo Booking Call 1`) is created.
+- **On No Show**: Deal `Demo_Status` is updated and demo outcome logic triggers.
+
+## Fail if
+
+- Event fails to link or mirror its state to the Deal.
+- Reminder dates are not calculated or do not recalculate on rescheduled.
+- Cancelled event fails to trigger a recovery Call.
+
+---
+
+# Test 9 — Task Lifecycle (Creation & Completion)
+
+## Action
+
+1. Advance Deal to Demo Confirmation, set `Demo_Outcome = "Attended - Qualified"`.
+2. Retrieve the resulting `Draft Commercials` Task and update its `Status = "Completed"`.
+3. Separate flow: set `Call_Outcome = "Bad Data"` on an open Call to trigger a `Data Repair` Task.
+4. Retrieve the `Data Repair` Task and update its `Status = "Completed"`.
+
+## Expected
+
+- **On Demo Qualified**:
+  - `Draft Commercials` Task is created and linked: `What_Id` = Deal ID, `$se_module` = "Deals", `Who_Id` = primary Contact ID, `Sequence_Managed` = "Yes".
+  - Task owner matches the Deal's Owner.
+  - Completing the Task fires `WF008` (Task Completion Handler) successfully.
+  - Completing `Draft Commercials` does NOT advance the stage or commercials status prematurely (remains Demo Hosted / Drafting).
+- **On Bad Data**:
+  - `Data Repair` Task is created, linking `What_Id` to the Deal, with `Blocks_Sequence = "Yes"` and `Sequence_Managed = "Yes"`.
+  - Deal `Sequence_Status` is updated to `Paused`.
+  - Completing the `Data Repair` Task fires `WF008`, which resumes the sequence (`Sequence_Status = Waiting on Call`) and generates a new Call.
+
+## Fail if
+
+- Task is created without proper polymorphic linkage to the Deal or primary Contact.
+- Task completion fails to fire WF008 or throws execution exceptions.
+- Sequence fails to resume upon completion of the blocking Data Repair Task.
 
 ---
 

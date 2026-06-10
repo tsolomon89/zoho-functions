@@ -85,8 +85,9 @@ Order from `WORKFLOW_CONFIGURATION_CHECKLIST.md`:
       Attended - Qualified; confirm Stage1 → Demo Hosted,
       Commercials_Status = Drafting, Draft Commercials task created,
       Demo Hosted Post-Demo Email sent.
-- [ ] **WF007/008/009/010** — on as needed; see test cases 8, 13, 15,
-      16 below for verification.
+- [ ] **WF007** Event / Meeting Handler — on. Test via Event creation, reschedule, and cancellation (T8).
+- [ ] **WF008** Task Completion Handler — on. Test via Task completion (T9).
+- [ ] **WF009/010** — on as needed; see test cases 13, 15, 16 below for verification.
 
 ## 4 — TEST_CASES.md run sheet
 
@@ -106,11 +107,21 @@ The numbered tests below correspond 1-to-1 with the cases in
 - [ ] **T7** Demo Booking Call 1 = Positive → Stage1 = Demo Confirmation, old
       sequence superseded, new Demo Confirmation sequence starts; no stale
       Demo Booking Email 1 fires.
-- [ ] **T8** Demo reminder → Reminder Send At = -1 business day AM;
-      reschedule recomputes.
-- [ ] **T9** Demo Outcome = Attended - Qualified → Stage Demo Hosted,
-      Post-Demo Email, Draft Commercials task, Commercials Status =
-      Drafting. Stage does NOT advance to Commercial Agreement.
+- [ ] **T8** Demo Event Lifecycle (Scheduled, Rescheduled, Confirmed, Cancelled, No Show)
+      - [ ] Create Event fixture for Deal at Demo Confirmation Stage1.
+      - [ ] Assert: Event exists, linked to Deal via `What_Id` (`$se_module` = Deals) and Contact via `Who_Id`.
+      - [ ] Assert: Deal `Demo_Meeting_ID`, `Demo_Status` = Scheduled, `Demo_Start_DateTime`, `Demo_End_DateTime`, and `Demo_Reminder_Send_At` are populated.
+      - [ ] Assert: Event `Reminder_Send_At` is populated.
+      - [ ] Mutate Event: `Meeting_Status` = "Rescheduled", modify datetime. Assert Deal dates and reminder recomputed.
+      - [ ] Mutate Event: `Meeting_Status` = "Confirmed". Assert Deal `Demo_Status` mirrors.
+      - [ ] Mutate Event: `Meeting_Status` = "Cancelled". Assert Deal `Demo_Status` updated and recovery Call created.
+      - [ ] Mutate Event: `Meeting_Status` = "No Show". Assert Deal `Demo_Status` updated and outcome handled.
+- [ ] **T9** Task lifecycle (Creation & Completion)
+      - [ ] Advance Deal to Demo Confirmation, set `Demo_Outcome` = "Attended - Qualified".
+      - [ ] Assert: `Draft Commercials` Task exists, linked to Deal (`What_Id` + `$se_module` = "Deals"), linked to primary Contact (`Who_Id`), owned by Deal Owner.
+      - [ ] Complete the Task. Assert `WF008` fires, but does not advance Stage1/Commercials_Status immediately.
+      - [ ] Branch check: Trigger `Call_Outcome` = "Bad Data". Assert sequence Paused and `Data Repair` Task created.
+      - [ ] Complete `Data Repair` Task. Assert `WF008` fires, sequence resumes, and Call 1 created.
 - [ ] **T10** Commercials Status = Sent → Stage Commercial Agreement,
       Opportunity FTP, Call 1 due +2 business days, no chase email yet.
 - [ ] **T11** Commercial Agreement Call 1 = Deferred → Sequence Deferred,

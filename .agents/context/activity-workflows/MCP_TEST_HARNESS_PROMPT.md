@@ -172,6 +172,29 @@ or invalidates downstream activity-layer tests.
 
 Use a fresh `sessionPrefix + "_T<n>"` for each test's records.
 
+### E2E Completion Rule
+
+The harness MUST NOT report a "full end-to-end PASS" unless a single test execution session successfully creates, links, updates, and verifies records in all of the following modules:
+1. **Lead** (which successfully converts to Contact + Account + Deal)
+2. **Contact** (with correct Job-Title-to-Role assignment and suppression attributes)
+3. **Account** (with proper State and Status rollups)
+4. **Deal** (with correctly populated Product details, summed Amount, Stage1/Stage, and active sequence state)
+5. **Call** (with correct attempt progression, stale flagging, outcome handling, and polymorphic What_Id/Who_Id linkage)
+6. **Task** (with correct creation for drafting commercials/bad data/manual reviews, proper polymorphic linkage, and verified completion handler execution)
+7. **Event / Meeting** (with correct reminder generation, reschedule, and cancellation/no-show recovery handling)
+
+For every generated activity (Call, Task, Event/Meeting), the following invariants must be verified:
+- **Direct Read**: Retrieve the record directly from its module using `getRecords` or `getRecordById`.
+- **Deal Related List Read**: Retrieve the activity from the related list on the Deal (`getRelatedRecords`).
+- **Contact Related List Read**: Retrieve the activity from the related list on the Contact (`Who_Id` linkage).
+- **Polymorphic Linkage**: Confirm `What_Id` holds the Deal ID and `$se_module` is set to `"Deals"`. Confirm `Who_Id` holds the primary Contact ID.
+- **Ownership**: The activity record owner must match the Deal's owner.
+- **Sequence Fields**: Verify fields like `Sequence_Managed = Yes`, `Task_Type` or `Sequence_Stage`, `Sequence_Attempt` match expected values.
+- **Deduplication**: Assert no duplicate equivalent activity exists.
+- **Lifecycle Mutation**: Assert correct handler execution after updating or completing the record (e.g. WF008 executes on Task completion, WF007 executes on Event update).
+
+Any skipped or deferred Call, Task, or Event test prevents the session from being marked as **full end-to-end**.
+
 ---
 
 ## §2A — Core graph layer
@@ -752,6 +775,91 @@ with a no-op field change (e.g. add a trailing space to
 
 **On failure:**
 - `v4/activity/createStageCall.deluge` — duplicate search criteria.
+
+### T24 — Task Lifecycle (Creation & Completion)
+
+**What this tests:** Task creation, polymorphic linkage, task completion trigger (WF008), and sequence resumption.
+
+**Setup:** Use the Deal from T1 or create a fresh Deal `<sessionPrefix>_T24`. Advance the Deal to `Demo Confirmation` and set `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
+
+**Assertions (Creation):**
+- Verify Deal `Stage1` == `Demo Hosted`, `Stage` == `SQL`, and `Commercials_Status` == `Drafting`.
+- Read Deal's related Tasks via `getRelatedRecords`. Verify exactly **one** Task exists with:
+  - `Subject` containing `Draft Commercials`
+  - `Task_Type` == `Draft Commercials`
+  - `Sequence_Managed` == `Yes`
+  - `What_Id` == Deal ID
+  - `$se_module` == `Deals`
+  - `Who_Id` == primary Contact ID
+  - Owner == Deal Owner
+- Verify the same Task is returned when querying the Contact's related Tasks.
+
+**Action (Task Completion):**
+- Update the Task `Status = "Completed"`. Wait 30s.
+
+**Assertions (Task Completion):**
+- Assert `WF008` (Task Completion Handler) executed successfully.
+- Assert Deal `Stage1` remains `Demo Hosted` and `Commercials_Status` remains `Drafting` (completing `Draft Commercials` does not advance the sequence prematurely).
+
+**Branch Action (Data Repair Task Completion):**
+- Set `Call_Outcome = "Bad Data"` on any open Call related to an active Deal. Wait 30s.
+- Verify Deal `Sequence_Status` == `Paused` and a Task with `Task_Type` == `Data Repair` is created.
+- Update that `Data Repair` Task `Status = "Completed"`. Wait 30s.
+- Assert: Deal `Sequence_Status` returns to `Waiting on Call` and a new Call is created.
+
+**On failure:**
+- `v4/activity/handleTaskCompletion.deluge`
+- WF008 configuration and argument bindings in Zoho.
+
+### T25 — Demo Event Lifecycle (Scheduled, Rescheduled, Confirmed, Cancelled, No Show)
+
+**What this tests:** Event linkage, Deal field mirroring, reminder calculations, reschedule updates, confirmation, cancellation recovery, and no-show outcome handling.
+
+**Setup:** Since Zoho automation does not automatically create Event records (it only handles them), the test must create the Event fixture itself via `createRecords` on Events:
+```json
+{
+  "Subject": "<sessionPrefix>_Demo",
+  "What_Id": "<Deal_ID>",
+  "$se_module": "Deals",
+  "Who_Id": "<Contact_ID>",
+  "Sequence_Managed": "Yes",
+  "Meeting_Type": "Demo",
+  "Meeting_Status": "Scheduled",
+  "Start_DateTime": "future datetime (ISO 8601, e.g. 2026-06-15T10:00:00Z)",
+  "End_DateTime": "future datetime (ISO 8601, e.g. 2026-06-15T11:00:00Z)"
+}
+```
+Wait 30s.
+
+**Assertions (Creation & Linkage):**
+- Event exists and is owned by the Deal Owner.
+- Event appears in Deal's related Events list and Contact's related Activities list.
+- Read Deal fields and verify:
+  - `Demo_Meeting_ID` == Event ID
+  - `Demo_Status` == `Scheduled`
+  - `Demo_Start_DateTime` and `Demo_End_DateTime` match the Event's datetimes.
+  - `Demo_Reminder_Send_At` is populated.
+- Verify Event `Reminder_Send_At` is populated.
+
+**Action 1 (Rescheduled):**
+- Update the Event `Meeting_Status = "Rescheduled"` and shift `Start_DateTime` / `End_DateTime` forward by 2 hours. Wait 30s.
+- Assert: Deal `Demo_Start_DateTime`, `Demo_End_DateTime`, and `Demo_Reminder_Send_At` are updated. Event `Reminder_Send_At` is recomputed and updated.
+
+**Action 2 (Confirmed):**
+- Update the Event `Meeting_Status = "Confirmed"`. Wait 30s.
+- Assert: Deal `Demo_Status` is updated to `Confirmed`.
+
+**Action 3 (Cancelled):**
+- Update the Event `Meeting_Status = "Cancelled"`. Wait 30s.
+- Assert: Deal `Demo_Status` is updated to `Cancelled`, and a recovery Call (`Demo Booking Call 1` or similar recovery Call) is created to reschedule the demo.
+
+**Action 4 (No Show):**
+- Update the Event `Meeting_Status = "No Show"`. Wait 30s.
+- Assert: Deal `Demo_Status` is updated to `No Show` and the demo outcome logic executes.
+
+**On failure:**
+- `v4/activity/handleMeetingEvent.deluge`
+- WF007 configuration and argument bindings in Zoho.
 
 ---
 

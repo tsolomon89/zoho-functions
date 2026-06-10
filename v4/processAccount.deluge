@@ -76,6 +76,8 @@ void automation.processAccount(string account_id)
 	processedContactIds = List();
 	contactJobTitleMap = Map();
 	contactRoleMap = Map();
+	contactStageMap = Map();
+	contactDatesMap = Map();
 
 	// getRelatedRecords does NOT reliably return custom fields (Stage, State,
 	// Product_Interest). Fetch each Contact full record so the rollup uses real values.
@@ -95,6 +97,18 @@ void automation.processAccount(string account_id)
 				cJobTitleLoop = ifnull(fullC.get("Job_Title"), "").toString().trim();
 				contactJobTitleMap.put(cId, cJobTitleLoop);
 				contactRoleMap.put(cId, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
+				contactStageMap.put(cId, cStage);
+				
+				cDates = Map();
+				cDates.put("Marketing Qualification", ifnull(fullC.get("Contact_Completed_Marketing_Qualification_At"), ""));
+				cDates.put("Demo Booking", ifnull(fullC.get("Contact_Completed_Demo_Booking_At"), ""));
+				cDates.put("Demo Confirmation", ifnull(fullC.get("Contact_Completed_Demo_Confirmation_At"), ""));
+				cDates.put("Demo Hosted", ifnull(fullC.get("Contact_Completed_Demo_Hosted_At"), ""));
+				cDates.put("Proposal Preparation", ifnull(fullC.get("Contact_Completed_Proposal_Preparation_At"), ""));
+				cDates.put("Commercial Agreement", ifnull(fullC.get("Contact_Completed_Commercial_Agreement_At"), ""));
+				cDates.put("Onboarding", ifnull(fullC.get("Contact_Completed_Onboarding_At"), ""));
+				cDates.put("Renewal", ifnull(fullC.get("Contact_Completed_Renewal_At"), ""));
+				contactDatesMap.put(cId, cDates);
 
 				// Stamp Contact_Role on the Contact if blank and Job_Title resolves to a role
 				cContactRoleLoop = ifnull(fullC.get("Contact_Role1"), "").toString().trim();
@@ -233,7 +247,15 @@ void automation.processAccount(string account_id)
 		dealMap.put("Stage1", bestStage);
 		dealMap.put("Stage", bestOpp);
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-		if(initialPrimary != "") { dealMap.put("Contact_Name", initialPrimary); }
+		if(initialPrimary != "")
+		{
+			dealMap.put("Contact_Name", initialPrimary);
+			primaryContactList = List();
+			primaryContactMap = Map();
+			primaryContactMap.put("id", initialPrimary.toLong());
+			primaryContactList.add(primaryContactMap);
+			dealMap.put("Primary_Contact", primaryContactList);
+		}
 
 		dRes = zoho.crm.createRecord("Deals", dealMap);
 		if(dRes.get("id") != null)
@@ -512,9 +534,71 @@ void automation.processAccount(string account_id)
 		currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 		if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
 
-		if(furthestContactId != "" && furthestContactId != currentPrimaryId)
+		// Ensure Deal has Primary_Contact set
+		primaryContactsRaw = targetDeal.get("Primary_Contact");
+		primaryContactIdsList = List();
+		if(primaryContactsRaw != null)
 		{
-			dUpd.put("Contact_Name", furthestContactId);
+			pcStr = primaryContactsRaw.toString();
+			if(pcStr.startsWith("[") && pcStr.endsWith("]") && pcStr.contains("{"))
+			{
+				for each pcItem in primaryContactsRaw
+				{
+					if(pcItem != null && pcItem.get("id") != null)
+					{
+						primaryContactIdsList.add(pcItem.get("id").toString());
+					}
+				}
+			}
+		}
+
+		if(furthestContactId != "")
+		{
+			if(furthestContactId != currentPrimaryId)
+			{
+				dUpd.put("Contact_Name", furthestContactId);
+			}
+			if(!primaryContactIdsList.contains(furthestContactId))
+			{
+				pcList = List();
+				for each existingPcId in primaryContactIdsList
+				{
+					existingPcMap = Map();
+					existingPcMap.put("id", existingPcId.toLong());
+					pcList.add(existingPcMap);
+				}
+				newPcMap = Map();
+				newPcMap.put("id", furthestContactId.toLong());
+				pcList.add(newPcMap);
+				dUpd.put("Primary_Contact", pcList);
+				primaryContactIdsList.add(furthestContactId);
+			}
+		}
+
+		// Fetch completion dates from the furthest primary contact
+		dealPcDates = Map();
+		dealPcMaxRank = -1;
+		dealPcBestContactId = "";
+		for each pcId in primaryContactIdsList
+		{
+			pcStage = contactStageMap.get(pcId);
+			if(pcStage != null && pcStage != "")
+			{
+				pcRank = ifnull(stageRanks.get(pcStage), 1).toLong();
+				if(pcRank > dealPcMaxRank)
+				{
+					dealPcMaxRank = pcRank;
+					dealPcBestContactId = pcId;
+				}
+			}
+		}
+		if(dealPcBestContactId == "" && furthestContactId != "")
+		{
+			dealPcBestContactId = furthestContactId;
+		}
+		if(dealPcBestContactId != "")
+		{
+			dealPcDates = contactDatesMap.get(dealPcBestContactId);
 		}
 
 		dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
@@ -563,7 +647,17 @@ void automation.processAccount(string account_id)
 				fieldApi = stageFields.get(stageItem);
 				if(fieldApi != null && targetDeal.get(fieldApi) == null && dUpd.get(fieldApi) == null)
 				{
-					dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+					pcDateVal = "";
+					if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
+					
+					if(pcDateVal != "")
+					{
+						dUpd.put(fieldApi, pcDateVal.toString());
+					}
+					else
+					{
+						dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+					}
 				}
 			}
 		}
