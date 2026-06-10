@@ -1439,3 +1439,75 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 **Org mode:** Production (safe to run/create/delete).
 **Session prefix:** `MCP_TEST_20260610_1047`
 
+### T11 — sequenceRouter bootstrap
+- Status: PASS
+- Action taken: Created Deal `991103000001106019` (`MCP_TEST_20260610_1047_T11`) with `Sequence_Status = "Not Started"`.
+- Observed: Deal `Sequence_Status` advanced to `"Waiting on Call"`, `Active_Sequence_Stage` = `"Marketing Qualification"`, `Active_Sequence_Attempt` = 1, and `Marketing Qualification Call 1` `991103000001110005` was created.
+
+### T12 — Stage change supersedes sequence
+- Status: PASS
+- Action taken: Updated Deal `991103000001106019` `Stage1 = "Demo Booking"`.
+- Observed: `Active_Sequence_Stage` advanced to `"Demo Booking"`, `Active_Sequence_Attempt` = 1, old MQ Call 1 set to `Stale = Yes` and `Status = Cancelled`, and `Demo Booking Call 1` `991103000001131003` was created.
+
+### T13 — Commercials_Status = Signed (State=Won regression check)
+- Status: PASS
+- Action taken: Updated `Commercials_Status = "Signed"` on Deal `991103000001104005` (`MCP_TEST_20260610_1047_ConT13 Deal`).
+- Observed: Deal `Stage1` advanced to `"Onboarding"`, `Stage` to `"RTP"`, `State` remained `"Open"` (verifying "Won" regression check passes), `Signed_At` was stamped, and `"Onboarding Call 1"` Call `991103000001109005` was created.
+
+### T14 — Commercials_Status = Rejected
+- Status: PASS
+- Action taken: Updated `Commercials_Status = "Rejected"` on Deal `991103000001104005`.
+- Observed: Deal `State` = `"Lost"`, `Status` = `"Closed"`, `Sequence_Status` = `"Completed"`, and `Lost_Reasons` = `"Commercial Rejected"`.
+
+### T15 — Demo_Outcome = Attended - Qualified
+- Status: PASS
+- Action taken: Created fresh Account `991103000001147001` and Contact `991103000001127005` and converted Lead `MCP_TEST_20260610_1047_T1_Last` to Deal `991103000001086001`. Set `Demo_Outcome = "Attended - Qualified"`.
+- Observed: Deal `Stage1` advanced to `"Proposal Preparation"`, `Stage` to `"FTP"`, `Commercials_Status` to `"Drafting"`, `Demo_Status` to `"Completed"`, a related Draft Commercials Task `991103000001129007` was created, and `"Proposal Preparation Call 1"` Call `991103000001103006` was created.
+
+### T16 — Positive Call outcome advances Deal
+- Status: PASS
+- Action taken: Updated `Call_Outcome = "Positive"` on `Demo Booking Call 1` `991103000001131003` (linked to Deal `991103000001106019`).
+- Observed: Deal `Stage1` advanced to `"Demo Confirmation"`, `Stage` to `"SQL"`, and new `"Demo Confirmation Call 1"` Call `991103000001096006` was created.
+
+### T17 — Neutral / No Answer Call outcome
+- Status: PASS
+- Action taken: Created Account `991103000001097025` and Contact `991103000001123012`. Canonical Deal `991103000001132006` bootstrapped `Call 1` `991103000001088009`. Set `Call_Outcome = "No Answer"`.
+- Observed: Deal `Active_Sequence_Attempt` incremented to 2, and Call `991103000001120005` (`Call 2`) was created.
+
+### T24 — Task Lifecycle - Creation & Completion
+- Status: PASS
+- Action taken: 
+  1. Completed the `"Draft Commercials"` Task `991103000001129007` and verified no premature stage advance.
+  2. Set `Call_Outcome = "Bad Data"` on `Proposal Preparation Call 1` `991103000001103006` (linked to Deal `991103000001086001`). Verified Deal `Sequence_Status` paused (`"Paused"`) and `"Data Repair"` Task `991103000001092006` (`Blocks_Sequence = "Yes"`) was created.
+  3. Completed the `"Data Repair"` Task.
+- Observed: Deal `Sequence_Status` returned to `"Waiting on Call"`, and a new recovery Call `991103000001078007` (`Proposal Preparation Call 1`) was created.
+- Root cause of initial failure: `Sequence_Managed` Task field check crashed because the field doesn't exist on Tasks.
+- Fix applied: [handleTaskCompletion.deluge](file:///c:/Development/Projects/zoho-functions/v4/activity/handleTaskCompletion.deluge) and [supersedeOldSequence.deluge](file:///c:/Development/Projects/zoho-functions/v4/activity/supersedeOldSequence.deluge) refactored to remove Layout-level dependency and check parent module and `Task_Type` instead.
+
+### T25 — Demo Event Lifecycle
+- Status: PASS
+- Action taken: 
+  1. Created Event `991103000001155001` linked to Deal `991103000001106019` (`Meeting_Type = "Demo"`, `Meeting_Status = "Scheduled"`).
+  2. Rescheduled the event (shifted times forward by 2 hours, `Meeting_Status = "Rescheduled"`).
+  3. Confirmed the event (`Meeting_Status = "Confirmed"`).
+  4. Cancelled the event (`Meeting_Status = "Cancelled"`).
+  5. Marked the event as no-show (`Meeting_Status = "No Show"`).
+- Observed:
+  - Event was successfully linked to the Deal and primary Contact.
+  - Event creation mirrored `Demo_Meeting_ID`, `Demo_Status = "Scheduled"`, dates, and calculated `Demo_Reminder_Send_At` / `Reminder_Send_At` as `2026-06-12T08:00:00+01:00` (Friday AM before Monday event).
+  - Rescheduling recomputed dates and reminder times correctly.
+  - Confirmation updated Deal `Demo_Status` to `"Confirmed"`.
+  - Cancellation updated Deal `Demo_Status` to `"Cancelled"` and created recovery Call `Demo Confirmation Call 1` `991103000001099007` (when open Calls deleted).
+  - No Show updated Deal `Demo_Status` to `"No Show"`, `Demo_Outcome` to `"No Show"`, sent recovery email (`"Demo Confirmation No-Show Email"`), and created recovery Call `Demo Confirmation Call 1` `991103000001102006`.
+- Root cause of initial failure: `Sequence_Managed` Event field check crashed because the field doesn't exist on Events.
+- Fix applied: [handleMeetingEvent.deluge](file:///c:/Development/Projects/zoho-functions/v4/activity/handleMeetingEvent.deluge) refactored to bypass `Sequence_Managed` and use parent Deal linkage and `Meeting_Type == "Demo"` instead.
+
+### Round 12 — Summary
+- **Tests passed**: T11, T12, T13, T14, T15, T16, T17, T24, T25.
+- **Fixes written this round**:
+  - `v4/activity/handleTaskCompletion.deluge`
+  - `v4/activity/supersedeOldSequence.deluge`
+  - `v4/activity/handleMeetingEvent.deluge`
+- **Republish required**: Yes (Already completed by user).
+- **Test records cleaned up**: Yes (38 test records successfully deleted).
+
