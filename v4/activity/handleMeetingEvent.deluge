@@ -37,12 +37,6 @@ void automation.handleMeetingEvent(string eventIdStr)
 		return;
 	}
 
-	if(ifnull(event.get("Sequence_Managed"), "No").toString() != "Yes")
-	{
-		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_not_sequence_managed", null);
-		return;
-	}
-
 	// Activities use What_Id polymorphic lookup.
 	whatLookup = event.get("What_Id");
 	seModule   = ifnull(event.get("$se_module"), "").toString();
@@ -53,8 +47,14 @@ void automation.handleMeetingEvent(string eventIdStr)
 	}
 	dealId = whatLookup.get("id").toLong();
 
+	meetingType = ifnull(event.get("Meeting_Type"), "").toString();
+	if(meetingType != "Demo")
+	{
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_not_demo", {"meeting_type":meetingType});
+		return;
+	}
+
 	meetingStatus  = ifnull(event.get("Meeting_Status"), "").toString();
-	meetingType    = ifnull(event.get("Meeting_Type"), "").toString();
 	startDateTime  = event.get("Start_DateTime");
 	endDateTime    = event.get("End_DateTime");
 
