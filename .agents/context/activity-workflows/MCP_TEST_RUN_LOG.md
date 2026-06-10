@@ -1435,3 +1435,7 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 - Action taken: Deleted all test records created under prefixes `MCP_TEST_20260607_2355` and `MCP_TEST_20260607_2320` in correct order: 13 Calls, 1 Task, 8 Deals, 6 Contacts, 5 Accounts, and 6 Leads.
 - Observed: Deleted successfully with SUCCESS response from API. Verified zero records remain.
 
+## Round 12 — 2026-06-10 10:47
+**Org mode:** Production (safe to run/create/delete).
+**Session prefix:** `MCP_TEST_20260610_1047`
+

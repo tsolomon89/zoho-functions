@@ -36,9 +36,12 @@ void automation.handleTaskCompletion(string taskIdStr)
 		return;
 	}
 
-	if(ifnull(task.get("Sequence_Managed"), "No").toString() != "Yes")
+	tType = ifnull(task.get("Task_Type"), "").toString();
+	whatLookup = task.get("What_Id");
+	seModule   = ifnull(task.get("$se_module"), "").toString();
+	if(seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
 	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", null);
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"se_module":seModule, "task_type":tType});
 		return;
 	}
 
