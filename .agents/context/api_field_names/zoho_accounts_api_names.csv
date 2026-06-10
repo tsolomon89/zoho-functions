@@ -23,8 +23,14 @@ Billing Address - State / Province,Billing_State,Pick List,
 Billing Address - Street Address,Billing_Street,Single Line,
 Billing Address - Zip / Postal Code,Billing_Code,Single Line,
 Change Log Time,Change_Log_Time__s,DateTime,
+Company Continent AOO,Company_Continent_AOO,Multiselect,Yes
+Company Country AOO,Company_Country_AOO,Multiselect,Yes
 Company Linkedin,Company_Linkedin,Single Line,Yes
+Company Regional AOO,Company_Regional_AOO,Multiselect,Yes
 Company Size Band,Company_Size_Band,Pick List,Yes
+Company Sub Region AOO,Company_Sub_Region_AOO,Multiselect,Yes
+Continent Expansion,Continent_Expansion,Multiselect,Yes
+Country Expansion,Country_Expansion,Multiselect,Yes
 Created By,Created_By,Ownerlookup,
 Created Time,Created_Time,DateTime,
 Description,Description,Multi Line,
@@ -45,7 +51,8 @@ Phone,Phone,Phone,
 Rating,Rating,Pick List,
 Record Id,id,Long Integer,
 Record Status,Record_Status__s,Pick List,
-SIC Code,SIC_Code,Number,
+Region Expansion,Region_Expansion,Multiselect,Yes
+Regional Expansion,Regional_Expansion,Boolean,Yes
 Shipping Address,Shipping_Address,Multi Line,
 Shipping Address - City,Shipping_City,Single Line,
 Shipping Address - Coordinates,Shipping_Coordinates,Multi Line,
@@ -56,8 +63,11 @@ Shipping Address - Longitude,Shipping_Longitude,Decimal,
 Shipping Address - State / Province,Shipping_State,Pick List,
 Shipping Address - Street Address,Shipping_Street,Single Line,
 Shipping Address - Zip / Postal Code,Shipping_Code,Single Line,
+SIC Code,SIC_Code,Number,
 State,State,Pick List,Yes
 Status,Status,Pick List,Yes
+Sub Region Expansion,Sub_Region_Expansion,Multiselect,Yes
 Tag,Tag,Single Line,
 Ticker Symbol,Ticker_Symbol,Single Line,
+Timeline Expansion,Timeline_Expansion,DateTime,Yes
 Website,Website,URL,

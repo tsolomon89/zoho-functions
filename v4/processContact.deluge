@@ -262,6 +262,7 @@ void automation.processContact(string contact_id)
 	openContactIdsAtMax = List();
 	processedContactIds = List();
 	contactJobTitleMap = Map();
+	contactRoleMap = Map();
 
 	// (a) Triggering Contact's Product_Interest (full record — Multi-Select Lookup)
 	triggerPIStaging = ifnull(contactRecord.get("Product_Interest_Staging"), "").toString().trim();
@@ -327,6 +328,7 @@ void automation.processContact(string contact_id)
 				cState = ifnull(fullC.get("State"), "Open").toString();
 				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId, ifnull(fullC.get("Job_Title"), "").toString().trim());
+				contactRoleMap.put(cId, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
 
 				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
 				if(cPIStaging != "")
@@ -402,6 +404,7 @@ void automation.processContact(string contact_id)
 		cStage = ifnull(contactRecord.get("Stage"), "Marketing Qualification").toString();
 		cState = ifnull(contactRecord.get("State"), "Open").toString();
 		contactJobTitleMap.put(cleanId.toString(), ifnull(contactRecord.get("Job_Title"), "").toString().trim());
+		contactRoleMap.put(cleanId.toString(), ifnull(contactRecord.get("Contact_Role1"), "Decision Maker").toString());
 		if(cState == "Open")
 		{
 			anyContactOpen = true;
@@ -445,7 +448,7 @@ void automation.processContact(string contact_id)
 		}
 	}
 
-	// ---- 7. Pick primary Contact ----
+	// ---- 7. Pick primary Contact (current-primary tiebreak with Contact Role priority) ----
 	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
 	currentPrimaryId = "";
 	cnLookup = targetDeal.get("Contact_Name");
@@ -454,13 +457,31 @@ void automation.processContact(string contact_id)
 	furthestContactId = "";
 	if(openContactIdsAtMax.size() > 0)
 	{
-		if(currentPrimaryId != "" && openContactIdsAtMax.contains(currentPrimaryId))
+		if(openContactIdsAtMax.size() == 1)
 		{
-			furthestContactId = currentPrimaryId;
+			furthestContactId = openContactIdsAtMax.get(0);
 		}
 		else
 		{
-			furthestContactId = openContactIdsAtMax.get(0);
+			roleRanks = {"Decision Maker": 3, "End User": 2, "Influencer": 1};
+			bestRoleRank = -1;
+			bestContactId = "";
+			for each cId_tie in openContactIdsAtMax
+			{
+				cRole_tie = ifnull(contactRoleMap.get(cId_tie), "Decision Maker").toString();
+				cRoleRank = ifnull(roleRanks.get(cRole_tie), 3).toLong();
+				isCurrentPrimary = cId_tie == currentPrimaryId;
+				if(cRoleRank > bestRoleRank)
+				{
+					bestRoleRank = cRoleRank;
+					bestContactId = cId_tie;
+				}
+				else if(cRoleRank == bestRoleRank && isCurrentPrimary)
+				{
+					bestContactId = cId_tie;
+				}
+			}
+			furthestContactId = bestContactId;
 		}
 	}
 
@@ -702,6 +723,34 @@ void automation.processContact(string contact_id)
 		{
 			dUpd.put("Stage1", bestStage);
 			dUpd.put("Stage", bestOpp);
+		}
+	}
+
+	// Stage completion date dynamic stamping
+	stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
+	stageFields = Map();
+	stageFields.put("Marketing Qualification", "Marketing_Qualification_Completed_At");
+	stageFields.put("Demo Booking", "Demo_Booking_Completed_At");
+	stageFields.put("Demo Confirmation", "Demo_Confirmation_Completed_At");
+	stageFields.put("Demo Hosted", "Demo_Hosted_Completed_At");
+	stageFields.put("Proposal Preparation", "Proposal_Preparation_Completed_At");
+	stageFields.put("Commercial Agreement", "Commercial_Agreement_Completed_At");
+	stageFields.put("Onboarding", "Onboarding_Completed_At");
+	stageFields.put("Renewal", "Renewal_Completed_At");
+
+	finalStage1 = ifnull(dUpd.get("Stage1"), ifnull(targetDeal.get("Stage1"), "Marketing Qualification")).toString();
+	finalRank = ifnull(stageRanks.get(finalStage1), 1).toLong();
+
+	for each stageItem in stagesList
+	{
+		stageItemRank = ifnull(stageRanks.get(stageItem), 0).toLong();
+		if(stageItemRank <= finalRank)
+		{
+			fieldApi = stageFields.get(stageItem);
+			if(fieldApi != null && targetDeal.get(fieldApi) == null && dUpd.get(fieldApi) == null)
+			{
+				dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+			}
 		}
 	}
 

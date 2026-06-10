@@ -56,14 +56,120 @@ void automation.processLead(string lead_id)
 	contractACVCurrent = ifnull(leadRecord.get("Contract_ACV_Current"), "0").toDecimal();
 	contractType = ifnull(leadRecord.get("Contract_Type"), "").toString().trim();
 	contractCurrency = ifnull(leadRecord.get("Contract_Currency"), "").toString().trim();
-	mqCompletedAt = leadRecord.get("Marketing_Qualification_Completed_At");
-	dbCompletedAt = leadRecord.get("Demo_Booking_Completed_At");
-	dcCompletedAt = leadRecord.get("Demo_Confirmation_Completed_At");
-	dhCompletedAt = leadRecord.get("Demo_Hosted_Completed_At");
-	ppCompletedAt = leadRecord.get("Proposal_Preparation_Completed_At");
-	caCompletedAt = leadRecord.get("Commercial_Agreement_Completed_At");
-	obCompletedAt = leadRecord.get("Onboarding_Completed_At");
-	rnCompletedAt = leadRecord.get("Renewal_Completed_At");
+	mqCompletedAt = null;
+	mqVal = leadRecord.get("Marketing_Qualification_Completed_At");
+	if(mqVal != null)
+	{
+		mqCompletedAt = mqVal.toString();
+		if(!mqCompletedAt.contains("T"))
+		{
+			mqCompletedAt = mqVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	dbCompletedAt = null;
+	dbVal = leadRecord.get("Demo_Booking_Completed_At");
+	if(dbVal != null)
+	{
+		dbCompletedAt = dbVal.toString();
+		if(!dbCompletedAt.contains("T"))
+		{
+			dbCompletedAt = dbVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	dcCompletedAt = null;
+	dcVal = leadRecord.get("Demo_Confirmation_Completed_At");
+	if(dcVal != null)
+	{
+		dcCompletedAt = dcVal.toString();
+		if(!dcCompletedAt.contains("T"))
+		{
+			dcCompletedAt = dcVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	dhCompletedAt = null;
+	dhVal = leadRecord.get("Demo_Hosted_Completed_At");
+	if(dhVal != null)
+	{
+		dhCompletedAt = dhVal.toString();
+		if(!dhCompletedAt.contains("T"))
+		{
+			dhCompletedAt = dhVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	ppCompletedAt = null;
+	ppVal = leadRecord.get("Proposal_Preparation_Completed_At");
+	if(ppVal != null)
+	{
+		ppCompletedAt = ppVal.toString();
+		if(!ppCompletedAt.contains("T"))
+		{
+			ppCompletedAt = ppVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	caCompletedAt = null;
+	caVal = leadRecord.get("Commercial_Agreement_Completed_At");
+	if(caVal != null)
+	{
+		caCompletedAt = caVal.toString();
+		if(!caCompletedAt.contains("T"))
+		{
+			caCompletedAt = caVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	obCompletedAt = null;
+	obVal = leadRecord.get("Onboarding_Completed_At");
+	if(obVal != null)
+	{
+		obCompletedAt = obVal.toString();
+		if(!obCompletedAt.contains("T"))
+		{
+			obCompletedAt = obVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+	rnCompletedAt = null;
+	rnVal = leadRecord.get("Renewal_Completed_At");
+	if(rnVal != null)
+	{
+		rnCompletedAt = rnVal.toString();
+		if(!rnCompletedAt.contains("T"))
+		{
+			rnCompletedAt = rnVal.toDateTime().toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+		}
+	}
+
+	// AOR fields from Lead (lists for multiselect)
+	leadContinentAOR = List();
+	leadCountryAOR = List();
+	leadRegionAOR = List();
+	leadSubRegionAOR = List();
+	if(leadRecord.get("Continent_AOR") != null) { for each item in leadRecord.get("Continent_AOR") { leadContinentAOR.add(item.toString()); } }
+	if(leadRecord.get("Country_AOR") != null) { for each item in leadRecord.get("Country_AOR") { leadCountryAOR.add(item.toString()); } }
+	if(leadRecord.get("Region_AOR") != null) { for each item in leadRecord.get("Region_AOR") { leadRegionAOR.add(item.toString()); } }
+	if(leadRecord.get("Sub_Region_AOR") != null) { for each item in leadRecord.get("Sub_Region_AOR") { leadSubRegionAOR.add(item.toString()); } }
+	leadRegionalAOR = leadRecord.get("Regional_AOR");
+	leadRoleAOR = ifnull(leadRecord.get("Role_AOR"), "").toString().trim();
+
+	// Company AOO fields from Lead (lists for multiselect)
+	leadCompanyContinentAOO = List();
+	leadCompanyRegionalAOO = List();
+	leadCompanyCountryAOO = List();
+	leadCompanySubRegionAOO = List();
+	if(leadRecord.get("Company_Continent_AOO") != null) { for each item in leadRecord.get("Company_Continent_AOO") { leadCompanyContinentAOO.add(item.toString()); } }
+	if(leadRecord.get("Company_Regional_AOO") != null) { for each item in leadRecord.get("Company_Regional_AOO") { leadCompanyRegionalAOO.add(item.toString()); } }
+	if(leadRecord.get("Company_Country_AOO") != null) { for each item in leadRecord.get("Company_Country_AOO") { leadCompanyCountryAOO.add(item.toString()); } }
+	if(leadRecord.get("Company_Sub_Region_AOO") != null) { for each item in leadRecord.get("Company_Sub_Region_AOO") { leadCompanySubRegionAOO.add(item.toString()); } }
+
+	// Expansion fields from Lead (lists for multiselect)
+	leadContinentExpansion = List();
+	leadCountryExpansion = List();
+	leadRegionExpansion = List();
+	leadSubRegionExpansion = List();
+	if(leadRecord.get("Continent_Expansion") != null) { for each item in leadRecord.get("Continent_Expansion") { leadContinentExpansion.add(item.toString()); } }
+	if(leadRecord.get("Country_Expansion") != null) { for each item in leadRecord.get("Country_Expansion") { leadCountryExpansion.add(item.toString()); } }
+	if(leadRecord.get("Region_Expansion") != null) { for each item in leadRecord.get("Region_Expansion") { leadRegionExpansion.add(item.toString()); } }
+	if(leadRecord.get("Sub_Region_Expansion") != null) { for each item in leadRecord.get("Sub_Region_Expansion") { leadSubRegionExpansion.add(item.toString()); } }
+	leadRegionalExpansion = leadRecord.get("Regional_Expansion");
+	leadTimelineExpansion = leadRecord.get("Timeline_Expansion");
 
 	// ---- 1b. Resolve Contact_Role from Job_Title and stamp on Lead BEFORE conversion ----
 	// Inlined here because standalone cross-function calls silently fail in some CRM configs.
@@ -176,6 +282,16 @@ void automation.processLead(string lead_id)
 		createAccMap.put("Account_Name", if(company != "", company, accountKey));
 		if(website != "") { createAccMap.put("Website", website); }
 		if(phone != "") { createAccMap.put("Phone", phone); }
+		if(leadCompanyContinentAOO.size() > 0) { createAccMap.put("Company_Continent_AOO", leadCompanyContinentAOO); }
+		if(leadCompanyRegionalAOO.size() > 0) { createAccMap.put("Company_Regional_AOO", leadCompanyRegionalAOO); }
+		if(leadCompanyCountryAOO.size() > 0) { createAccMap.put("Company_Country_AOO", leadCompanyCountryAOO); }
+		if(leadCompanySubRegionAOO.size() > 0) { createAccMap.put("Company_Sub_Region_AOO", leadCompanySubRegionAOO); }
+		if(leadContinentExpansion.size() > 0) { createAccMap.put("Continent_Expansion", leadContinentExpansion); }
+		if(leadCountryExpansion.size() > 0) { createAccMap.put("Country_Expansion", leadCountryExpansion); }
+		if(leadRegionExpansion.size() > 0) { createAccMap.put("Region_Expansion", leadRegionExpansion); }
+		if(leadSubRegionExpansion.size() > 0) { createAccMap.put("Sub_Region_Expansion", leadSubRegionExpansion); }
+		if(leadRegionalExpansion != null) { createAccMap.put("Regional_Expansion", leadRegionalExpansion); }
+		if(leadTimelineExpansion != null) { createAccMap.put("Timeline_Expansion", leadTimelineExpansion); }
 
 		accCreateRes = zoho.crm.createRecord("Accounts", createAccMap);
 		if(accCreateRes.get("id") != null)
@@ -203,6 +319,16 @@ void automation.processLead(string lead_id)
 		updAcc = Map();
 		if(ifnull(accountRecord.get("Account_Key"), "") != accountKey) { updAcc.put("Account_Key", accountKey); }
 		if(phone != "" && ifnull(accountRecord.get("Phone"), "") != phone) { updAcc.put("Phone", phone); }
+		if(leadCompanyContinentAOO.size() > 0 && (accountRecord.get("Company_Continent_AOO") == null || accountRecord.get("Company_Continent_AOO").size() == 0)) { updAcc.put("Company_Continent_AOO", leadCompanyContinentAOO); }
+		if(leadCompanyRegionalAOO.size() > 0 && (accountRecord.get("Company_Regional_AOO") == null || accountRecord.get("Company_Regional_AOO").size() == 0)) { updAcc.put("Company_Regional_AOO", leadCompanyRegionalAOO); }
+		if(leadCompanyCountryAOO.size() > 0 && (accountRecord.get("Company_Country_AOO") == null || accountRecord.get("Company_Country_AOO").size() == 0)) { updAcc.put("Company_Country_AOO", leadCompanyCountryAOO); }
+		if(leadCompanySubRegionAOO.size() > 0 && (accountRecord.get("Company_Sub_Region_AOO") == null || accountRecord.get("Company_Sub_Region_AOO").size() == 0)) { updAcc.put("Company_Sub_Region_AOO", leadCompanySubRegionAOO); }
+		if(leadContinentExpansion.size() > 0 && (accountRecord.get("Continent_Expansion") == null || accountRecord.get("Continent_Expansion").size() == 0)) { updAcc.put("Continent_Expansion", leadContinentExpansion); }
+		if(leadCountryExpansion.size() > 0 && (accountRecord.get("Country_Expansion") == null || accountRecord.get("Country_Expansion").size() == 0)) { updAcc.put("Country_Expansion", leadCountryExpansion); }
+		if(leadRegionExpansion.size() > 0 && (accountRecord.get("Region_Expansion") == null || accountRecord.get("Region_Expansion").size() == 0)) { updAcc.put("Region_Expansion", leadRegionExpansion); }
+		if(leadSubRegionExpansion.size() > 0 && (accountRecord.get("Sub_Region_Expansion") == null || accountRecord.get("Sub_Region_Expansion").size() == 0)) { updAcc.put("Sub_Region_Expansion", leadSubRegionExpansion); }
+		if(leadRegionalExpansion != null && accountRecord.get("Regional_Expansion") == null) { updAcc.put("Regional_Expansion", leadRegionalExpansion); }
+		if(leadTimelineExpansion != null && accountRecord.get("Timeline_Expansion") == null) { updAcc.put("Timeline_Expansion", leadTimelineExpansion); }
 		if(updAcc.size() > 0)
 		{
 			zoho.crm.updateRecord("Accounts", accountId.toLong(), updAcc);
@@ -313,6 +439,12 @@ void automation.processLead(string lead_id)
 	{
 		updCon.put("Product_Interest_Staging", leadPIStr);
 	}
+	if(leadContinentAOR.size() > 0 && (contactRecord.get("Continent_AOR") == null || contactRecord.get("Continent_AOR").size() == 0)) { updCon.put("Continent_AOR", leadContinentAOR); }
+	if(leadCountryAOR.size() > 0 && (contactRecord.get("Country_AOR") == null || contactRecord.get("Country_AOR").size() == 0)) { updCon.put("Country_AOR", leadCountryAOR); }
+	if(leadRegionAOR.size() > 0 && (contactRecord.get("Region_AOR") == null || contactRecord.get("Region_AOR").size() == 0)) { updCon.put("Region_AOR", leadRegionAOR); }
+	if(leadSubRegionAOR.size() > 0 && (contactRecord.get("Sub_Region_AOR") == null || contactRecord.get("Sub_Region_AOR").size() == 0)) { updCon.put("Sub_Region_AOR", leadSubRegionAOR); }
+	if(leadRegionalAOR != null && contactRecord.get("Regional_AOR") == null) { updCon.put("Regional_AOR", leadRegionalAOR); }
+	if(leadRoleAOR != "" && ifnull(contactRecord.get("Role_AOR"), "") == "") { updCon.put("Role_AOR", leadRoleAOR); }
 
 	if(updCon.size() > 0)
 	{
@@ -507,6 +639,7 @@ void automation.processLead(string lead_id)
 	openContactIdsAtMax = List();
 	processedContactIds = List();
 	contactJobTitleMap = Map();
+	contactRoleMap = Map();
 
 	// (b) From every Contact under the Account
 	//     getRelatedRecords does NOT reliably return custom fields (Stage, State,
@@ -524,6 +657,7 @@ void automation.processLead(string lead_id)
 				cState = ifnull(fullC.get("State"), "Open").toString();
 				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
 				contactJobTitleMap.put(cId_loop, ifnull(fullC.get("Job_Title"), "").toString().trim());
+				contactRoleMap.put(cId_loop, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
 
 				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
 				if(cPIStaging != "")
@@ -605,6 +739,7 @@ void automation.processLead(string lead_id)
 			newCJobTitle = ifnull(refreshedC.get("Job_Title"), "").toString().trim();
 			if(newCJobTitle == "" && leadJobTitle != "") { newCJobTitle = leadJobTitle; }
 			contactJobTitleMap.put(newContactId, newCJobTitle);
+			contactRoleMap.put(newContactId, ifnull(refreshedC.get("Contact_Role1"), "Decision Maker").toString());
 			if(cState == "Open")
 			{
 				anyContactOpen = true;
@@ -651,7 +786,7 @@ void automation.processLead(string lead_id)
 	}
 	info "Existing associated Products count: " + existingProdIds.size();
 
-	// ---- 9. Pick primary Contact (current-primary tiebreak) ----
+	// ---- 9. Pick primary Contact (current-primary tiebreak with Contact Role priority) ----
 	targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
 	currentPrimaryId = "";
 	cnLookup = targetDeal.get("Contact_Name");
@@ -660,13 +795,31 @@ void automation.processLead(string lead_id)
 	furthestContactId = "";
 	if(openContactIdsAtMax.size() > 0)
 	{
-		if(currentPrimaryId != "" && openContactIdsAtMax.contains(currentPrimaryId))
+		if(openContactIdsAtMax.size() == 1)
 		{
-			furthestContactId = currentPrimaryId;
+			furthestContactId = openContactIdsAtMax.get(0);
 		}
 		else
 		{
-			furthestContactId = openContactIdsAtMax.get(0);
+			roleRanks = {"Decision Maker": 3, "End User": 2, "Influencer": 1};
+			bestRoleRank = -1;
+			bestContactId = "";
+			for each cId_tie in openContactIdsAtMax
+			{
+				cRole_tie = ifnull(contactRoleMap.get(cId_tie), "Decision Maker").toString();
+				cRoleRank = ifnull(roleRanks.get(cRole_tie), 3).toLong();
+				isCurrentPrimary = cId_tie == currentPrimaryId;
+				if(cRoleRank > bestRoleRank)
+				{
+					bestRoleRank = cRoleRank;
+					bestContactId = cId_tie;
+				}
+				else if(cRoleRank == bestRoleRank && isCurrentPrimary)
+				{
+					bestContactId = cId_tie;
+				}
+			}
+			furthestContactId = bestContactId;
 		}
 	}
 	else if(newContactId != "")
@@ -926,6 +1079,34 @@ void automation.processLead(string lead_id)
 		{
 			dUpd.put("Stage1", bestStage);
 			dUpd.put("Stage", bestOpp);
+		}
+	}
+
+	// Stage completion date dynamic stamping
+	stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
+	stageFields = Map();
+	stageFields.put("Marketing Qualification", "Marketing_Qualification_Completed_At");
+	stageFields.put("Demo Booking", "Demo_Booking_Completed_At");
+	stageFields.put("Demo Confirmation", "Demo_Confirmation_Completed_At");
+	stageFields.put("Demo Hosted", "Demo_Hosted_Completed_At");
+	stageFields.put("Proposal Preparation", "Proposal_Preparation_Completed_At");
+	stageFields.put("Commercial Agreement", "Commercial_Agreement_Completed_At");
+	stageFields.put("Onboarding", "Onboarding_Completed_At");
+	stageFields.put("Renewal", "Renewal_Completed_At");
+
+	finalStage1 = ifnull(dUpd.get("Stage1"), ifnull(targetDeal.get("Stage1"), "Marketing Qualification")).toString();
+	finalRank = ifnull(stageRanks.get(finalStage1), 1).toLong();
+
+	for each stageItem in stagesList
+	{
+		stageItemRank = ifnull(stageRanks.get(stageItem), 0).toLong();
+		if(stageItemRank <= finalRank)
+		{
+			fieldApi = stageFields.get(stageItem);
+			if(fieldApi != null && targetDeal.get(fieldApi) == null && dUpd.get(fieldApi) == null)
+			{
+				dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+			}
 		}
 	}
 

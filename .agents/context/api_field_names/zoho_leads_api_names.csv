@@ -15,8 +15,12 @@ Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
 Change Log Time,Change_Log_Time__s,DateTime,
 Commercial Agreement Completed At,Commercial_Agreement_Completed_At,DateTime,Yes
 Company,Company,Single Line,
+Company Continent AOO,Company_Continent_AOO,Multiselect,Yes
+Company Country AOO,Company_Country_AOO,Multiselect,Yes
 Company Linkedin,Company_Linkedin,Single Line,Yes
 Company Phone,Phone,Phone,
+Company Regional AOO,Company_Regional_AOO,Multiselect,Yes
+Company Sub Region AOO,Company_Sub_Region_AOO,Multiselect,Yes
 Contact Role,Contact_Role1,Pick List,Yes
 Continent AOR,Continent_AOR,Multiselect,Yes
 Continent Expansion,Continent_Expansion,Multiselect,Yes

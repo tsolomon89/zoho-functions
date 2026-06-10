@@ -9,6 +9,8 @@ Contact Image,Record_Image,Profileimage,
 Contact Owner,Owner,Ownerlookup,
 Contact Role,Contact_Role1,Pick List,Yes
 Contact Source Class,Contact_Source_Class,Pick List,Yes
+Continent AOR,Continent_AOR,Multiselect,Yes
+Country AOR,Country_AOR,Multiselect,Yes
 Created By,Created_By,Ownerlookup,
 Created Time,Created_Time,DateTime,
 Date of Birth,Date_of_Birth,Date,
@@ -72,13 +74,20 @@ Profile Completion Status,Profile_Completion_Status,Pick List,Yes
 Record Id,id,Long Integer,
 Record Status,Record_Status__s,Pick List,
 Referrer,Referrer,URL,
+Region AOR,Region_AOR,Multiselect,Yes
+Regional AOR,Regional_AOR,Boolean,Yes
 Reporting To,Reporting_To,Lookup,
+Role AOR,Role_AOR,Multi Line,Yes
+Role Priority 1,Role_Priority_1,Multi Line,Yes
+Role Priority 2,Role_Priority_2,Multi Line,Yes
+Role Priority 3,Role_Priority_3,Multi Line,Yes
 Salutation,Salutation,Pick List,
 Secondary Email,Secondary_Email,Email,
 Skype ID,Skype_ID,Single Line,
 Stage,Stage,Pick List,Yes
 State,State,Pick List,Yes
 Status,Status,Pick List,Yes
+Sub Region AOR,Sub_Region_AOR,Multiselect,Yes
 Tag,Tag,Single Line,
 Twitter,Twitter,Single Line,
 Unsubscribed Mode,Unsubscribed_Mode,Pick List,
