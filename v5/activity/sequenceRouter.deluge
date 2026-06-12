@@ -180,7 +180,8 @@ void automation.sequenceRouter(string dealIdStr)
 					tStage = ifnull(tk.get("Sequence_Stage"), "").toString();
 					tStatus = ifnull(tk.get("Status"), "").toString();
 
-					if(tSeqManaged == "Yes" && tType == "Sequence Activation" && tStage == stage && tStatus != "Completed")
+					isSeq = tSeqManaged == "Yes" || tType == "Sequence Activation";
+					if(isSeq && tType == "Sequence Activation" && tStage == stage && tStatus != "Completed")
 					{
 						existingTaskId = tk.get("id").toString();
 						break;
@@ -311,7 +312,8 @@ void automation.sequenceRouter(string dealIdStr)
 					tStage = ifnull(tk.get("Sequence_Stage"), "").toString();
 					tStatus = ifnull(tk.get("Status"), "").toString();
 
-					if(tSeqManaged == "Yes" && tTaskType == tType && tStage == stage && tStatus != "Completed")
+					isSeq = tSeqManaged == "Yes" || tTaskType == tType;
+					if(isSeq && tTaskType == tType && tStage == stage && tStatus != "Completed")
 					{
 						existingTaskId = tk.get("id").toString();
 						break;

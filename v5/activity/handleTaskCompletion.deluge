@@ -40,8 +40,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 	whatLookup = task.get("What_Id");
 	seModule   = ifnull(task.get("$se_module"), "").toString();
 	tSeqManaged = ifnull(task.get("Sequence_Managed"), "No").toString();
+	isSeqTask = tSeqManaged == "Yes" || tType == "Sequence Activation" || tType == "Data Repair" || tType == "Enrichment" || tType == "Review Reply" || tType == "Draft Commercials" || tType == "Send Commercials" || tType == "Onboarding Setup" || tType == "Manual Review" || tType == "Suppression Review";
 
-	if(tSeqManaged != "Yes" || seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
+	if(!isSeqTask || seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"se_module":seModule, "task_type":tType, "sequence_managed":tSeqManaged});
 		return;
@@ -218,7 +219,8 @@ void automation.handleTaskCompletion(string taskIdStr)
 					tStage = ifnull(tk.get("Sequence_Stage"), "").toString();
 					tStatus = ifnull(tk.get("Status"), "").toString();
 
-					if(tSeqManaged == "Yes" && tTaskType == "Manual Review" && tStage == stage && tStatus != "Completed")
+					isSeq = tSeqManaged == "Yes" || tTaskType == "Manual Review";
+					if(isSeq && tTaskType == "Manual Review" && tStage == stage && tStatus != "Completed")
 					{
 						existingTaskId = tk.get("id").toString();
 						break;

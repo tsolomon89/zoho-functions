@@ -73,8 +73,10 @@ void automation.supersedeOldSequence(string dealIdStr)
 			tBlocks   = ifnull(tk.get("Blocks_Sequence"), "No").toString();
 			tSeqManaged = ifnull(tk.get("Sequence_Managed"), "No").toString();
 			tStage = ifnull(tk.get("Sequence_Stage"), "").toString();
+			tType = ifnull(tk.get("Task_Type"), "").toString();
 
-			if(tSeqManaged == "Yes" && tStage == oldStage && tStatus != "Completed" && tBlocks == "Yes")
+			isSeq = tSeqManaged == "Yes" || tType == "Sequence Activation" || tType == "Data Repair" || tType == "Enrichment" || tType == "Review Reply" || tType == "Draft Commercials" || tType == "Send Commercials" || tType == "Onboarding Setup" || tType == "Manual Review" || tType == "Suppression Review";
+			if(isSeq && tStage == oldStage && tStatus != "Completed" && tBlocks == "Yes")
 			{
 				tUpd = Map();
 				tUpd.put("Status", "Deferred");
