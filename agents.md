@@ -27,6 +27,7 @@ The Lead object is not the durable source of truth. **Contacts, Accounts, Deals,
 3.  **Missing Deals**: Reusing or creating a Deal during conversion, matching by account plus product staging signal, furthest Open Deal, or furthest Lost Deal fallback.
 4.  **Conversion Gates**: Conversion happens first (Zero-Block Always-Convert). Validation and data quality only determine where the converted Contact / Deal lands in the ontology.
 5.  **Product Interest Staging**: Correcting Lead multi-select staging values as plain text, mapping them to the staging field `Product_Interest_Staging` on Contacts and Deals, and resolving them against Products to sum Unit Prices for `Deal.Amount` calculations.
+6.  **Task-Gated Routing Sequence**: Replaced unconditional Call 1 creation on Deal/Stage bootstrap with a routing-neutral state machine. Sequences are gated via a `Sequence Activation` Task when source classification is Manual, bulk, migrated, unknown, or ambiguous. It supports Call-first, Email-first, Meeting-first, and Task-first sequences.
 
 ---
 
@@ -70,15 +71,17 @@ This repository uses local workspace configurations to guide agent behavior. The
 
 ---
 
-## Core Operational Files
+## Core Operational Files (v5)
 
-The following files constitute the automated workflow pipeline:
+The following files constitute the automated workflow pipeline under `v5`:
 
-1.  [convert2lead.deluge](file:///c:/Development/Projects/zoho-functions/convert2lead.deluge): Intake processor.
-2.  [normalizeContactCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/normalizeContactCommercialState.deluge): Person-level normalization.
-3.  [normalizeDealCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/normalizeDealCommercialState.deluge): Deal-level normalization.
-4.  [syncDealProductsAndValue.deluge](file:///c:/Development/Projects/zoho-functions/syncDealProductsAndValue.deluge): Product lookup and Deal Amount summation.
-5.  [rollupAccountCommercialState.deluge](file:///c:/Development/Projects/zoho-functions/rollupAccountCommercialState.deluge): Account-level aggregate state and status.
+1.  [processLead.deluge](file:///c:/Development/Projects/zoho-functions/v5/processLead.deluge): Intake processor.
+2.  [processContact.deluge](file:///c:/Development/Projects/zoho-functions/v5/processContact.deluge): Person-level normalization.
+3.  [processAccount.deluge](file:///c:/Development/Projects/zoho-functions/v5/processAccount.deluge): Account-level aggregate state and status.
+4.  [processDeal.deluge](file:///c:/Development/Projects/zoho-functions/v5/processDeal.deluge): Deal-level normalization.
+5.  [sequenceRouter.deluge](file:///c:/Development/Projects/zoho-functions/v5/activity/sequenceRouter.deluge): State-machine routing engine.
+6.  [_util_resolveSequenceRoute.deluge](file:///c:/Development/Projects/zoho-functions/v5/activity/_util_resolveSequenceRoute.deluge): Canonical source-to-route resolver.
+7.  [handleTaskCompletion.deluge](file:///c:/Development/Projects/zoho-functions/v5/activity/handleTaskCompletion.deluge): Task completions outcome handler.
 
 ---
 

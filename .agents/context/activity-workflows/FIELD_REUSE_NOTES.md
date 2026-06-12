@@ -65,6 +65,10 @@ Org has **no custom fields on these modules today**. Module API names:
 
 3. **Custom fields are shared across all three Activities sub-modules.** A field created on Calls (e.g., `Sequence_Managed`, `Sequence_Stage`, `Sequence_Attempt`, `Next_Follow_Up_Date`) is automatically visible on Events and Tasks too, so attempting to create them again on those modules returns `DUPLICATE_DATA`. Plan accordingly when adding more shared fields.
 
+4. **Task Type & Outcome additions (v5)**:
+   - `Task_Type` is extended to support `Sequence Activation`.
+   - `Task_Outcome` is extended to support `Activate Call First`, `Activate Email First`, `Manual Only`, `Suppress`, `Already Handled`, and `Stage Incorrect`.
+
 These modules use the standard fields `Subject`, `Owner`, `Status`, `Description`, plus the per-module lookups (`Who_Id`, `What_Id`, `Se_Module`). For workflow criteria that need to filter on "calls related to a Deal", use `What_Id is not empty AND $se_module equals Deals`.
 
 ## Field labels shortened for the 25-character cap

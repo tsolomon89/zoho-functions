@@ -1,0 +1,46 @@
+string automation.resolveTemplate(string stage, int attemptOrChainStep, string triggerContext)
+{
+	// =========================================================================
+	// _util_resolveTemplate
+	//
+	// Maps (Stage, attempt_or_chain_step, trigger_context) → Zoho email template
+	// name. The template name returned here is looked up by sendSequencedEmail
+	// against the Zoho templates module and used in the actual send call.
+	//
+	// Triggers:
+	//   "call_neutral" / "call_no_answer" → {Stage} Email {Attempt}
+	//   "post_call_chain"                  → {Stage} Post-Call Email Chain {Step}
+	//   Named specials (Stage-agnostic):
+	//     "demo_confirmation"              → Demo Confirmation Email
+	//     "demo_reminder"                  → Demo Confirmation Reminder Email
+	//     "demo_no_show"                   → Demo Confirmation No-Show Email
+	//     "demo_post_demo"                 → Demo Hosted Post-Demo Email
+	//     "commercials_terms"              → Commercial Agreement Terms Email
+	//     "commercials_signed_confirmation"→ Commercial Agreement Confirmation Email
+	//     "onboarding_kickoff"             → Onboarding Kickoff Email
+	//
+	// Source of truth: TEMPLATE_NAMING_MATRIX.md.
+	// Adding a new template here also requires creating it in Zoho per
+	// TEMPLATE_CREATION_CHECKLIST.md (Phase 7 output).
+	// =========================================================================
+
+	tc = ifnull(triggerContext, "").toString();
+
+	if(tc == "demo_confirmation")              { return "Demo Confirmation Email"; }
+	if(tc == "demo_reminder")                  { return "Demo Confirmation Reminder Email"; }
+	if(tc == "demo_no_show")                   { return "Demo Confirmation No-Show Email"; }
+	if(tc == "demo_post_demo")                 { return "Demo Hosted Post-Demo Email"; }
+	if(tc == "commercials_terms")              { return "Commercial Agreement Terms Email"; }
+	if(tc == "commercials_signed_confirmation"){ return "Commercial Agreement Confirmation Email"; }
+	if(tc == "onboarding_kickoff")             { return "Onboarding Kickoff Email"; }
+
+	stageName = ifnull(stage, "").toString();
+	if(stageName == "") { return ""; }
+
+	if(tc == "post_call_chain")
+	{
+		return stageName + " Post-Call Email Chain " + attemptOrChainStep;
+	}
+
+	return stageName + " Email " + attemptOrChainStep;
+}

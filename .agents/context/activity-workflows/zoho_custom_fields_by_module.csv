@@ -60,8 +60,8 @@ Events,Follow-Up Stage,Follow_Up_Stage,Picklist,Marketing Qualification;Demo Boo
 Events,Ext Calendar Booking ID,Ext_Calendar_Booking_ID,Text,,No,CREATED (label shortened from 'External Calendar Booking ID')
 Tasks,(use What_Id + $se_module=Deals),What_Id,Lookup: polymorphic,,Yes,REUSE - Activities disallow custom Lookups; use What_Id with $se_module='Deals'
 Tasks,Sequence Managed,Sequence_Managed,Picklist,Yes;No,Yes,SHARED from Calls (Activities cross-module field)
-Tasks,Task Type,Task_Type,Picklist,Enrichment;Data Repair;Draft Commercials;Send Commercials;Review Reply;Onboarding Setup;Manual Review;Suppression Review,Yes,CREATE
-Tasks,Task Outcome,Task_Outcome,Picklist,Completed;Blocked;Not Relevant;Already Handled;Needs Follow-Up;Failed,No,CREATE
+Tasks,Task Type,Task_Type,Picklist,Enrichment;Data Repair;Draft Commercials;Send Commercials;Review Reply;Onboarding Setup;Manual Review;Suppression Review;Sequence Activation,Yes,CREATE
+Tasks,Task Outcome,Task_Outcome,Picklist,Completed;Blocked;Not Relevant;Already Handled;Needs Follow-Up;Failed;Activate Call First;Activate Email First;Manual Only;Suppress;Stage Incorrect,No,CREATE
 Tasks,Sequence Stage,Sequence_Stage,Picklist,Marketing Qualification;Demo Booking;Demo Confirmation;Demo Hosted;Commercial Agreement;Onboarding;Onboarding;Renewal,No,SHARED from Calls (Activities cross-module field)
 Tasks,Sequence Attempt,Sequence_Attempt,Number,0-5,No,SHARED from Calls
 Tasks,Next Follow-Up Date,Next_Follow_Up_Date,DateTime,,No,SHARED from Calls

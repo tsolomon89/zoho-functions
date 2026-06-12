@@ -1,17 +1,20 @@
 # 06 — Call Scripts and Email Templates
 
 ## TLDR
-This document maps Jurnii's standardized sales outreach library. It covers the call scripts and email templates that reps use and that the system sends automatically.
+> [!NOTE]
+> This document details the outreach library (call scripts and email templates) used in Jurnii's sales sequences. In **v5**, sequence entry is task-gated and resolved via proposed routing, meaning sequences may start with a Call (Call First), an Email (Email First), a Meeting, a Task, or be routed manually.
+> 
+> This document maps Jurnii's standardized sales outreach library. It covers the call scripts and email templates that reps use and that the system sends automatically.
 
 ---
 
 ## Call Scripts
 
 What it is:
-A standardized collection of stage-specific call scripts and talk tracks. Every sales Stage starts with a Call to ensure professional, value-focused outreach.
+A standardized collection of stage-specific call scripts and talk tracks. Under the Call-First route, a sales Stage starts with a Call to ensure professional, value-focused outreach.
 
 How it is used:
-When a Deal enters a Stage, the system automatically creates the Call record in the Calls module. The rep views the Call, reads the corresponding script/talk track, makes the call, and logs the Call Outcome.
+When a Deal enters a Stage and Call-First routing is active, the system automatically creates the Call record in the Calls module. The rep views the Call, reads the corresponding script/talk track, makes the call, and logs the Call Outcome.
 
 Why it matters:
 Sales reps do not have to guess what to say or when to follow up. It standardizes Jurnii's message, ensures reps gather consistent qualification data, and guides the automated sequence based on logged outcomes.

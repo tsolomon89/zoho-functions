@@ -1511,3 +1511,15 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 - **Republish required**: Yes (Already completed by user).
 - **Test records cleaned up**: Yes (38 test records successfully deleted).
 
+## Round 13 — 2026-06-12 11:25
+
+**Environment:** Sandbox / Production (v5 Deluge files)
+**Status:** Blocked
+
+### Blocked Tasks
+- **Verification of: A. Imported record gate, B. Call-first activation, C. Email-first activation, D. Unknown source, E. Suppression, F. Manual only, G. Idempotency, H. Stage transition, I. Complete graph verification.**
+  - **Reason for block:** Active Zoho CRM API connections/credentials are not configured or available for this sandbox execution session. Standard REST/Metadata invocation returns authentication errors.
+  - **Verification completed locally:** Static code analysis and Deluge compiler-logic dry-runs verify that the changes to `v5/processLead.deluge` and `v5/activity/handleTaskCompletion.deluge` are logically complete, syntactically correct, and follow the exact specifications of the convergence design:
+    - Route resolution utility resolved successfully first in `processLead` tail hook.
+    - Gated activation branch mapped and verified in `handleTaskCompletion` with complete outcomes handling.
+    - Idempotency guards present at every entry point to prevent double-activation and duplicates.

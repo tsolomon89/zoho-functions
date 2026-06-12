@@ -1,0 +1,709 @@
+void automation.processAccount(string account_id)
+{
+	// =========================================================================
+	// processAccount  (spec.md aligned)
+	//
+	// Pipeline:
+	//   1. Ensure Account_Key is stamped on the canonical Account
+	//   2. Gather Contacts under the Account, compute furthest viable open
+	//   3. Silence duplicate active Deals
+	//   4. Create the canonical active Deal if missing (when Contacts exist)
+	//   5. Aggregate Product Interest across Contacts + existing Deal Products
+	//   6. Maintain Contact_Roles related list (Decision Maker default, never
+	//      overwrite a manual role)
+	//   7. Resolve Products by name, attach to Deal Products related list,
+	//      sum Unit_Price into Deal.Amount
+	//   8. Update Deal primary Contact, Stage1, Stage (Opportunity), State,
+	//      Status
+	//   9. Roll up Account State / Status
+	//
+	// REQUIRED ZOHO CRM SETTING:
+	// - Accounts.Account_Key UNIQUE
+	// - Deals.Deal_Key UNIQUE
+	// =========================================================================
+
+	info "VERSION: v3.processAccount.spec-aligned";
+
+	if(account_id == null || account_id == "") { return; }
+	cleanId = account_id.replaceAll("zcrm_", "").trim();
+
+	accountRecord = zoho.crm.getRecordById("Accounts", cleanId.toLong());
+	if(accountRecord.get("id") == null) { return; }
+
+	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+
+	// Title → Contact_Role mapping (from .agents/context/field_mapping/Jurnii Personas - Job Tile to Contact Role Mapping.csv).
+	// Precedence on duplicate titles (per existing pattern): End User > Influencer > Decision Maker.
+	dmTitles = {"casino director","chief commercial officer","chief customer officer","chief data officer","chief financial officer","chief marketing officer","chief product officer","commercial director","country manager","crm director","cro director","customer experience director","data director","design director","digital director","digital experience director","experimentation lead","fp&a director","gaming director","general manager","growth director","head of analytics","head of bi","head of brand","head of casino","head of commercial","head of crm","head of cro","head of cx","head of design","head of digital","head of digital product","head of gaming","head of growth","head of marketing","head of product","head of product design","head of promotions","head of proposition","head of research","head of retention","head of sportsbook","head of ux","lifecycle director","market manager","marketing director","performance marketing director","product design director","product director","product operations director","promotions director","proposition director","regional director","revenue director","senior product manager","sportsbook director","ux director","vp customer experience","vp growth","vp product"};
+	euTitles = {"analytics engineer","attribution manager","behavioural analyst","betting operations manager","bi analyst","bi developer","bonus manager","campaign manager","casino manager","casino product manager","commercial analyst","competitor intelligence analyst","crm manager","cro manager","customer journey manager","cx manager","data layer specialist","data visualisation analyst","design systems engineer","design systems lead","digital analyst","digital product manager","experience researcher","experimentation manager","frontend developer","gaming product manager","go-to-market manager","head trader","interaction designer","lifecycle manager","live casino manager","market analyst","marketing analyst","marketing operations manager","offer manager","optimisation manager","player engagement manager","pricing analyst","product analyst","product designer","product insights manager","product manager","product marketing manager","product operations manager","product owner","promotions manager","proposition manager","retention manager","senior ux researcher","sportsbook trading manager","tagging specialist","tracking specialist","trading manager","ui designer","user research lead","user researcher","ux analyst","ux designer","ux researcher","voice of customer manager","web analyst","web developer","website manager"};
+	infTitles = {"acquisition manager","bi manager","brand manager","campaign strategy manager","commercial finance manager","compliance manager","creative director","creative lead","customer operations manager","data analyst","engineering manager","finance business partner","fp&a manager","frontend lead","head of operations","head of vip","insight manager","legal counsel","lifecycle marketing manager","marketing manager","paid search manager","paid social manager","performance marketing manager","player operations manager","player protection lead","player value manager","regulatory affairs manager","responsible gambling manager","safer gambling analyst","safer gambling lead","vip manager"};
+
+	// ---- 1. Ensure Account_Key ----
+	accountKey = ifnull(accountRecord.get("Account_Key"), "").toString();
+	accountName = ifnull(accountRecord.get("Account_Name"), "").toString().trim();
+	if(accountKey == "")
+	{
+		website = ifnull(accountRecord.get("Website"), "").toString().trim();
+		normalizedDomain = "";
+		if(website != "")
+		{
+			normalizedDomain = website.toLowerCase().replaceAll("https://", "").replaceAll("http://", "").replaceAll("www.", "");
+			if(normalizedDomain.contains("/")) { normalizedDomain = normalizedDomain.toList("/").get(0); }
+		}
+
+		if(normalizedDomain != "") { accountKey = normalizedDomain; }
+		else if(accountName != "") { accountKey = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim().toLowerCase(); }
+		else { accountKey = "unknown::" + cleanId; }
+		if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
+
+		zoho.crm.updateRecord("Accounts", cleanId.toLong(), {"Account_Key": accountKey});
+	}
+
+	dealKey = accountKey + "::active";
+
+	// ---- 2. Gather Contacts, compute furthest viable open, aggregate Product Interest ----
+	relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", cleanId.toLong());
+
+	aggregatedPIList = List();
+	lowercasePIList = List();
+
+	maxRank = 0;
+	bestStage = "Marketing Qualification";
+	bestOpp = "MQL";
+	anyContactOpen = false;
+	openContactIdsAtMax = List();
+	firstContactId = "";
+	processedContactIds = List();
+	contactJobTitleMap = Map();
+	contactRoleMap = Map();
+	contactStageMap = Map();
+	contactDatesMap = Map();
+
+	// getRelatedRecords does NOT reliably return custom fields (Stage, State,
+	// Product_Interest). Fetch each Contact full record so the rollup uses real values.
+	for each c in relContacts
+	{
+		cId = "";
+		if(c.get("id") != null) { cId = c.get("id").toString(); }
+		if(cId != "" && cId != "null")
+		{
+			if(firstContactId == "") { firstContactId = cId; }
+			processedContactIds.add(cId);
+			fullC = zoho.crm.getRecordById("Contacts", cId.toLong());
+			if(fullC != null && fullC.get("id") != null)
+			{
+				cState = ifnull(fullC.get("State"), "Open").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
+				cJobTitleLoop = ifnull(fullC.get("Job_Title"), "").toString().trim();
+				contactJobTitleMap.put(cId, cJobTitleLoop);
+				contactRoleMap.put(cId, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
+				contactStageMap.put(cId, cStage);
+				
+				cDates = Map();
+				cDates.put("Marketing Qualification", ifnull(fullC.get("Contact_Completed_Marketing_Qualification_At"), ""));
+				cDates.put("Demo Booking", ifnull(fullC.get("Contact_Completed_Demo_Booking_At"), ""));
+				cDates.put("Demo Confirmation", ifnull(fullC.get("Contact_Completed_Demo_Confirmation_At"), ""));
+				cDates.put("Demo Hosted", ifnull(fullC.get("Contact_Completed_Demo_Hosted_At"), ""));
+				cDates.put("Proposal Preparation", ifnull(fullC.get("Contact_Completed_Proposal_Preparation_At"), ""));
+				cDates.put("Commercial Agreement", ifnull(fullC.get("Contact_Completed_Commercial_Agreement_At"), ""));
+				cDates.put("Onboarding", ifnull(fullC.get("Contact_Completed_Onboarding_At"), ""));
+				cDates.put("Renewal", ifnull(fullC.get("Contact_Completed_Renewal_At"), ""));
+				contactDatesMap.put(cId, cDates);
+
+				// Stamp Contact_Role on the Contact if blank and Job_Title resolves to a role
+				cContactRoleLoop = ifnull(fullC.get("Contact_Role1"), "").toString().trim();
+				if(cContactRoleLoop == "" && cJobTitleLoop != "")
+				{
+					resolvedRoleLoop = "Decision Maker";
+					tKeyLoop = cJobTitleLoop.toLowerCase();
+					if(euTitles.contains(tKeyLoop)) { resolvedRoleLoop = "End User"; }
+					else if(infTitles.contains(tKeyLoop)) { resolvedRoleLoop = "Influencer"; }
+					suppressTrigger = Map();
+					suppressTrigger.put("trigger", List());
+					stampResp = zoho.crm.updateRecord("Contacts", cId.toLong(), {"Contact_Role1": resolvedRoleLoop}, suppressTrigger);
+					info "processAccount: stamped Contact_Role1 on " + cId + " title='" + cJobTitleLoop + "' → '" + resolvedRoleLoop + "' resp=" + stampResp;
+				}
+
+				cPI = fullC.get("Products_Linked");
+				if(cPI != null)
+				{
+					cPIStr = cPI.toString();
+					if(cPIStr.startsWith("[") && cPIStr.endsWith("]") && cPIStr.contains("{"))
+					{
+						for each item in cPI
+						{
+							if(item != null && item.get("name") != null)
+							{
+								pn = item.get("name").toString().trim();
+								if(pn != "" && !lowercasePIList.contains(pn.toLowerCase()))
+								{
+									aggregatedPIList.add(pn);
+									lowercasePIList.add(pn.toLowerCase());
+								}
+							}
+						}
+					}
+					else if(cPIStr != "" && cPIStr != "null")
+					{
+						cleaned = cPIStr.removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+						for each part in cleaned.toList(",")
+						{
+							pTrim = part.trim();
+							if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
+							{
+								aggregatedPIList.add(pTrim);
+								lowercasePIList.add(pTrim.toLowerCase());
+							}
+						}
+					}
+				}
+
+				if(cState == "Open")
+				{
+					anyContactOpen = true;
+					rank = ifnull(stageRanks.get(cStage), 1);
+					info "Contact " + cId + " Stage=" + cStage + " rank=" + rank;
+					if(rank > maxRank)
+					{
+						maxRank = rank;
+						bestStage = cStage;
+						openContactIdsAtMax = List();
+						openContactIdsAtMax.add(cId);
+					}
+					else if(rank == maxRank)
+					{
+						openContactIdsAtMax.add(cId);
+					}
+				}
+			}
+		}
+	}
+
+	if(maxRank >= 7) { bestOpp = "RTP"; }
+	else if(maxRank >= 5) { bestOpp = "FTP"; }
+	else if(maxRank >= 2) { bestOpp = "SQL"; }
+	else { bestOpp = "MQL"; }
+
+	info "Rollup: bestStage=" + bestStage + " bestOpp=" + bestOpp + " maxRank=" + maxRank + " anyContactOpen=" + anyContactOpen;
+
+	// ---- 3. Silence duplicate active Deals ----
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
+	canonicalDealId = "";
+	minId = 999999999999999999;
+	activeDeals = List();
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	for each d in relDeals
+	{
+		if(ifnull(d.get("State"), "Open") == "Open")
+		{
+			dIdLong = d.get("id").toLong();
+			activeDeals.add(d.get("id"));
+			if(dIdLong < minId)
+			{
+				minId = dIdLong;
+				canonicalDealId = d.get("id").toString();
+			}
+		}
+	}
+
+	for each ad in activeDeals
+	{
+		adStr = ad.toString();
+		if(adStr != canonicalDealId)
+		{
+			origDeal = zoho.crm.getRecordById("Deals", adStr.toLong());
+			dupUpdate = Map();
+			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
+			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
+			if(ifnull(origDeal.get("Reason_For_Loss__s"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
+			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
+			origName = ifnull(origDeal.get("Deal_Name"), "");
+			if(!origName.endsWith("(Duplicate)")) { dupUpdate.put("Deal_Name", origName + " (Duplicate)"); }
+			if(dupUpdate.size() > 0)
+			{
+				zoho.crm.updateRecord("Deals", adStr.toLong(), dupUpdate, triggerMap);
+			}
+		}
+	}
+
+	// ---- 4. Create canonical Deal if missing (when Contacts exist) ----
+	if(canonicalDealId == "" && relContacts != null && relContacts.size() > 0)
+	{
+		dealName = accountName + " Deal";
+		if(dealName == " Deal") { dealName = accountKey + " Deal"; }
+
+		// Use furthest open contact (or first) as initial primary
+		initialPrimary = firstContactId;
+		if(openContactIdsAtMax.size() > 0) { initialPrimary = openContactIdsAtMax.get(0); }
+
+		dealMap = Map();
+		dealMap.put("Deal_Name", dealName);
+		dealMap.put("Account_Name", cleanId);
+		dealMap.put("Deal_Key", dealKey);
+		dealMap.put("State", "Open");
+		dealMap.put("Status", "New");
+		dealMap.put("Stage1", bestStage);
+		dealMap.put("Stage", bestOpp);
+		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+		if(initialPrimary != "")
+		{
+			dealMap.put("Contact_Name", initialPrimary);
+			primaryContactList = List();
+			primaryContactMap = Map();
+			primaryContactMap.put("id", initialPrimary.toLong());
+			primaryContactList.add(primaryContactMap);
+			dealMap.put("Primary_Contact", primaryContactList);
+		}
+
+		dRes = zoho.crm.createRecord("Deals", dealMap);
+		if(dRes.get("id") != null)
+		{
+			canonicalDealId = dRes.get("id").toString();
+		}
+		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
+		{
+			canonicalDealId = dRes.get("details").get("id").toString();
+		}
+
+		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
+		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{\"code\""))
+		{
+			minDealId = 999999999999999999;
+			for each pd in postDealSearch
+			{
+				pdLong = pd.get("id").toString().toLong();
+				if(pdLong < minDealId)
+				{
+					minDealId = pdLong;
+					canonicalDealId = pd.get("id").toString();
+				}
+			}
+		}
+	}
+
+	// ---- 5. If there is a canonical Deal, do roles + products + amount + roll ----
+	if(canonicalDealId != "")
+	{
+		// (a) Existing Deal Products → contribute to aggregation
+		existingProds = zoho.crm.getRelatedRecords("Products", "Deals", canonicalDealId.toLong());
+		existingProdIds = List();
+		if(existingProds != null && existingProds.size() > 0 && !existingProds.toString().startsWith("{\"code\""))
+		{
+			for each ep in existingProds
+			{
+				epName = ifnull(ep.get("Product_Name"), "").toString().trim();
+				if(epName != "" && !lowercasePIList.contains(epName.toLowerCase()))
+				{
+					aggregatedPIList.add(epName);
+					lowercasePIList.add(epName.toLowerCase());
+				}
+				if(ep.get("id") != null) { existingProdIds.add(ep.get("id").toString()); }
+			}
+		}
+
+		// (b) Maintain Contact_Roles (each entry's id == Contact id)
+		// Contact_Roles is a junction sub-module. updateRelatedRecord parameter order:
+		//   ("Contact_Roles", contactId, "Deals", dealId, dataMap)
+		// Contact_Role field requires the role ID, not the name string.
+
+		// (a) Fetch available Contact Role IDs
+		roleIdMap = Map();
+		rolesResp = invokeurl
+		[
+			url: "https://www.zohoapis.com/crm/v2/Contacts/roles"
+			type: GET
+		];
+		if(rolesResp != null && rolesResp.get("contact_roles") != null)
+		{
+			for each role in rolesResp.get("contact_roles")
+			{
+				if(role.get("name") != null && role.get("id") != null)
+				{
+					roleIdMap.put(role.get("name").toString(), role.get("id").toString());
+				}
+			}
+		}
+		info "Contact Role IDs loaded: " + roleIdMap.size() + " roles";
+
+		// (b) Read existing Contact_Roles on the Deal
+		existingRoles = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", canonicalDealId.toLong());
+		existingRoleMap = Map();
+		if(existingRoles != null && existingRoles.size() > 0 && !existingRoles.toString().startsWith("{\"code\""))
+		{
+			for each er in existingRoles
+			{
+				if(er.get("id") != null)
+				{
+					erRoleRaw = er.get("Contact_Role");
+					erRoleStr = "";
+					if(erRoleRaw != null)
+					{
+						erRoleStr = erRoleRaw.toString();
+						if(erRoleStr.startsWith("{") && erRoleRaw.get("name") != null)
+						{
+							erRoleStr = erRoleRaw.get("name").toString();
+						}
+					}
+					existingRoleMap.put(er.get("id").toString(), erRoleStr);
+				}
+			}
+		}
+		info "Existing Contact_Roles on Deal " + canonicalDealId + ": " + existingRoleMap.size();
+
+		roleAddCount = 0;
+		roleSkipCount = 0;
+		for each cId in processedContactIds
+		{
+			if(cId != "")
+			{
+				existingRoleVal = existingRoleMap.get(cId);
+				if(existingRoleVal == null || existingRoleVal.toString().trim() == "")
+				{
+					// Resolve role from Job_Title inline; fallback to Decision Maker
+					cJobTitle = ifnull(contactJobTitleMap.get(cId), "").toString().trim();
+					resolvedRoleName = "Decision Maker";
+					if(cJobTitle != "")
+					{
+						titleKey = cJobTitle.toLowerCase();
+						euTitles = {"analytics engineer","attribution manager","behavioural analyst","betting operations manager","bi analyst","bi developer","bonus manager","campaign manager","casino manager","casino product manager","commercial analyst","competitor intelligence analyst","crm manager","cro manager","customer journey manager","cx manager","data layer specialist","data visualisation analyst","design systems engineer","design systems lead","digital analyst","digital product manager","experience researcher","experimentation manager","frontend developer","gaming product manager","go-to-market manager","head trader","interaction designer","lifecycle manager","live casino manager","market analyst","marketing analyst","marketing operations manager","offer manager","optimisation manager","player engagement manager","pricing analyst","product analyst","product designer","product insights manager","product manager","product marketing manager","product operations manager","product owner","promotions manager","proposition manager","retention manager","senior ux researcher","sportsbook trading manager","tagging specialist","tracking specialist","trading manager","ui designer","user research lead","user researcher","ux analyst","ux designer","ux researcher","voice of customer manager","web analyst","web developer","website manager"};
+						infTitles = {"acquisition manager","bi manager","brand manager","campaign strategy manager","commercial finance manager","compliance manager","creative director","creative lead","customer operations manager","data analyst","engineering manager","finance business partner","fp&a manager","frontend lead","head of operations","head of vip","insight manager","legal counsel","lifecycle marketing manager","marketing manager","paid search manager","paid social manager","performance marketing manager","player operations manager","player protection lead","player value manager","regulatory affairs manager","responsible gambling manager","safer gambling analyst","safer gambling lead","vip manager"};
+						if(euTitles.contains(titleKey)) { resolvedRoleName = "End User"; }
+						else if(infTitles.contains(titleKey)) { resolvedRoleName = "Influencer"; }
+					}
+					resolvedRoleId = ifnull(roleIdMap.get(resolvedRoleName), "").toString();
+					if(resolvedRoleId == "")
+					{
+						// Fallback: try Decision Maker ID
+						resolvedRoleId = ifnull(roleIdMap.get("Decision Maker"), "").toString();
+					}
+
+					// If API failed to fetch Role IDs, pass the role name string directly as fallback
+					roleValueToPass = resolvedRoleId;
+					if(roleValueToPass == "")
+					{
+						roleValueToPass = resolvedRoleName;
+					}
+
+					roleMap = Map();
+					roleMap.put("Contact_Role", roleValueToPass);
+					roleResp = zoho.crm.updateRelatedRecord("Contact_Roles", cId.toLong(), "Deals", canonicalDealId.toLong(), roleMap);
+					info "Contact_Roles upsert deal=" + canonicalDealId + " contact=" + cId + " role=" + resolvedRoleName + " (passed=" + roleValueToPass + ", title=" + cJobTitle + ") resp=" + roleResp;
+					roleAddCount = roleAddCount + 1;
+				}
+				else
+				{
+					info "Contact_Roles skip contact=" + cId + " (existing role=" + existingRoleVal + ")";
+					roleSkipCount = roleSkipCount + 1;
+				}
+			}
+		}
+		info "Contact_Roles summary: added=" + roleAddCount + " skipped=" + roleSkipCount;
+
+		// (c) Resolve Products + attach via Products related list.
+		// Pre-fetch the Products catalog once and match client-side (case + whitespace tolerant).
+		targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+		info "Aggregated PI list before product search: " + aggregatedPIList;
+
+		// searchRecords against Product_Active:true is more reliable than getRecords —
+		// getRecords often applies owner-filtering for workflow-executing users.
+		// Fetch all Products (up to 200) and filter by active status client-side to ensure robustness
+		// and avoid searchRecord failures or owner-based filtering issues.
+		productCatalog = Map();
+		allProds = zoho.crm.getRecords("Products", 1, 200);
+		info "getRecords('Products') raw response: " + allProds;
+		if(allProds != null && allProds.size() > 0 && !allProds.toString().startsWith("{\"code\""))
+		{
+			for each p in allProds
+			{
+				if(p != null && p.get("Product_Name") != null)
+				{
+					isActive = ifnull(p.get("Product_Active"), false);
+					if(isActive == true || isActive == "true")
+					{
+						pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
+						if(pNameRaw != "")
+						{
+							productCatalog.put(pNameRaw.toLowerCase(), p);
+						}
+					}
+				}
+			}
+		}
+		info "Product catalog loaded: " + productCatalog.size() + " products";
+
+		totalAmount = 0.0;
+		prodAddedCount = 0;
+		seenProdIds = List();
+
+		for each pName in aggregatedPIList
+		{
+			safeName = pName.trim().replaceAll("  ", " ");
+			if(safeName != "")
+			{
+				nameKey = safeName.toLowerCase();
+				prod = productCatalog.get(nameKey);
+				if(prod == null)
+				{
+					sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
+					info "Catalog miss for '" + safeName + "', fallback searchRecords resp=" + sProd;
+					if(sProd != null && sProd.size() > 0)
+					{
+						sProdFirst = sProd.get(0);
+						if(sProdFirst != null && sProdFirst.get("Product_Name") != null)
+						{
+							prod = sProdFirst;
+						}
+					}
+				}
+				if(prod != null)
+				{
+					prodId = prod.get("id").toString();
+					fullProd = zoho.crm.getRecordById("Products", prodId.toLong());
+					price = 0.0;
+					if(fullProd != null && fullProd.get("id") != null)
+					{
+						price = ifnull(fullProd.get("Unit_Price"), "0").toDecimal();
+					}
+					else
+					{
+						price = ifnull(prod.get("Unit_Price"), "0").toDecimal();
+					}
+
+					if(!seenProdIds.contains(prodId))
+					{
+						seenProdIds.add(prodId);
+						totalAmount = totalAmount + price;
+						if(!existingProdIds.contains(prodId))
+						{
+							linkResp = zoho.crm.updateRelatedRecord("Products", prodId.toLong(), "Deals", canonicalDealId.toLong(), Map());
+							info "Linked product to Deal: name=" + safeName + " (id=" + prodId + ", price=" + price + ") resp=" + linkResp;
+							prodAddedCount = prodAddedCount + 1;
+						}
+					}
+				}
+				else
+				{
+					info "No Product record matched name: '" + safeName + "' (lookupKey='" + nameKey + "')";
+				}
+			}
+		}
+		info "Products summary: newlyLinked=" + prodAddedCount + " totalAmount=" + totalAmount;
+
+		// ---- 7. Pick primary Contact (current-primary tiebreak with Contact Role priority) ----
+		targetDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+		currentPrimaryId = "";
+		cnLookup = targetDeal.get("Contact_Name");
+		if(cnLookup != null && cnLookup.get("id") != null) { currentPrimaryId = cnLookup.get("id").toString(); }
+
+		furthestContactId = "";
+		if(openContactIdsAtMax.size() > 0)
+		{
+			if(openContactIdsAtMax.size() == 1)
+			{
+				furthestContactId = openContactIdsAtMax.get(0);
+			}
+			else
+			{
+				roleRanks = {"Decision Maker": 3, "End User": 2, "Influencer": 1};
+				bestRoleRank = -1;
+				bestContactId = "";
+				for each cId_tie in openContactIdsAtMax
+				{
+					cRole_tie = ifnull(contactRoleMap.get(cId_tie), "Decision Maker").toString();
+					cRoleRank = ifnull(roleRanks.get(cRole_tie), 3).toLong();
+					isCurrentPrimary = cId_tie == currentPrimaryId;
+					if(cRoleRank > bestRoleRank)
+					{
+						bestRoleRank = cRoleRank;
+						bestContactId = cId_tie;
+					}
+					else if(cRoleRank == bestRoleRank && isCurrentPrimary)
+					{
+						bestContactId = cId_tie;
+					}
+				}
+				furthestContactId = bestContactId;
+			}
+		}
+
+		dUpd = Map();
+		if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey) { dUpd.put("Deal_Key", dealKey); }
+
+		currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
+		if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+
+		// Ensure Deal has Primary_Contact set
+		primaryContactsRaw = targetDeal.get("Primary_Contact");
+		primaryContactIdsList = List();
+		if(primaryContactsRaw != null)
+		{
+			pcStr = primaryContactsRaw.toString();
+			if(pcStr.startsWith("[") && pcStr.endsWith("]") && pcStr.contains("{"))
+			{
+				for each pcItem in primaryContactsRaw
+				{
+					if(pcItem != null && pcItem.get("id") != null)
+					{
+						primaryContactIdsList.add(pcItem.get("id").toString());
+					}
+				}
+			}
+		}
+
+		if(furthestContactId != "")
+		{
+			if(furthestContactId != currentPrimaryId)
+			{
+				dUpd.put("Contact_Name", furthestContactId);
+			}
+			if(!primaryContactIdsList.contains(furthestContactId))
+			{
+				pcList = List();
+				for each existingPcId in primaryContactIdsList
+				{
+					existingPcMap = Map();
+					existingPcMap.put("id", existingPcId.toLong());
+					pcList.add(existingPcMap);
+				}
+				newPcMap = Map();
+				newPcMap.put("id", furthestContactId.toLong());
+				pcList.add(newPcMap);
+				dUpd.put("Primary_Contact", pcList);
+				primaryContactIdsList.add(furthestContactId);
+			}
+		}
+
+		// Fetch completion dates from the furthest primary contact
+		dealPcDates = Map();
+		dealPcMaxRank = -1;
+		dealPcBestContactId = "";
+		for each pcId in primaryContactIdsList
+		{
+			pcStage = contactStageMap.get(pcId);
+			if(pcStage != null && pcStage != "")
+			{
+				pcRank = ifnull(stageRanks.get(pcStage), 1).toLong();
+				if(pcRank > dealPcMaxRank)
+				{
+					dealPcMaxRank = pcRank;
+					dealPcBestContactId = pcId;
+				}
+			}
+		}
+		if(dealPcBestContactId == "" && furthestContactId != "")
+		{
+			dealPcBestContactId = furthestContactId;
+		}
+		if(dealPcBestContactId != "")
+		{
+			dealPcDates = contactDatesMap.get(dealPcBestContactId);
+		}
+
+		dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
+		dealLostReasons = ifnull(targetDeal.get("Lost_Reasons"), "").toString();
+		hasLossReason = dealReasonForLoss != "" || dealLostReasons != "";
+		hasContacts = relContacts != null && relContacts.size() > 0;
+		if(hasLossReason || (hasContacts && !anyContactOpen))
+		{
+			if(ifnull(targetDeal.get("State"), "") != "Lost") { dUpd.put("State", "Lost"); }
+			if(ifnull(targetDeal.get("Status"), "") != "Closed") { dUpd.put("Status", "Closed"); }
+		}
+		else if(hasContacts)
+		{
+			if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
+			// Never-regress Stage1/Stage (see processLead for full rationale).
+			currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
+			currentRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+			bestRank = ifnull(stageRanks.get(bestStage), 0).toLong();
+			if(currentRank < bestRank)
+			{
+				dUpd.put("Stage1", bestStage);
+				dUpd.put("Stage", bestOpp);
+			}
+		}
+
+		// Stage completion date dynamic stamping
+		stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
+		stageFields = Map();
+		stageFields.put("Marketing Qualification", "Marketing_Qualification_Completed_At");
+		stageFields.put("Demo Booking", "Demo_Booking_Completed_At");
+		stageFields.put("Demo Confirmation", "Demo_Confirmation_Completed_At");
+		stageFields.put("Demo Hosted", "Demo_Hosted_Completed_At");
+		stageFields.put("Proposal Preparation", "Proposal_Preparation_Completed_At");
+		stageFields.put("Commercial Agreement", "Commercial_Agreement_Completed_At");
+		stageFields.put("Onboarding", "Onboarding_Completed_At");
+		stageFields.put("Renewal", "Renewal_Completed_At");
+
+		finalStage1 = ifnull(dUpd.get("Stage1"), ifnull(targetDeal.get("Stage1"), "Marketing Qualification")).toString();
+		finalRank = ifnull(stageRanks.get(finalStage1), 1).toLong();
+
+		for each stageItem in stagesList
+		{
+			stageItemRank = ifnull(stageRanks.get(stageItem), 0).toLong();
+			if(stageItemRank <= finalRank)
+			{
+				fieldApi = stageFields.get(stageItem);
+				if(fieldApi != null && targetDeal.get(fieldApi) == null && dUpd.get(fieldApi) == null)
+				{
+					pcDateVal = "";
+					if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
+					
+					if(pcDateVal != "")
+					{
+						dUpd.put(fieldApi, pcDateVal.toString());
+					}
+					else
+					{
+						dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+					}
+				}
+			}
+		}
+
+		if(dUpd.size() > 0)
+		{
+			// Suppress Deal workflow to prevent processDeal cascade clobbering Amount.
+			info "Deal updateRecord payload: " + dUpd.toString();
+			suppressTrigger = Map();
+			suppressTrigger.put("trigger", List());
+			dealUpdResp = zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), dUpd, suppressTrigger);
+			info "Deal updateRecord resp: " + dealUpdResp;
+		}
+	}
+
+	// ---- 6. Roll up Account State / Status ----
+	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
+	anyDealOpen = false;
+	anyDealWorking = false;
+	for each fd in finalDeals
+	{
+		if(ifnull(fd.get("State"), "") == "Open")
+		{
+			anyDealOpen = true;
+			if(ifnull(fd.get("Status"), "") == "Working") { anyDealWorking = true; }
+		}
+	}
+
+	accUpd = Map();
+	accRecRefresh = zoho.crm.getRecordById("Accounts", cleanId.toLong());
+	currState = ifnull(accRecRefresh.get("State"), "");
+	currStatus = ifnull(accRecRefresh.get("Status"), "");
+
+	if(anyDealOpen)
+	{
+		if(currState != "Open") { accUpd.put("State", "Open"); }
+		targetStatus = if(anyDealWorking, "Working", "New");
+		if(currStatus != targetStatus) { accUpd.put("Status", targetStatus); }
+	}
+	else
+	{
+		if(currState != "Lost") { accUpd.put("State", "Lost"); }
+		if(currStatus != "Closed") { accUpd.put("Status", "Closed"); }
+	}
+	if(accUpd.size() > 0)
+	{
+		zoho.crm.updateRecord("Accounts", cleanId.toLong(), accUpd);
+	}
+}

@@ -28,42 +28,44 @@ Deals own the commercial state machine.
 
 | Label | API Name | Type | Values / Notes | Required |
 |---|---|---|---|---|
-| Stage | `TBD_API_NAME` | Picklist | Marketing Qualification; Demo Booking; Demo Confirmation; Demo Hosted; Commercial Agreement; Onboarding; Onboarding; Renewal | Yes |
-| Stage Rank | `TBD_API_NAME` | Number | 1-8 | Yes |
-| Opportunity | `TBD_API_NAME` | Picklist | MQL; SQL; FTP; RTP | Yes, unless default Stage has been renamed to Opportunity |
-| Sequence Status | `TBD_API_NAME` | Picklist | Not Started; Initialized; Waiting on Call; Waiting on Meeting; Waiting on Email Trigger; Waiting on Internal Task; Paused; Deferred; Manual Only; Completed; Superseded; Suppressed | Yes |
-| Sequence Action Mode | `TBD_API_NAME` | Picklist | Call First; Email First; Meeting First; Task First; Manual Review First | Yes |
-| Active Sequence Stage | `TBD_API_NAME` | Picklist | Same values as Stage | Yes |
-| Active Sequence Attempt | `TBD_API_NAME` | Number | 0-5 | Yes |
-| Active Email Chain Step | `TBD_API_NAME` | Number | 0-7 | Yes |
-| Next Action Type | `TBD_API_NAME` | Picklist | Call; Automated Email; Meeting; Task; Stage Update; Manual Review | Yes |
-| Next Action Due Date | `TBD_API_NAME` | DateTime | Next internal/customer action due | Yes |
-| Sequence Paused Until | `TBD_API_NAME` | DateTime | Deferral/pause date | Yes |
-| Sequence Superseded At | `TBD_API_NAME` | DateTime | Used to prevent stale actions | Yes |
-| Automation Suppressed | `TBD_API_NAME` | Checkbox | true/false | Yes |
-| Suppression Reason | `TBD_API_NAME` | Picklist | Existing Client; Existing Open Conversation; Partner Managed; Bad Data; Do Not Contact; Duplicate; Imported Historical Record; Manual Handling Required; Legal/Compliance; Stage Incorrect | Yes |
-| Demo Meeting ID | `TBD_API_NAME` | Text | Stores related Event ID | Yes |
-| Demo Start DateTime | `TBD_API_NAME` | DateTime | Demo start | Yes |
-| Demo End DateTime | `TBD_API_NAME` | DateTime | Demo end | Yes |
-| Demo Reminder Send At | `TBD_API_NAME` | DateTime | One business day before, AM | Yes |
-| Demo Status | `TBD_API_NAME` | Picklist | Not Scheduled; Scheduled; Confirmed; Rescheduled; Cancelled; Completed; No Show | Yes |
-| Demo Outcome | `TBD_API_NAME` | Picklist | Scheduled; Attended - Qualified; Attended - Needs Follow-up; Attended - Not Qualified; No Show; Rescheduled; Cancelled; Commercials Requested; Follow-up Required | Yes |
-| Commercials Status | `TBD_API_NAME` | Picklist | Not Started; Drafting; Ready to Send; Sent; Discussed; Intent to Sign; Signed; Deferred; Rejected | Yes |
-| Commercial Agreement At | `TBD_API_NAME` | DateTime | Starts FTP follow-up | Yes |
-| Commercials Discussed At | `TBD_API_NAME` | DateTime | Used for chase timing | Yes |
-| Commercial Outcome | `TBD_API_NAME` | Picklist | Intent to Sign; Needs Review; Deferred; Rejected; No Answer; Signed | Yes |
-| Next Commercial Follow-Up Date | `TBD_API_NAME` | DateTime | Deferral override | Yes |
-| Commercial Follow-Up Reason | `TBD_API_NAME` | Picklist/Text | Budget Timing; Board Approval; Legal Review; Procurement; Asked To Defer; No Response; Other | Recommended |
-| Intent To Sign | `TBD_API_NAME` | Checkbox | true/false | Yes |
-| Expected Signature Date | `TBD_API_NAME` | Date | Forecast/deferral date | Recommended |
-| Signed At | `TBD_API_NAME` | DateTime | Signature timestamp | Yes |
-| Sequence Thread Message ID | `TBD_API_NAME` | Text | Root message/thread ID | Required for email threading |
-| Last Email Message ID | `TBD_API_NAME` | Text | Last sent message ID | Required for email threading |
-| Last Email Template | `TBD_API_NAME` | Text | Debug/audit | Recommended |
-| Last Email Sent At | `TBD_API_NAME` | DateTime | Timing/no-reply logic | Recommended |
-| Product Resolution Status | `TBD_API_NAME` | Picklist | Not Started; Resolved; Missing Product Interest; Failed; Manual Review; No Active Product Match | Yes |
-| Deal Value Source | `TBD_API_NAME` | Picklist | Product Derived; Manual; Imported; Estimated; Unknown | Recommended |
-| Associated Product IDs | `TBD_API_NAME` | Text | Debug/reference | Optional |
+| Label | API Name | Type | Values / Notes | Required |
+|---|---|---|---|---|
+| Stage | `Stage1` | Picklist | Marketing Qualification; Demo Booking; Demo Confirmation; Demo Hosted; Commercial Agreement; Onboarding; Onboarding; Renewal | Yes |
+| Stage Rank | `(derived)` | Number | 1-8 | Yes |
+| Opportunity | `Stage` | Picklist | MQL; SQL; FTP; RTP | Yes |
+| Sequence Status | `Sequence_Status` | Picklist | Not Started; Initialized; Waiting on Call; Waiting on Meeting; Waiting on Email Trigger; Waiting on Internal Task; Paused; Deferred; Manual Only; Completed; Superseded; Suppressed | Yes |
+| Sequence Action Mode | `Sequence_Action_Mode` | Picklist | Call First; Email First; Meeting First; Task First; Manual Review First | Yes |
+| Active Sequence Stage | `Active_Sequence_Stage` | Picklist | Same values as Stage | Yes |
+| Active Sequence Attempt | `Active_Sequence_Attempt` | Number | 0-5 | Yes |
+| Active Email Chain Step | `Active_Email_Chain_Step` | Number | 0-7 | Yes |
+| Next Action Type | `Next_Action_Type` | Picklist | Call; Automated Email; Meeting; Task; Stage Update; Manual Review | Yes |
+| Next Action Due Date | `Next_Action_Due_Date` | DateTime | Next internal/customer action due | Yes |
+| Sequence Paused Until | `Sequence_Paused_Until` | DateTime | Deferral/pause date | Yes |
+| Sequence Superseded At | `Sequence_Superseded_At` | DateTime | Used to prevent stale actions | Yes |
+| Automation Suppressed | `Automation_Suppressed` | Checkbox | true/false | Yes |
+| Suppression Reason | `Suppression_Reason` | Picklist | Existing Client; Existing Open Conversation; Partner Managed; Bad Data; Do Not Contact; Duplicate; Imported Historical Record; Manual Handling Required; Legal/Compliance; Stage Incorrect | Yes |
+| Demo Meeting ID | `Demo_Meeting_ID` | Text | Stores related Event ID | Yes |
+| Demo Start DateTime | `Demo_Start_DateTime` | DateTime | Demo start | Yes |
+| Demo End DateTime | `Demo_End_DateTime` | DateTime | Demo end | Yes |
+| Demo Reminder Send At | `Demo_Reminder_Send_At` | DateTime | One business day before, AM | Yes |
+| Demo Status | `Demo_Status` | Picklist | Not Scheduled; Scheduled; Confirmed; Rescheduled; Cancelled; Completed; No Show | Yes |
+| Demo Outcome | `Demo_Outcome` | Picklist | Scheduled; Attended - Qualified; Attended - Needs Follow-up; Attended - Not Qualified; No Show; Rescheduled; Cancelled; Commercials Requested; Follow-up Required | Yes |
+| Commercials Status | `Commercials_Status` | Picklist | Not Started; Drafting; Ready to Send; Sent; Discussed; Intent to Sign; Signed; Deferred; Rejected | Yes |
+| Commercial Agreement At | `Commercials_Sent_At` | DateTime | Starts FTP follow-up | Yes |
+| Commercials Discussed At | `Commercials_Discussed_At` | DateTime | Used for chase timing | Yes |
+| Commercial Outcome | `Commercial_Outcome` | Picklist | Intent to Sign; Needs Review; Deferred; Rejected; No Answer; Signed | Yes |
+| Next Commercial Follow-Up Date | `Next_Comm_Follow_Up_Date` | DateTime | Deferral override | Yes |
+| Commercial Follow-Up Reason | `Comm_Follow_Up_Reason` | Picklist/Text | Budget Timing; Board Approval; Legal Review; Procurement; Asked To Defer; No Response; Other | Recommended |
+| Intent To Sign | `Intent_To_Sign` | Checkbox | true/false | Yes |
+| Expected Signature Date | `Expected_Signature_Date` | Date | Forecast/deferral date | Recommended |
+| Signed At | `Signed_At` | DateTime | Signature timestamp | Yes |
+| Sequence Thread Message ID | `Seq_Thread_Message_ID` | Text | Root message/thread ID | Required for email threading |
+| Last Email Message ID | `Last_Email_Message_ID` | Text | Last sent message ID | Required for email threading |
+| Last Email Template | `Last_Email_Template` | Text | Debug/audit | Recommended |
+| Last Email Sent At | `Last_Email_Sent_At` | DateTime | Timing/no-reply logic | Recommended |
+| Product Resolution Status | `Product_Resolution_Status` | Picklist | Not Started; Resolved; Missing Product Interest; Failed; Manual Review; No Active Product Match | Yes |
+| Deal Value Source | `Deal_Value_Source` | Picklist | Product Derived; Manual; Imported; Estimated; Unknown | Recommended |
+| Associated Product IDs | `Associated_Product_IDs` | Text | Debug/reference | Optional |
 
 ---
 
@@ -110,14 +112,14 @@ Tasks are for non-call manual work.
 
 | Label | API Name | Type | Values / Notes | Required |
 |---|---|---|---|---|
-| Related Deal | `TBD_API_NAME` | Lookup: Deals | Link task to Deal | Yes |
-| Sequence Managed | `TBD_API_NAME` | Checkbox | true/false | Yes |
-| Task Type | `TBD_API_NAME` | Picklist | Enrichment; Data Repair; Draft Commercials; Send Commercials; Review Reply; Onboarding Setup; Manual Review; Suppression Review | Yes |
-| Task Outcome | `TBD_API_NAME` | Picklist | Completed; Blocked; Not Relevant; Already Handled; Needs Follow-Up; Failed | Recommended |
-| Sequence Stage | `TBD_API_NAME` | Picklist/Text | Same values as Stage | Recommended |
-| Sequence Attempt | `TBD_API_NAME` | Number | 0-5 | Recommended |
-| Next Follow-Up Date | `TBD_API_NAME` | DateTime | Deferral | Recommended |
-| Blocks Sequence | `TBD_API_NAME` | Checkbox | true/false | Yes |
+| Related To | `What_Id` | Lookup: polymorphic | Link task to Deal (with $se_module="Deals") | Yes |
+| Sequence Managed | `Sequence_Managed` | Picklist | Yes; No | Yes |
+| Task Type | `Task_Type` | Picklist | Enrichment; Data Repair; Draft Commercials; Send Commercials; Review Reply; Onboarding Setup; Manual Review; Suppression Review; Sequence Activation | Yes |
+| Task Outcome | `Task_Outcome` | Picklist | Completed; Blocked; Not Relevant; Already Handled; Needs Follow-Up; Failed; Activate Call First; Activate Email First; Manual Only; Suppress; Stage Incorrect | Recommended |
+| Sequence Stage | `Sequence_Stage` | Picklist/Text | Same values as Stage | Recommended |
+| Sequence Attempt | `Sequence_Attempt` | Number | 0-5 | Recommended |
+| Next Follow-Up Date | `Next_Follow_Up_Date` | DateTime | Deferral | Recommended |
+| Blocks Sequence | `Blocks_Sequence` | Picklist | Yes; No | Yes |
 
 ---
 

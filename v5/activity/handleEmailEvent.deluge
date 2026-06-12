@@ -1,0 +1,113 @@
+void automation.handleEmailEvent(string emailRecordIdStr, string eventType, string relatedDealIdStr, string relatedContactIdStr)
+{
+	// =========================================================================
+	// handleEmailEvent
+	//
+	// Triggered by WF009 on email reply/bounce/no-reply events. Implements
+	// WORKFLOW_TRIGGER_MAP.md §WF009.
+	//
+	// Default policy:
+	//   replied  → does NOT count as positive. Create Review Reply Task,
+	//              pause sequence so the rep decides next step.
+	//   bounced  → pause sequence, create Data Repair Task, mark Contact
+	//              Profile_Completion_Status="Missing Phone" or similar if
+	//              email field is the only problem.
+	//   not replied / opened but not replied / clicked → no automation action;
+	//                                                    logged only.
+	//
+	// Email replies do NOT automatically advance the Deal. Stage moves require
+	// either an explicit Call_Outcome=Positive or a Demo_Outcome/Commercials_Status
+	// transition.
+	//
+	// Inputs may be empty/synthetic when triggered by Zoho's email system rules;
+	// guard accordingly.
+	// =========================================================================
+
+	emailRecordId = 0;
+	if(!isNull(emailRecordIdStr) && emailRecordIdStr != "") { emailRecordId = emailRecordIdStr.toLong(); }
+	relatedDealId = 0;
+	if(!isNull(relatedDealIdStr) && relatedDealIdStr != "") { relatedDealId = relatedDealIdStr.toLong(); }
+	relatedContactId = 0;
+	if(!isNull(relatedContactIdStr) && relatedContactIdStr != "") { relatedContactId = relatedContactIdStr.toLong(); }
+	automation.logAutomationEvent("handleEmailEvent", "Emails", ifnull(emailRecordId, "").toString(), "entry", "in_progress", {"event_type":eventType, "deal":relatedDealId, "contact":relatedContactId});
+
+	if(isNull(eventType) || eventType == "")
+	{
+		automation.logAutomationEvent("handleEmailEvent", "Emails", "", "guard", "skip_no_event_type", null);
+		return;
+	}
+	if(relatedDealId == 0)
+	{
+		automation.logAutomationEvent("handleEmailEvent", "Emails", "", "guard", "skip_no_deal", null);
+		return;
+	}
+
+	deal = zoho.crm.getRecordById("Deals", relatedDealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("handleEmailEvent", "Deals", relatedDealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	if(eventType == "replied")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Paused");
+		zoho.crm.updateRecord("Deals", relatedDealId, dealUpd, triggerMap);
+
+		reviewTask = Map();
+		reviewTask.put("Subject", "Review Reply on Deal " + relatedDealId);
+		reviewTask.put("Status", "Not Started");
+		reviewTask.put("What_Id", relatedDealId);
+		reviewTask.put("$se_module", "Deals");
+		reviewTask.put("Sequence_Managed", "Yes");
+		reviewTask.put("Task_Type", "Review Reply");
+		reviewTask.put("Blocks_Sequence", "Yes");
+		if(!isNull(relatedContactId) && relatedContactId != 0) { reviewTask.put("Who_Id", relatedContactId); }
+		zoho.crm.createRecord("Tasks", reviewTask);
+
+		automation.logAutomationEvent("handleEmailEvent", "Deals", relatedDealId.toString(), "replied", "paused_review_task", null);
+		return;
+	}
+
+	if(eventType == "bounced")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Paused");
+		zoho.crm.updateRecord("Deals", relatedDealId, dealUpd, triggerMap);
+
+		repairTask = Map();
+		repairTask.put("Subject", "Data Repair: bounced email on Deal " + relatedDealId);
+		repairTask.put("Status", "Not Started");
+		repairTask.put("What_Id", relatedDealId);
+		repairTask.put("$se_module", "Deals");
+		repairTask.put("Sequence_Managed", "Yes");
+		repairTask.put("Task_Type", "Data Repair");
+		repairTask.put("Blocks_Sequence", "Yes");
+		if(!isNull(relatedContactId) && relatedContactId != 0) { repairTask.put("Who_Id", relatedContactId); }
+		zoho.crm.createRecord("Tasks", repairTask);
+
+		if(!isNull(relatedContactId) && relatedContactId != 0)
+		{
+			contactUpd = Map();
+			contactUpd.put("Profile_Completion_Status", "Needs Enrichment");
+			zoho.crm.updateRecord("Contacts", relatedContactId, contactUpd, triggerMap);
+		}
+
+		automation.logAutomationEvent("handleEmailEvent", "Deals", relatedDealId.toString(), "bounced", "paused_data_repair", null);
+		return;
+	}
+
+	if(eventType == "not replied" || eventType == "opened but not replied" || eventType == "clicked")
+	{
+		automation.logAutomationEvent("handleEmailEvent", "Deals", relatedDealId.toString(), "passive_event", eventType, null);
+		return;
+	}
+
+	automation.logAutomationEvent("handleEmailEvent", "Deals", relatedDealId.toString(), "unknown_event_type", eventType, null);
+}

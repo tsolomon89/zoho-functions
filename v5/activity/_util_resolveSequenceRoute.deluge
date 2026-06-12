@@ -1,0 +1,80 @@
+string automation.resolveSequenceRoute(string dealIdStr)
+{
+	// =========================================================================
+	// _util_resolveSequenceRoute
+	//
+	// Canonical routing engine that resolves the Sequence_Action_Mode for a Deal:
+	//   1. Deal-level explicit Sequence_Action_Mode (if set)
+	//   2. Normalised Contact_Source_Class from primary contact lookup
+	//   3. Deal-level Lead_Source (normalised free-text / picklist)
+	//   4. Fallback to "Manual Review First"
+	// =========================================================================
+
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(dealId == 0) { return "Manual Review First"; }
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return "Manual Review First"; }
+
+	// 1. Explicit selection
+	explicitMode = ifnull(deal.get("Sequence_Action_Mode"), "").toString().trim();
+	if(explicitMode != "") { return explicitMode; }
+
+	// 2. Contact classification
+	contactSource = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id")))
+	{
+		contactId = cnLookup.get("id").toLong();
+		contact = zoho.crm.getRecordById("Contacts", contactId);
+		if(!isNull(contact) && !isNull(contact.get("id")))
+		{
+			contactSource = ifnull(contact.get("Contact_Source_Class"), "").toString().trim();
+		}
+	}
+
+	// 3. Deal Lead_Source fallback
+	dealLeadSource = ifnull(deal.get("Lead_Source"), "").toString().trim();
+
+	// Resolve route based on Contact_Source_Class or Deal Lead_Source
+	resolvedRoute = "";
+	sourceVal = contactSource;
+	if(sourceVal == "") { sourceVal = dealLeadSource; }
+
+	if(sourceVal != "")
+	{
+		sourceLower = sourceVal.toLowerCase();
+		if(sourceLower == "inbound form" || sourceLower.contains("inbound") || sourceLower.contains("form") || sourceLower.contains("website"))
+		{
+			resolvedRoute = "Call First";
+		}
+		else if(sourceLower == "partner referral" || sourceLower.contains("referral") || sourceLower.contains("partner"))
+		{
+			resolvedRoute = "Call First";
+		}
+		else if(sourceLower == "linkedin prospecting" || sourceLower.contains("linkedin") || sourceLower.contains("prospecting") || sourceLower.contains("outbound") || sourceLower.contains("cold"))
+		{
+			resolvedRoute = "Email First";
+		}
+		else if(sourceLower == "calendar booking" || sourceLower.contains("booking") || sourceLower.contains("calendly") || sourceLower.contains("meeting") || sourceLower.contains("demo"))
+		{
+			resolvedRoute = "Meeting First";
+		}
+		else if(sourceLower == "existing database" || sourceLower == "migration" || sourceLower == "bulk import" || sourceLower == "manual add" || sourceLower == "existing client")
+		{
+			resolvedRoute = "Manual Review First";
+		}
+		else if(sourceLower.contains("migrate") || sourceLower.contains("import") || sourceLower.contains("bulk") || sourceLower.contains("manual") || sourceLower.contains("database"))
+		{
+			resolvedRoute = "Manual Review First";
+		}
+	}
+
+	if(resolvedRoute == "")
+	{
+		resolvedRoute = "Manual Review First";
+	}
+
+	return resolvedRoute;
+}

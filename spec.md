@@ -141,7 +141,9 @@ When a Lead is created or updated:
 7. Merge Product Interest into the Deal.
 8. Resolve Products and attach them through the Products related list.
 9. Recalculate Deal `Stage`, `Stage1`, `State`, `Status`, primary Contact, and Amount.
-10. Roll up Account `State` and `Status`.
+10. Roll up Account State / Status.
+11. Map Lead `Imported_Record_Type` to `Contacts.Contact_Source_Class` and `Accounts.Account_Source_Class`.
+12. Resolve proposed sequence routing mode first: if Deal `Sequence_Status` is empty, determine `Sequence_Action_Mode` and set `Sequence_Status = "Not Started"` before running the sequence router.
 
 All Leads should convert where possible.
 
@@ -321,6 +323,53 @@ For each product name:
 Missing Product matches should not block the workflow.
 
 ---
+
+## Sequence Routing and Activation Gate
+
+To replace the unconditional Call-first bootstrap (where every stage starts with Call 1), the system implements a task-gated routing sequence.
+
+### Proposed Route Resolution
+The canonical sequence action mode is resolved in the following precedence:
+1. Deal-level explicit `Sequence_Action_Mode` (if set)
+2. Normalized `Contact_Source_Class` from the primary contact
+3. Deal-level `Lead_Source` (normalized free-text / picklist)
+4. Fallback to `Manual Review First`
+
+Routing Rules:
+- `Inbound Form` / `Partner Referral` → `Call First`
+- `LinkedIn Prospecting` / Outbound Outreaching → `Email First`
+- `Calendar Booking` / Demobooking → `Meeting First`
+- `Existing Database` / `Migration` / `Bulk Import` / `Manual Add` / `Unknown` → `Manual Review First`
+
+### Gated Activation Tasks
+When the resolved mode is `Manual Review First` or unresolved, sequence automation is gated. The system creates a `Sequence Activation` Task:
+- **Subject**: `Activate sequence: {Deal Name} — {Stage1}`
+- **Task Type**: `Sequence Activation`
+- **Blocks Sequence**: `Yes`
+- **Deal Sequence Status**: Set to `Waiting on Internal Task`
+
+Completing the Activation Task with a specific `Task_Outcome` transitions the Deal's sequence:
+- `Activate Call First` → Sets mode to `Call First`, status to `Not Started`, and executes the sequence router to create Call 1.
+- `Activate Email First` → Sets mode to `Email First`, status to `Not Started`, and executes the sequence router to send Email 1 and create a follow-up Call 1 due in 2 business days.
+- `Manual Only` → Sets status to `Manual Only` and Next Action Type to `Manual Review`.
+- `Suppress` → Sets `Automation_Suppressed = true`, status to `Suppressed`, and clears next action details.
+- `Already Handled` → Sets status to `Completed` and clears next action details.
+- `Stage Incorrect` → Sets status to `Paused`, Next Action Type to `Manual Review`, and creates a correction `Manual Review` task.
+
+### Email-First Cadence Semantics
+The `Email First` sequence follows this pattern:
+- **Bootstrap**: Sends Stage Email 1 and schedules Call 1 (follow-up, due in 2 business days).
+- **Call 1 No Answer/Neutral**: Sends Email 2 and schedules Call 2.
+- **Call 2 No Answer/Neutral**: Sends Email 3 and schedules Call 3.
+- **Call 3 No Answer/Neutral**: Sends Email 4 and schedules Call 4.
+- **Call 4 No Answer/Neutral**: Sends Email 5 and schedules Call 5.
+- **Call 5 No Answer/Neutral**: Initiates post-call chase chain. Does not send an Email 6.
+
+### Stage Transitions and Defaults
+Stage transitions supersede the old sequence. Standard stage transition defaults are:
+- `Proposal Preparation` and `Onboarding` default to `Task First`.
+- Other stages default to `Call First`.
+On a normal stage transition, the stage-specific default mode is set and the sequence status is reset to `Not Started` to restart routing (without re-gating if it was already activated).
 
 ## Final invariant
 

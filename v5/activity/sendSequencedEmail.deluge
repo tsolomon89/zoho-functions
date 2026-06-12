@@ -1,0 +1,155 @@
+void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOrChainStep, string triggerContext)
+{
+	// =========================================================================
+	// sendSequencedEmail
+	//
+	// Resolves a Zoho email template via _util_resolveTemplate, sends it to the
+	// Deal's primary Contact, and stamps tracking fields on the Deal so future
+	// emails can thread/measure correctly.
+	//
+	// Send mechanism: Zoho CRM Send Mail API
+	//   POST /crm/v3/Contacts/{record_id}/actions/send_mail
+	// This endpoint requires a connection because invokeurl to zohoapis.com
+	// without one returns AUTHENTICATION_FAILURE in this org (see processAccount
+	// note ~line 549). Configure a connection named "zoho_crm" in Setup →
+	// Developer Space → Connections (scope: ZohoCRM.modules.contacts.UPDATE,
+	// ZohoCRM.modules.contacts.READ, ZohoCRM.modules.contacts.send_mail).
+	//
+	// triggerContext values: see _util_resolveTemplate header.
+	//
+	// Tracking fields written on Deal:
+	//   Last_Email_Template, Last_Email_Sent_At, Last_Email_Message_ID,
+	//   Seq_Thread_Message_ID (only if currently empty),
+	//   Active_Email_Chain_Step (only when triggerContext = post_call_chain).
+	// =========================================================================
+
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	automation.logAutomationEvent("sendSequencedEmail", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", {"stage":stage, "step":attemptOrChainStep, "ctx":triggerContext});
+
+	if(dealId == 0)
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", "", "guard", "skip_no_deal_id", null);
+		return;
+	}
+
+	templateName = automation.resolveTemplate(stage, attemptOrChainStep, triggerContext);
+	if(templateName == "")
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "no_template_resolved", {"stage":stage, "step":attemptOrChainStep, "ctx":triggerContext});
+		return;
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id")))
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "deal_not_found", null);
+		return;
+	}
+
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	cnLookup = deal.get("Contact_Name");
+	if(isNull(cnLookup) || isNull(cnLookup.get("id")))
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "no_primary_contact", null);
+		return;
+	}
+	contactId = cnLookup.get("id").toString();
+
+	contact = zoho.crm.getRecordById("Contacts", contactId.toLong());
+	if(isNull(contact) || isNull(contact.get("id")))
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "contact_not_found", {"contact":contactId});
+		return;
+	}
+
+	contactEmail = ifnull(contact.get("Email"), "").toString();
+	if(contactEmail == "")
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "no_contact_email", {"contact":contactId});
+		return;
+	}
+
+	consentRaw = ifnull(contact.get("Marketing_Consent_Status"), "").toString();
+	if(consentRaw == "Not Consented" || consentRaw == "Withdrawn")
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "guard", "skip_no_consent", {"contact":contactId, "consent":consentRaw});
+		return;
+	}
+
+	sendPayload = Map();
+	dataList = List();
+	sendItem = Map();
+	toList = List();
+	toEntry = Map();
+	toEntry.put("email", contactEmail);
+	toList.add(toEntry);
+	sendItem.put("to", toList);
+	templateRef = Map();
+	templateRef.put("name", templateName);
+	sendItem.put("template", templateRef);
+	dataList.add(sendItem);
+	sendPayload.put("data", dataList);
+
+	// Wrap the send_mail invokeurl in try/catch so an Invalid Domain (or any other send-time
+	// failure) doesn't throw out of this function and halt the caller mid-pipeline. The
+	// downstream code below tolerates a null sendResp (sentMessageId stays empty, Deal
+	// still gets timestamp + template name for audit).
+	sendResp = null;
+	try
+	{
+		sendResp = invokeurl
+		[
+			url    : "https://www.zohoapis.com/crm/v3/Contacts/" + contactId + "/actions/send_mail"
+			type   : POST
+			parameters : sendPayload.toString()
+			headers : {"Content-Type":"application/json"}
+			connection : "zoho_crm"
+		];
+	}
+	catch (e)
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "invokeurl_failed", {"error":e.toString(), "to":contactEmail, "template":templateName});
+		sendResp = null;
+	}
+
+	dealUpd = Map();
+	dealUpd.put("Last_Email_Template", templateName);
+	// zoho.currenttime returns ORG-LOCAL time (Round 8 T1 confirmed). XXX appends the org
+	// TZ offset → valid ISO-8601 that Zoho re-parses to the same wall-clock. Round 5's
+	// 'Z' switch was reverted in Round 8.
+	dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+
+	sentMessageId = "";
+	if(!isNull(sendResp) && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)
+	{
+		firstResult = sendResp.get("data").get(0);
+		if(!isNull(firstResult.get("details")) && firstResult.get("details").get("message_id") != null)
+		{
+			sentMessageId = firstResult.get("details").get("message_id").toString();
+		}
+	}
+	if(sentMessageId != "")
+	{
+		dealUpd.put("Last_Email_Message_ID", sentMessageId);
+		if(ifnull(deal.get("Seq_Thread_Message_ID"), "").toString() == "")
+		{
+			dealUpd.put("Seq_Thread_Message_ID", sentMessageId);
+		}
+	}
+	if(triggerContext == "post_call_chain")
+	{
+		dealUpd.put("Active_Email_Chain_Step", attemptOrChainStep);
+	}
+
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+	zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+	automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "complete", {"template":templateName, "to":contactEmail, "message_id":sentMessageId, "resp":sendResp});
+}

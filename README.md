@@ -52,82 +52,53 @@ $$\text{Marketing Qualification} \to \text{Demo Booking} \to \text{Demo Confirma
 
 ---
 
-## 3. Deluge Script Directory & Deep Dive
+## 3. Deluge Script Directory & Deep Dive (v5)
 
-The automation is divided into 5 modular Deluge custom functions.
+The automation in `v5` is divided into modular Deluge custom functions.
 
-### 1. Intake Processor: `convert2lead.deluge`
+### 1. Intake Processor: `v5/processLead.deluge`
 *   **Trigger**: Lead Created or Updated.
-*   **Purpose**: Implements an **always-convert policy**. Missing fields (e.g. Website, Industry, Phone, Consent, Product Interest) never block conversion. If absolute minimum Zoho fields (Last Name, Company) are empty, fallbacks are derived and pre-updated to ensure successful conversion.
+*   **Purpose**: Implements an **always-convert policy**. Missing fields (e.g. Website, Phone, Product Interest) never block conversion.
 *   **Deduplication Trees**:
     1.  **Contact lookup**: Searches first by `Email`, then falls back to `Phone`.
-    2.  **Account lookup**: Implements a strict priority lookup to prevent duplicate Accounts:
-        *   Linked Account from matched Contact.
-        *   Account matching derived `Account_Key` if present on Lead.
-        *   Account matching normalized Company name.
-        *   Account matching normalized Website domain.
-        *   Account matching normalized domain as Account Name.
-        *   Fallback name: `Unknown Account - {Lead ID}`.
-*   **Data Integrity Mapping**:
-    *   **Phone Mapping**: Lead's default `Phone` field (labeled 'Company Phone') maps strictly to `Account.Phone`.
-    *   **Website Domain Normalization**: Standardizes website/company URLs to lowercase and strips protocols (`http://`, `https://`), subdomains (`www.`), trailing slashes, and paths after the slash.
-    *   **Product Interest**: Lead `Product_Interest` (Multiselect text) and `Products_Linked` (Multi-Select Lookup to Product records) are read as staging inputs. The canonical product set lives on the Deal as the `Products` related list, not as a Deal-level field. There is no `Product_Interest_Staging` field.
-    *   **Deal Matching & Reusability**: Reuses an existing Deal under the Account matching the same product staging signal, or the furthest `Open` Deal, or the furthest `Lost` Deal, fallback to creating a new one if none matches.
-
-### 2. Contact State Normalizer: `normalizeContactCommercialState.deluge`
-*   **Trigger**: Contact Created or Updated (or called from `convert2lead`).
-*   **Purpose**: Normalizes Contact Stage, State, and Status fields and orchestrates Deal generation or reuse.
+    2.  **Account lookup**: Priority tree (Contact lookup → `Account_Key` → Company Name → Website).
 *   **Key Operations**:
-    *   Examines related Calls, Events, Tasks, and Notes to dynamically set status to `Working` if active, else `New` or `Closed`.
-    *   Applies Opportunity and Stage gates (capturing Marketing Qualification, Commercial readiness, etc.).
-    *   **Regression Prevention**: Rollup Contact Stage to Deal Stage ONLY if the contact's stage rank is **higher** than the Deal's current stage rank. Related Contacts can never demote/move a Deal stage backward.
-    *   Triggers `syncDealProductsAndValue` and `rollupAccountCommercialState`.
+    *   Maps Lead `Imported_Record_Type` to `Contacts.Contact_Source_Class` and `Accounts.Account_Source_Class`.
+    *   Resolves proposed sequence routing mode first: if Deal `Sequence_Status` is empty, determine `Sequence_Action_Mode` and set `Sequence_Status = "Not Started"` before running the sequence router.
 
-### 3. Deal State Normalizer: `normalizeDealCommercialState.deluge`
+### 2. Contact State Normalizer: `v5/processContact.deluge`
+*   **Trigger**: Contact Created or Updated.
+*   **Purpose**: Normalizes Contact Stage, State, and Status fields. Prevents stage rank regression.
+
+### 3. Account Aggregator: `v5/processAccount.deluge`
+*   **Trigger**: Account Created or Updated.
+*   **Purpose**: Rolls up commercial values and operational status onto the parent Account record. Sets `State = Open` if any Deal is `Open`.
+
+### 4. Deal State Normalizer: `v5/processDeal.deluge`
 *   **Trigger**: Deal Created or Updated.
 *   **Purpose**: Validates commercial readiness gates, maps direct Deal edits to target opportunities, and rolls up contact stages.
-*   **Key Operations**:
-    *   Permits manual stage updates as source inputs, translating them to active opportunities.
-    *   **Regression Prevention**: Prevents associated Contacts under the Account from rolling a Deal stage backward below its direct target stage.
-    *   Triggers downstream Product syncs and Account rollups.
 
-### 4. Product Syncer & Pricing Engine: `syncDealProductsAndValue.deluge`
-*   **Trigger**: Called by Contact/Deal normalizers.
-*   **Purpose**: Queries products, associates them with the Deal, and aggregates their financial value.
-*   **Key Operations**:
-    *   Reads the Deal's `Products` related list for already-staged product names.
-    *   Aggregates Lead `Product_Interest` (text) / `Products_Linked` (lookup) and Contact `Product_Interest` (Multi-Select Lookup) as additional staging signals.
-    *   Queries the `Products` module by `Product_Name` matching each staging name.
-    *   Sums up their matching catalog price (`Unit_Price`) and updates Deal `Amount`.
-    *   Gracefully returns without failure if no matching product is found.
+### 5. Sequence Router: `v5/activity/sequenceRouter.deluge`
+*   **Trigger**: Called from `processLead` hook and workflow rules (WF002/WF003/WF010).
+*   **Purpose**: State-machine routing engine. Determines if the sequence needs activation gating (`Manual Review First` or blank route) and schedules the appropriate sequence (Call First, Email First, Meeting First, Task First).
 
-### 5. Account Aggregator: `rollupAccountCommercialState.deluge`
-*   **Trigger**: Called by normalizers.
-*   **Purpose**: Dynamically rolls up commercial values and operational status onto the parent Account record.
-*   **Key Operations**:
-    *   **Account State**: Automatically sets to `Open` if **any** associated Deal is `Open`. Sets to `Lost` **only** if all related Deals are marked `Lost`.
-    *   **Account Status**: Sets to `Closed` if State is `Lost`. Sets to `Working` if any open Deal is `Working`. Otherwise, defaults to `New`.
-    *   **Product Rollup**: Account-level Product Interest writes are disabled for now.
+### 6. Task Completion Handler: `v5/activity/handleTaskCompletion.deluge`
+*   **Trigger**: Called from Task Completion (WF008).
+*   **Purpose**: Processes sequence task completions, mapping `Sequence Activation` outcomes (`Activate Call First`, `Activate Email First`, `Manual Only`, `Suppress`, `Already Handled`, `Stage Incorrect`) to Deal state changes. Implements strict idempotency checks.
 
 ---
 
-## 4. Workflow Rules & Triggers
+## 4. Workflow Rules & Triggers (v5)
 
 The automation logic is triggered by Zoho CRM Workflow Rules. All rules are configured to fire on **Create or Edit (Update)** for **All Records**.
 
-### v3 Workflows (Module-Based)
-*   **Lead**: Triggers `processLead.deluge`
-*   **Contact**: Triggers `processContact.deluge`
-*   **Account**: Triggers `processAccount.deluge`
-*   **Deal**: Triggers `processDeal.deluge`
-
-### v2 Workflows (Function-Based)
-*   **Convert to Lead**: Triggers `convert2lead.deluge`
-*   **normalizeContactCommercialState**: Triggers `normalizeContactCommercialState.deluge`
-*   **normalizeDealCommercialState**: Triggers `normalizeDealCommercialState.deluge`
-*   **rollupAccountCommercialState**: Triggers `rollupAccountCommercialState.deluge`
-*   **syncDealProductsAndValue**: Triggers `syncDealProductsAndValue.deluge`
-*(Note: The standard "Big Deal Rule" workflow is not associated with this custom v2 automation suite).*
+### v5 Workflows
+*   **Lead (WF001)**: Triggers `v5/processLead.deluge` to convert leads and resolve proposed routes.
+*   **Deal Sequence Router (WF002)**: Triggers `v5/activity/sequenceRouter.deluge` when `Sequence_Status = "Not Started"`. Resolves and bootstraps the sequence mode (Task-gating unresolved/Manual modes, creating Calls for Call-first, sending Email 1 + creating follow-up Call 1 for Email-first).
+*   **Deal Stage Change Router (WF003)**: Triggers `v5/activity/sequenceRouter.deluge` on `Stage1` changes to supersede the old sequence and restart with the default action mode for the new Stage.
+*   **Task Completion Handler (WF008)**: Triggers `v5/activity/handleTaskCompletion.deluge` on task completion or outcome setting. Handles `Sequence Activation` task outcomes to confirm and activate routes.
+*   **Call Outcome Handler (WF006)**: Triggers `v5/activity/handleCallOutcome.deluge` when sequence calls are completed. Handles progression semantics for Call-first and Email-first cadences.
+*   **Date-Based Follow-Up Router (WF010)**: Triggers `v5/activity/sequenceRouter.deluge` at `Next_Action_Due_Date` or `Sequence_Paused_Until`.
 
 ---
 

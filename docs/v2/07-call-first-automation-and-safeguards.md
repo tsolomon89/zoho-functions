@@ -1,13 +1,10 @@
 # 07 — Call-First Automation and Safeguards
 
 ## TLDR
-The system is call-first.
-
-Each Stage starts with a Call so a sales representative checks the prospect before emails or follow-up sequences continue.
-
-The representative updates the outcome of the thing they just did.
-
-The workflow then decides the next action.
+> [!NOTE]
+> This document describes the **Call-First** execution path, which is one of the supported sequence modes within the larger routing model (which also supports Email First, Meeting First, Task First, and Manual Review First).
+> 
+> In the Call-First route, each Stage starts with a Call so a sales representative checks the prospect before emails or follow-up sequences continue.
 
 ---
 

@@ -1,8 +1,10 @@
 # Jurnii.io CRM: Activity Cadences and Workflow Rules
 
 ## TL;DR
-
-Jurnii.io operates a call-gated sales cadence that ensures structured follow-ups. Standard Zoho UI Workflow Rules act as the "trigger layer," detecting changes and invoking Deluge functions (the "logic layer") to manage prospect sequences. From a prospect’s first call to automated 7-step email chases and reply interceptions, every interaction is governed by strict rules mapped to our commercial stages.
+> [!NOTE]
+> This document describes the legacy **v1 Call-First** cadence. As of **v5**, the system uses a **Task-Gated Sequence Routing** state machine (with support for Call First, Email First, Meeting First, Task First, and Manual Review First sequences).
+> 
+> Jurnii.io operates a call-gated sales cadence that ensures structured follow-ups. Standard Zoho UI Workflow Rules act as the "trigger layer," detecting changes and invoking Deluge functions (the "logic layer") to manage prospect sequences. From a prospect’s first call to automated 7-step email chases and reply interceptions, every interaction is governed by strict rules mapped to our commercial stages.
 
 ---
 

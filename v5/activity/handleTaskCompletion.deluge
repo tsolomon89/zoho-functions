@@ -1,0 +1,274 @@
+void automation.handleTaskCompletion(string taskIdStr)
+{
+	// =========================================================================
+	// handleTaskCompletion
+	//
+	// Triggered by WF008 when a sequence-managed Task is completed or gets a
+	// Task_Outcome. Implements FUNCTION_SPEC.md §14.
+	//
+	// Branches by Task_Type:
+	//   Data Repair        → resume sequenceRouter on Related Deal (lifts the
+	//                        Sequence_Status=Paused state from the call outcome
+	//                        that created this task).
+	//   Draft Commercials  → no auto-advance. Operator sets Commercials_Status=
+	//                        Ready to Send when actually ready; WF004 handles
+	//                        the rest. We just log here.
+	//   Send Commercials   → bump Commercials_Status to Sent so WF004 runs.
+	//   Manual Review      → no automation action; logged.
+	//   Suppression Review → no automation action; logged.
+	//   Enrichment / Onboarding Setup / Review Reply → resume sequenceRouter.
+	// =========================================================================
+
+	taskId = 0;
+	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }
+	automation.logAutomationEvent("handleTaskCompletion", "Tasks", ifnull(taskId, "").toString(), "entry", "in_progress", null);
+
+	if(taskId == 0)
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", "", "guard", "skip_no_id", null);
+		return;
+	}
+
+	task = zoho.crm.getRecordById("Tasks", taskId);
+	if(isNull(task) || isNull(task.get("id")))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_found", null);
+		return;
+	}
+
+	tType = ifnull(task.get("Task_Type"), "").toString();
+	whatLookup = task.get("What_Id");
+	seModule   = ifnull(task.get("$se_module"), "").toString();
+	if(seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"se_module":seModule, "task_type":tType});
+		return;
+	}
+
+	tStatus  = ifnull(task.get("Status"), "").toString();
+	tOutcome = ifnull(task.get("Task_Outcome"), "").toString();
+	if(tStatus != "Completed" && tOutcome == "")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_complete", {"status":tStatus, "outcome":tOutcome});
+		return;
+	}
+
+	tType = ifnull(task.get("Task_Type"), "").toString();
+	whatLookup = task.get("What_Id");
+	seModule   = ifnull(task.get("$se_module"), "").toString();
+	dealId = 0;
+	if(!isNull(whatLookup) && !isNull(whatLookup.get("id")) && seModule == "Deals") { dealId = whatLookup.get("id").toLong(); }
+	if(dealId == 0)
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		return;
+	}
+
+	triggerMap = Map();
+	triggerMap.put("trigger", List());
+
+	if(tType == "Sequence Activation")
+	{
+		deal = zoho.crm.getRecordById("Deals", dealId);
+		if(isNull(deal) || isNull(deal.get("id")))
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "deal_not_found", {"deal":dealId});
+			return;
+		}
+
+		currentStatus = ifnull(deal.get("Sequence_Status"), "").toString();
+		currentMode = ifnull(deal.get("Sequence_Action_Mode"), "").toString();
+		isSuppressed = ifnull(deal.get("Automation_Suppressed"), false);
+
+		if(tOutcome == "Activate Call First")
+		{
+			if(currentStatus == "Waiting on Call" && currentMode == "Call First")
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			dealUpd.put("Sequence_Action_Mode", "Call First");
+			dealUpd.put("Sequence_Status", "Not Started");
+			dealUpd.put("Next_Action_Type", "Call");
+			dealUpd.put("Sequence_Paused_Until", null);
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+			automation.sequenceRouter(dealId.toString());
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "activated_call_first", {"deal":dealId});
+			return;
+		}
+		else if(tOutcome == "Activate Email First")
+		{
+			if(currentStatus == "Waiting on Call" && currentMode == "Email First")
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			dealUpd.put("Sequence_Action_Mode", "Email First");
+			dealUpd.put("Sequence_Status", "Not Started");
+			dealUpd.put("Next_Action_Type", "Automated Email");
+			dealUpd.put("Sequence_Paused_Until", null);
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+			automation.sequenceRouter(dealId.toString());
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "activated_email_first", {"deal":dealId});
+			return;
+		}
+		else if(tOutcome == "Manual Only")
+		{
+			if(currentStatus == "Manual Only" && (currentMode == "Manual Review First" || currentMode == "Manual Only"))
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			if(currentMode == "")
+			{
+				dealUpd.put("Sequence_Action_Mode", "Manual Review First");
+			}
+			dealUpd.put("Sequence_Status", "Manual Only");
+			dealUpd.put("Next_Action_Type", "Manual Review");
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "manual_only", {"deal":dealId});
+			return;
+		}
+		else if(tOutcome == "Suppress")
+		{
+			if(currentStatus == "Suppressed" && isSuppressed.toString() == "true")
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			dealUpd.put("Automation_Suppressed", true);
+			dealUpd.put("Sequence_Status", "Suppressed");
+			dealUpd.put("Suppression_Reason", "Manual Handling Required");
+			dealUpd.put("Next_Action_Type", null);
+			dealUpd.put("Next_Action_Due_Date", null);
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "suppress", {"deal":dealId});
+			return;
+		}
+		else if(tOutcome == "Already Handled")
+		{
+			if(currentStatus == "Completed")
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			dealUpd.put("Sequence_Status", "Completed");
+			dealUpd.put("Next_Action_Type", null);
+			dealUpd.put("Next_Action_Due_Date", null);
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "already_handled", {"deal":dealId});
+			return;
+		}
+		else if(tOutcome == "Stage Incorrect")
+		{
+			if(currentStatus == "Paused")
+			{
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", tOutcome, {"deal":dealId});
+				return;
+			}
+
+			dealUpd = Map();
+			dealUpd.put("Sequence_Status", "Paused");
+			dealUpd.put("Next_Action_Type", "Manual Review");
+			zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+			stage = ifnull(deal.get("Stage1"), "").toString();
+			dealName = ifnull(deal.get("Deal_Name"), "").toString();
+			contactId = "";
+			cnLookup = deal.get("Contact_Name");
+			if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { contactId = cnLookup.get("id").toString(); }
+			ownerId = "";
+			ownerLookup = deal.get("Owner");
+			if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { ownerId = ownerLookup.get("id").toString(); }
+
+			existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			existingTaskId = "";
+			if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
+			{
+				for each tk in existingTasks
+				{
+					tSeqManaged = ifnull(tk.get("Sequence_Managed"), "No").toString();
+					tTaskType = ifnull(tk.get("Task_Type"), "").toString();
+					tStage = ifnull(tk.get("Sequence_Stage"), "").toString();
+					tStatus = ifnull(tk.get("Status"), "").toString();
+
+					if(tSeqManaged == "Yes" && tTaskType == "Manual Review" && tStage == stage && tStatus != "Completed")
+					{
+						existingTaskId = tk.get("id").toString();
+						break;
+					}
+				}
+			}
+
+			if(existingTaskId == "")
+			{
+				tkMap = Map();
+				tkMap.put("Subject", "Sequence Stage Correction: Deal " + dealName);
+				tkMap.put("Status", "Not Started");
+				tkMap.put("What_Id", dealId);
+				tkMap.put("$se_module", "Deals");
+				if(contactId != "") { tkMap.put("Who_Id", contactId); }
+				if(ownerId != "") { tkMap.put("Owner", ownerId); }
+				tkMap.put("Sequence_Managed", "Yes");
+				tkMap.put("Task_Type", "Manual Review");
+				tkMap.put("Sequence_Stage", stage);
+				tkMap.put("Sequence_Attempt", 0);
+				tkMap.put("Blocks_Sequence", "Yes");
+				tkMap.put("Description", "The stage of this Deal was flagged as incorrect during Sequence Activation. Please correct the Stage to resume sequence automation.");
+
+				createResp = zoho.crm.createRecord("Tasks", tkMap);
+				if(createResp.get("id") != null) { existingTaskId = createResp.get("id").toString(); }
+			}
+
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "stage_incorrect", {"deal":dealId, "task_id":existingTaskId});
+			return;
+		}
+
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_outcome", tOutcome, {"deal":dealId});
+		return;
+	}
+
+	if(tType == "Data Repair" || tType == "Enrichment" || tType == "Onboarding Setup" || tType == "Review Reply")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Not Started");
+		dealUpd.put("Sequence_Paused_Until", null);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "resumed_router", {"deal":dealId, "type":tType});
+		return;
+	}
+
+	if(tType == "Send Commercials")
+	{
+		dealUpd = Map();
+		dealUpd.put("Commercials_Status", "Sent");
+		// Suppress workflow cascade (WF001d/processDeal would revert Stage1; WF004 would
+		// normally invoke handleCommercialsStatusChange). Explicitly invoke
+		// handleCommercialsStatusChange to perform the Stage1=Commercial Agreement transition.
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.handleCommercialsStatusChange(dealId.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "status_to_sent", {"deal":dealId});
+		return;
+	}
+
+	if(tType == "Draft Commercials" || tType == "Manual Review" || tType == "Suppression Review")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "no_auto_action", tType, {"deal":dealId});
+		return;
+	}
+
+	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"deal":dealId});
+}
