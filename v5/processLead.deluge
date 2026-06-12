@@ -1274,7 +1274,7 @@ void automation.processLead(string lead_id)
 		if(createdTimeStr != "")
 		{
 			createdTime = createdTimeStr.toDateTime();
-			if(createdTime.addMinute(2) > zoho.currenttime)
+			if(zoho.currenttime.toLong() - createdTime.toLong() < 120000)
 			{
 				isNewDeal = true;
 			}
