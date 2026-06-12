@@ -214,6 +214,7 @@ Email                  = mcp_t1_<timestamp>@example.com
 Phone                  = +44 7000 000001
 Company                = <sessionPrefix>_T1_Co
 Title                  = "Head of Marketing"
+Lead_Source            = "Inbound Form"
 Lead_Processing_Status = "Not Started"
 Ready_for_Conversion   = true
 ```
@@ -282,6 +283,7 @@ Last_Name      = <sessionPrefix>_T3_Last
 First_Name     = MCPTest
 Email          = mcp_t3_<timestamp>@example.com
 Title          = "Product Manager"
+Contact_Source_Class = "Inbound Form"
 Account_Name   = (leave empty so processContact must resolve/create)
 ```
 Wait 45s.
@@ -678,8 +680,9 @@ Wait 30s.
 - `State` == `Open`  ← critical, NOT `Won`
 - `Status` is one of `New` or `Working` — NOT `Closed`
 - `Signed_At` is not empty
-- `Sequence_Status` == `Not Started` (so WF003 can bootstrap the RTP
-  sequence on the next tick)
+- `Sequence_Status` == `Waiting on Internal Task` (via Task First Onboarding bootstrap)
+- `Next_Action_Type` == `Task`
+- A related Task exists with `Task_Type` == `Onboarding Setup` and `Status` == `Not Started`
 
 **On failure (any `State == "Won"` is a hard fail):**
 1. `v5/activity/handleCommercialsStatusChange.deluge` — the `Signed`
@@ -861,6 +864,189 @@ Wait 30s.
 **On failure:**
 - `v5/activity/handleMeetingEvent.deluge`
 - WF007 configuration and argument bindings in Zoho.
+
+### T26 — Unknown / Imported source triggers Manual Review First (Activation Gate)
+
+**What this tests:** When a Deal is created with an unresolved source (e.g., Migration or empty), the route resolver returns `Manual Review First`, creating a Sequence Activation task and setting status to `Waiting on Internal Task` without scheduling any calls or sending emails.
+
+**Action:**
+createRecords on Deals with:
+  Deal_Name        = <sessionPrefix>_T26
+  Account_Name     = <test account id>
+  Contact_Name     = <test contact id>
+  Stage1           = "Marketing Qualification"
+  State            = "Open"
+  Sequence_Status  = "Not Started"
+  Lead_Source      = "Migration"
+  Closing_Date     = <today + 60 days>
+
+Wait 30s.
+
+**Assertions:**
+- `Sequence_Status` == `Waiting on Internal Task`
+- `Active_Sequence_Stage` == `Marketing Qualification`
+- `Active_Sequence_Attempt` == 0
+- `Next_Action_Type` == `Task`
+- Related Tasks: exactly **one** Task exists with:
+  - `Subject` == `Activate sequence: <sessionPrefix>_T26 — Marketing Qualification`
+  - `Task_Type` == `Sequence Activation`
+  - `Sequence_Managed` == `Yes`
+  - `Blocks_Sequence` == `Yes`
+- Related Calls: **zero** calls exist.
+
+**On failure:**
+- `v5/activity/sequenceRouter.deluge` — bootstrap branch for `Manual Review First` route.
+- `v5/activity/_util_resolveSequenceRoute.deluge` — source classification checks.
+
+### T27 — Sequence Activation outcome: Activate Call First
+
+**Depends on T26's Deal and activation Task.**
+
+**Action:** Update the activation Task from T26:
+```
+Call_Outcome = "Activate Call First"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Sequence_Action_Mode` == `Call First`
+- Deal `Sequence_Status` == `Waiting on Call`
+- Deal `Active_Sequence_Attempt` == 1
+- Related Calls: exactly **one** Call exists with:
+  - `Subject` == `Marketing Qualification Call 1`
+  - `Sequence_Stage` == `Marketing Qualification`
+  - `Sequence_Attempt` == 1
+  - `Stale` == `No`
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Activate Call First` logic.
+- `v5/activity/sequenceRouter.deluge` — Call-First bootstrap branch.
+
+### T28 — Sequence Activation outcome: Activate Email First
+
+**Setup:** Create a fresh Deal `<sessionPrefix>_T28` with `Lead_Source = "Migration"`, wait 30s for the activation Task to appear.
+
+**Action:** Update that activation Task:
+```
+Call_Outcome = "Activate Email First"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Sequence_Action_Mode` == `Email First`
+- Deal `Sequence_Status` == `Waiting on Call`
+- Deal `Active_Sequence_Attempt` == 1
+- Related Tasks: an "Email Sent" marker Task exists with `Task_Type` == `Email Sent`, `Status` == `Completed`, and `Description` containing the SendKey.
+- Related Calls: exactly **one** Call exists with:
+  - `Subject` == `Marketing Qualification Call 1`
+  - `Sequence_Stage` == `Marketing Qualification`
+  - `Sequence_Attempt` == 1
+  - `Stale` == `No`
+  - `Call_Start_Time` (due date) is offset by **+2 business days** (spacing rule).
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Activate Email First` logic.
+- `v5/activity/sendSequencedEmail.deluge` — template send and marker task.
+- `v5/activity/createStageCall.deluge` — attempt 1 business date offset calculation.
+
+### T29 — Email-First Progression: No Answer Call Outcome
+
+**Depends on T28's Deal and Call 1.**
+
+**Action:** Update Call 1 from T28:
+```
+Call_Outcome = "No Answer"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Active_Sequence_Attempt` == 2
+- Deal `Sequence_Status` == `Waiting on Call`
+- Related Tasks: a new "Email Sent" marker Task exists for attempt 2 (`Marketing Qualification Email 2`).
+- Related Calls: exactly **one** new Call exists with `Subject` == `Marketing Qualification Call 2` and `Sequence_Attempt` == 2.
+
+**On failure:**
+- `v5/activity/handleCallOutcome.deluge` — `Email First` attempt progression logic.
+
+### T30 — Sequence Activation outcome: Manual Only
+
+**Setup:** Create a fresh Deal `<sessionPrefix>_T30` with `Lead_Source = "Migration"`, wait 30s.
+
+**Action:** Update the activation Task:
+```
+Call_Outcome = "Manual Only"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Sequence_Status` == `Manual Only`
+- Deal `Next_Action_Type` is empty
+- Related Calls: **zero** calls exist.
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Manual Only` branch.
+
+### T31 — Sequence Activation outcome: Suppress
+
+**Setup:** Create a fresh Deal `<sessionPrefix>_T31` with `Lead_Source = "Migration"`, wait 30s.
+
+**Action:** Update the activation Task:
+```
+Call_Outcome = "Suppress"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Automation_Suppressed` == true
+- Deal `Sequence_Status` == `Suppressed`
+- Deal `Suppression_Reason` == `Manual Handling Required`
+- Related Calls: **zero** calls exist.
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Suppress` branch.
+
+### T32 — Sequence Activation outcome: Already Handled
+
+**Setup:** Create a fresh Deal `<sessionPrefix>_T32` with `Lead_Source = "Migration"`, wait 30s.
+
+**Action:** Update the activation Task:
+```
+Call_Outcome = "Already Handled"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Sequence_Status` == `Completed`
+- Deal `Next_Action_Type` is empty
+- Related Calls: **zero** calls exist.
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Already Handled` branch.
+
+### T33 — Sequence Activation outcome: Stage Incorrect
+
+**Setup:** Create a fresh Deal `<sessionPrefix>_T33` with `Lead_Source = "Migration"`, wait 30s.
+
+**Action:** Update the activation Task:
+```
+Call_Outcome = "Stage Incorrect"
+Status = "Completed"
+```
+Wait 30s.
+
+**Assertions:**
+- Deal `Sequence_Status` == `Paused`
+- Deal `Next_Action_Type` == `Task`
+- A new blocking correction Task exists with `Task_Type` == `Manual Review`, `Blocks_Sequence` == `Yes`, and `Subject` containing `Sequence Stage Correction`.
+- Related Calls: **zero** calls exist.
+
+**On failure:**
+- `v5/activity/handleTaskCompletion.deluge` — `Stage Incorrect` branch.
 
 ---
 

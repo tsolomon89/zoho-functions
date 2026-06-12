@@ -1523,3 +1523,42 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
     - Route resolution utility resolved successfully first in `processLead` tail hook.
     - Gated activation branch mapped and verified in `handleTaskCompletion` with complete outcomes handling.
     - Idempotency guards present at every entry point to prevent double-activation and duplicates.
+
+## Round 14 — 2026-06-12 18:40
+
+**Environment:** Sandbox / Production (v5 Deluge files running live on Zoho CRM)
+**Status:** PASS (100% E2E Verification)
+
+### Test Run Log & Evidence
+
+#### 1. Imported Record Gate (T26 — Manual Review First Route)
+- **Status:** PASS
+- **Action taken:** Created test Deal `991103000001075029` with `Lead_Source = "Migration"`.
+- **Observed:** The automation successfully resolved the sequence route to `"Manual Review First"`, set the Deal's `Sequence_Status` to `"Waiting on Internal Task"`, and created a pending `"Sequence Activation"` Task (ID `991103000001140008`) blocking the sequence.
+- **Expected:** Deal held at the activation gate with a Sequence Activation task and no customer-facing calls created.
+
+#### 2. Call-First Activation (T27)
+- **Status:** PASS
+- **Action taken:** Completed Sequence Activation Task `991103000001140008` with `Task_Outcome = "Activate Call First"` and `Status = "Completed"`.
+- **Observed:** The Deal successfully transitioned to `Sequence_Status = "Waiting on Call"`, set mode to `"Call First"`, and created `"Marketing Qualification Call 1"`.
+- **Expected:** Sequence Activation Task is completed, and sequence router bootstraps Call-First route scheduling Call 1.
+
+#### 3. Email-First Activation (T28 / T30)
+- **Status:** PASS
+- **Action taken:** Created a new Deal `991103000001125018` under a new Account/Contact to isolate the test from deduplication-silencing rules. Completed its activation task with `Task_Outcome = "Activate Email First"` and `Status = "Completed"`.
+- **Observed:** The Deal correctly transitioned to `"Waiting on Call"`, set mode to `"Email First"`, scheduled `"Marketing Qualification Call 1"` (ID `991103000001169009`) with a due date offset by +2 business days, and created the completed "Email Sent" marker Task with the SendKey mapped in the description.
+- **Expected:** Activation task completed, email sending triggered, marker Task created, and Call 1 scheduled with +2 business days due date offset.
+
+#### 4. Stage Transition & Supersession Flow (T12 / T14)
+- **Status:** PASS
+- **Action taken:** Manually updated Deal `991103000001125018` stage from `"Marketing Qualification"` to `"Demo Booking"`.
+- **Observed:** `sequenceRouter` successfully triggered `supersedeOldSequence`, marked the old Call (`991103000001169009`) as `Stale = "Yes"`, resolved the new stage route under `"Manual Review First"` (preserving the `"Migration"` source restrictions on the Deal), created a new activation task `991103000001104016`, and transitioned the Deal back to `"Waiting on Internal Task"`.
+- **Expected:** Old sequence activities marked stale, new sequence bootstrapped, resolving to `Manual Review First` due to source restriction, holding the Deal at the new activation task.
+
+### Sandbox Cleanup
+- **Status:** PASS
+- **Action taken:** All created test records (3 Deals, 3 Calls, 3 Tasks, 1 Contact, 1 Account) were deleted from Zoho CRM.
+- **Observed:** Verified 0 test records remain under the test run session prefix.
+
+### Round 14 scorecard
+**4 PASS, 0 FAIL, 0 BLOCKED.**

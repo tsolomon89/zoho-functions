@@ -25,6 +25,12 @@ Use a small controlled dataset:
 
 # Test 1 — New Lead with complete data
 
+## Input
+
+```text
+Lead_Source = "Inbound Form"
+```
+
 ## Expected
 
 - Contact created.
@@ -38,7 +44,7 @@ Use a small controlled dataset:
 - Deal Amount populated.
 - Stage assigned.
 - Opportunity assigned.
-- Sequence Status initialized.
+- Sequence Status initialized to "Waiting on Call" (via Call First route).
 - Call 1 created for current Stage.
 - No email sent immediately.
 
@@ -53,6 +59,12 @@ Use a small controlled dataset:
 
 # Test 2 — Existing Contact and Account, no Deal
 
+## Input
+
+```text
+Lead_Source = "Inbound Form"
+```
+
 ## Expected
 
 - Existing Contact reused.
@@ -66,6 +78,12 @@ Use a small controlled dataset:
 ---
 
 # Test 3 — Existing Contact, Account, and Deal
+
+## Input
+
+```text
+Lead_Source = "Inbound Form"
+```
 
 ## Expected
 
@@ -641,3 +659,175 @@ Stage implied = FTP or later
 - Duplicate Deal created unnecessarily.
 - New Contact floats unlinked.
 - Deal Amount not recalculated.
+
+---
+
+# Test 28 — Unknown / Imported source triggers Manual Review First
+
+## Input
+
+```text
+Lead_Source = "Migration" (or empty)
+```
+
+## Expected
+
+- Deal Stage1 = Marketing Qualification
+- Sequence Status = Waiting on Internal Task
+- Sequence Activation Task created
+- Task blocks sequence (Blocks_Sequence = Yes)
+- No Call 1 is created
+
+---
+
+# Test 29 — Sequence Activation outcome: Activate Call First
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task (e.g. from Test 28).
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Activate Call First"
+  ```
+
+## Expected
+
+- Deal Sequence Action Mode = "Call First"
+- Deal Sequence Status = "Waiting on Call"
+- Marketing Qualification Call 1 is created
+- Sequence Activation task is completed
+
+---
+
+# Test 30 — Sequence Activation outcome: Activate Email First
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task.
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Activate Email First"
+  ```
+
+## Expected
+
+- Deal Sequence Action Mode = "Email First"
+- Deal Sequence Status = "Waiting on Call"
+- First sequence email (Email 1) is sent
+- Marketing Qualification Call 1 is created with due date offset by +2 business days
+- Sequence Activation task is completed
+
+---
+
+# Test 31 — Email-First Outcome Progression
+
+## Setup
+
+- Deal is on Email First route. Call 1 is open.
+
+## Action
+
+- Rep updates Call 1 outcome:
+  ```text
+  Call Outcome = "No Answer" (or "Neutral")
+  ```
+
+## Expected
+
+- Active Sequence Attempt = 2
+- Email 2 is sent
+- Call 2 is created
+- Stage remains unchanged
+
+---
+
+# Test 32 — Sequence Activation outcome: Manual Only
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task.
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Manual Only"
+  ```
+
+## Expected
+
+- Deal Sequence Status = "Manual Only"
+- Sequence action type is cleared
+- Next Action Type = null
+- No Call 1 is created, no email sent
+
+---
+
+# Test 33 — Sequence Activation outcome: Suppress
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task.
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Suppress"
+  ```
+
+## Expected
+
+- Deal Automation Suppressed = true
+- Deal Sequence Status = "Suppressed"
+- Deal Suppression Reason = "Manual Handling Required"
+- No Call 1 is created, no email sent
+
+---
+
+# Test 34 — Sequence Activation outcome: Already Handled
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task.
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Already Handled"
+  ```
+
+## Expected
+
+- Deal Sequence Status = "Completed"
+- Next Action Type = null
+- No Call 1 is created, no email sent
+
+---
+
+# Test 35 — Sequence Activation outcome: Stage Incorrect
+
+## Setup
+
+- Deal is in "Waiting on Internal Task" with a Sequence Activation task.
+
+## Action
+
+- Rep completes the Sequence Activation task with:
+  ```text
+  Task Outcome = "Stage Incorrect"
+  ```
+
+## Expected
+
+- Deal Sequence Status = "Paused"
+- Next Action Type = "Task"
+- A correction "Manual Review" Task is created (Subject = "Sequence Stage Correction: Deal...")
+- The new task blocks sequence (Blocks_Sequence = Yes)

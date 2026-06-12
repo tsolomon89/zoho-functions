@@ -220,7 +220,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 					tStatus = ifnull(tk.get("Status"), "").toString();
 
 					isSeq = tSeqManaged == "Yes" || tTaskType == "Manual Review";
-					if(isSeq && tTaskType == "Manual Review" && tStage == stage && tStatus != "Completed")
+					if(isSeq && tTaskType == "Manual Review" && tStage == stage && (tStatus == "Not Started" || tStatus == "In Progress"))
 					{
 						existingTaskId = tk.get("id").toString();
 						break;

@@ -101,6 +101,29 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		return;
 	}
 
+	// Create completed marker Task first to prevent concurrent duplicate sends and act as an atomic lock
+	tkMap = Map();
+	tkMap.put("Subject", "Email Sent: " + templateName);
+	tkMap.put("Status", "Completed");
+	tkMap.put("What_Id", dealId);
+	tkMap.put("$se_module", "Deals");
+	tkMap.put("Sequence_Managed", "Yes");
+	tkMap.put("Task_Type", "Email Sent");
+	tkMap.put("Sequence_Stage", stage);
+	tkMap.put("Sequence_Attempt", attemptOrChainStep);
+	tkMap.put("Who_Id", contactId);
+	tkMap.put("Blocks_Sequence", "No");
+	tkMap.put("Description", "SendKey: " + sendKey);
+	ownerLookup = deal.get("Owner");
+	if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { tkMap.put("Owner", ownerLookup.get("id").toString()); }
+
+	createResp = zoho.crm.createRecord("Tasks", tkMap);
+	markerTaskId = "";
+	if(!isNull(createResp) && createResp.get("id") != null)
+	{
+		markerTaskId = createResp.get("id").toString();
+	}
+
 	sendPayload = Map();
 	dataList = List();
 	sendItem = Map();
@@ -170,21 +193,24 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		triggerMap.put("trigger", List());
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 
-		tkMap = Map();
-		tkMap.put("Subject", "Email Sent: " + templateName);
-		tkMap.put("Status", "Completed");
-		tkMap.put("What_Id", dealId);
-		tkMap.put("$se_module", "Deals");
-		tkMap.put("Sequence_Managed", "Yes");
-		tkMap.put("Description", "SendKey: " + sendKey);
-		ownerLookup = deal.get("Owner");
-		if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { tkMap.put("Owner", ownerLookup.get("id").toString()); }
-		zoho.crm.createRecord("Tasks", tkMap);
+		if(markerTaskId != "")
+		{
+			taskUpd = Map();
+			taskUpd.put("Description", "SendKey: " + sendKey + "\nMessage ID: " + sentMessageId);
+			zoho.crm.updateRecord("Tasks", markerTaskId.toLong(), taskUpd);
+		}
 
 		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "complete", {"template":templateName, "to":contactEmail, "message_id":sentMessageId, "resp":sendResp, "sendKey":sendKey});
 	}
 	else
 	{
+		if(markerTaskId != "")
+		{
+			taskUpd = Map();
+			taskUpd.put("Status", "Cancelled");
+			taskUpd.put("Description", "SendKey: " + sendKey + "\nSend failed");
+			zoho.crm.updateRecord("Tasks", markerTaskId.toLong(), taskUpd);
+		}
 		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "failed", {"template":templateName, "to":contactEmail, "resp":sendResp});
 	}
 }
