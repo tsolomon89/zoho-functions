@@ -38,6 +38,10 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	// when processLead+processDeal both fired sequenceRouter in parallel on Lead creation.
 	// Client-side filter on Sequence_Managed/Stage/Attempt/Outcome/Stale.
 	existing = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
+	if(isNull(existing) || existing.size() == 0 || existing.toString().startsWith("{\"code\""))
+	{
+		existing = zoho.crm.searchRecords("Calls", "(What_Id:equals:" + dealId + ")");
+	}
 	if(!isNull(existing) && existing.size() > 0 && !existing.toString().startsWith("{\"code\""))
 	{
 		for each c in existing

@@ -175,6 +175,10 @@ void automation.sequenceRouter(string dealIdStr)
 		if(mode == "Manual Review First")
 		{
 			existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
+			{
+				existingTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+			}
 			existingTaskId = "";
 			if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
 			{
@@ -302,6 +306,10 @@ void automation.sequenceRouter(string dealIdStr)
 			else if(stage == "Onboarding") { tType = "Onboarding Setup"; }
 
 			existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
+			{
+				existingTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+			}
 			existingTaskId = "";
 			if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
 			{

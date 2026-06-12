@@ -1268,8 +1268,27 @@ void automation.processLead(string lead_id)
 			triggerMapMode.put("trigger", List());
 			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), updMode, triggerMapMode);
 		}
-		info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
-		automation.sequenceRouter(canonicalDealId);
+		
+		createdTimeStr = ifnull(latestDeal.get("Created_Time"), "").toString();
+		isNewDeal = false;
+		if(createdTimeStr != "")
+		{
+			createdTime = createdTimeStr.toDateTime();
+			if(createdTime.addMinute(2) > zoho.currenttime)
+			{
+				isNewDeal = true;
+			}
+		}
+		
+		if(!isNewDeal)
+		{
+			info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
+			automation.sequenceRouter(canonicalDealId);
+		}
+		else
+		{
+			info "sequenceRouter hook (processLead): skipped for newly created Deal=" + canonicalDealId + " (handled by processDeal)";
+		}
 	}
 
 	// ---- 13. Roll up Account State / Status ----

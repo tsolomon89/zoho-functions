@@ -60,6 +60,10 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	sendKey = dealIdStr + "|" + stage + "|" + supAt + "|" + actMode + "|" + templateName + "|" + attemptOrChainStep;
 
 	existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+	if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
+	{
+		existingTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+	}
 	if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
 	{
 		for each tk in existingTasks

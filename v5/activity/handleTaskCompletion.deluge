@@ -211,6 +211,10 @@ void automation.handleTaskCompletion(string taskIdStr)
 			if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { ownerId = ownerLookup.get("id").toString(); }
 
 			existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
+			{
+				existingTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+			}
 			existingTaskId = "";
 			if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
 			{
