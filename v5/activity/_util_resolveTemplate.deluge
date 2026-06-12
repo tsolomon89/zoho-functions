@@ -29,7 +29,7 @@ string automation.resolveTemplate(string stage, int attemptOrChainStep, string t
 	if(tc == "demo_confirmation")              { return "Demo Confirmation Email"; }
 	if(tc == "demo_reminder")                  { return "Demo Confirmation Reminder Email"; }
 	if(tc == "demo_no_show")                   { return "Demo Confirmation No-Show Email"; }
-	if(tc == "demo_post_demo")                 { return "Demo Hosted Post-Demo Email"; }
+	if(tc == "demo_post_demo" || tc == "demo_attended_qualified") { return "Demo Hosted Post-Demo Email"; }
 	if(tc == "commercials_terms")              { return "Commercial Agreement Terms Email"; }
 	if(tc == "commercials_signed_confirmation"){ return "Commercial Agreement Confirmation Email"; }
 	if(tc == "onboarding_kickoff")             { return "Onboarding Kickoff Email"; }

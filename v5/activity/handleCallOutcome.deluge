@@ -90,6 +90,13 @@ void automation.handleCallOutcome(string callIdStr)
 		return;
 	}
 
+	dealAttempt = ifnull(deal.get("Active_Sequence_Attempt"), 0).toLong();
+	if(callSeqAttempt != dealAttempt)
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_processed_attempt", {"call_attempt":callSeqAttempt, "deal_attempt":dealAttempt});
+		return;
+	}
+
 	triggerMap = Map();
 	triggerMap.put("trigger", List());
 

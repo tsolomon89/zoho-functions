@@ -155,16 +155,16 @@ record state.
 
 The test plan runs in two sections, in order:
 
-- **§2A — Core graph layer** (`v4/processLead.deluge`,
-  `v4/processContact.deluge`, `v4/processAccount.deluge`,
-  `v4/processDeal.deluge`). These are foundational and MUST pass before
+- **§2A — Core graph layer** (`v5/processLead.deluge`,
+  `v5/processContact.deluge`, `v5/processAccount.deluge`,
+  `v5/processDeal.deluge`). These are foundational and MUST pass before
   the activity layer can be trusted. The four `processX` functions own:
   Lead → Contact/Account/Deal conversion; Account_Key generation;
   Contact-Role assignment from Job_Title; Product attachment + Amount;
   duplicate detection and silencing; Account State/Status rollup; and
   the hook line `automation.sequenceRouter(canonicalDealId.toLong())`
   that bridges to the activity layer.
-- **§2B — Activity layer** (`v4/activity/*.deluge`).
+- **§2B — Activity layer** (`v5/activity/*.deluge`).
   `sequenceRouter`, `createStageCall`, the outcome handlers, etc.
 
 Run §2A in full before §2B. A failing graph-layer test usually masks
@@ -241,11 +241,11 @@ Wait 60s — Lead pipeline is heavier than Deal-only.
   with `Subject` = `Marketing Qualification Call 1` exists.
 
 **On failure:**
-- `v4/processLead.deluge` — full pipeline.
+- `v5/processLead.deluge` — full pipeline.
 - Check the Lead's logs for `info` lines indicating which step
   early-returned (Contact lookup vs Account resolution vs Deal create).
 - If Deal exists but no `Marketing Qualification Call 1`: the hook at
-  `v4/processLead.deluge:898` may have failed to fire — check the
+  `v5/processLead.deluge:898` may have failed to fire — check the
   `if(canonicalDealId != "" && State == "Open")` guard.
 
 ### T2 — `processLead` idempotency
@@ -264,9 +264,9 @@ re-fires WF001. Wait 60s.
   duplicate appeared.
 
 **On failure:**
-- `v4/processLead.deluge` — duplicate check against existing Contact
+- `v5/processLead.deluge` — duplicate check against existing Contact
   by Email and existing Account by Account_Key.
-- `v4/activity/createStageCall.deluge` — the Call duplicate-prevention
+- `v5/activity/createStageCall.deluge` — the Call duplicate-prevention
   search.
 
 ### T3 — `processContact` standalone Contact creates an Account and a Deal
@@ -298,7 +298,7 @@ Wait 45s.
   Deal, related Call `Marketing Qualification Call 1` exists.
 
 **On failure:**
-- `v4/processContact.deluge` — Account resolution path, role
+- `v5/processContact.deluge` — Account resolution path, role
   assignment, hook line `~712`.
 
 ### T4 — `processContact` role precedence: End User > Influencer > Decision Maker
@@ -322,7 +322,7 @@ Wait 45s.
   (End User wins over Influencer wins over Decision Maker default).
 
 **On failure:**
-- `v4/processContact.deluge` and `v4/activity/_util_resolveRoleFromTitle.deluge`.
+- `v5/processContact.deluge` and `v5/activity/_util_resolveRoleFromTitle.deluge`.
 - Check the title is in the right title list (`dmTitles`, `euTitles`,
   `infTitles`) — these are duplicated in `processAccount.deluge` ~37-40
   and `processLead.deluge`/`processContact.deluge`.
@@ -353,7 +353,7 @@ Wait 30s.
   whatever was set on create).
 
 **On failure:**
-- `v4/processDeal.deluge` — the early-exit branch (~`if dealName ends
+- `v5/processDeal.deluge` — the early-exit branch (~`if dealName ends
   with "(Duplicate)" or reasonForLoss == "Duplicate / Test Record"
   return;`, around line 44-48 of `processDeal.deluge`).
 
@@ -383,9 +383,9 @@ keeps a non-empty `Deal_Key`.
 - The canonical Deal's `Sequence_Status` is still active.
 
 **On failure:**
-- `v4/processDeal.deluge` — duplicate Deal silence loop (~ section 3,
+- `v5/processDeal.deluge` — duplicate Deal silence loop (~ section 3,
   "Silence duplicate active Deals + identify canonical").
-- `v4/processAccount.deluge` and `v4/processContact.deluge` — same
+- `v5/processAccount.deluge` and `v5/processContact.deluge` — same
   dedup pattern (~lines 200, 686).
 
 ### T7 — `processDeal` Product attachment + total `Amount` sum across multiple Products
@@ -436,10 +436,10 @@ Discount/Tax defaults.
   `price1 + price2 + price3`.
 
 **On failure:**
-- `v4/processDeal.deluge` — Product resolution + subform write
+- `v5/processDeal.deluge` — Product resolution + subform write
   (~step 6, "Resolve Products by name, attach to Deal Products related
   list, sum Unit_Price into Deal.Amount").
-- Check recent commits (`git log --oneline v4/processDeal.deluge`) —
+- Check recent commits (`git log --oneline v5/processDeal.deluge`) —
   this code path was changed in `f2812cc`, `35e432d`, and `ca65f5a`.
   Bug `ca65f5a` specifically fixed "amount inflation" from cascading
   workflow triggers, so failures here may also indicate a
@@ -490,12 +490,12 @@ Contact); the rest live in `Contact_Roles`.
   not flip — note actual behavior for the run log.
 
 **On failure:**
-- `v4/processContact.deluge` — Contact_Roles maintenance loop
-  (~lines 230-280 in v3; the equivalent block in v4).
-- `v4/processDeal.deluge` — step 5 in processDeal's pipeline:
+- `v5/processContact.deluge` — Contact_Roles maintenance loop
+  (~lines 230-280 in v3; the equivalent block in v5).
+- `v5/processDeal.deluge` — step 5 in processDeal's pipeline:
   "Maintain Contact_Roles related list (Decision Maker default,
   never overwrite a manual role)".
-- `v4/activity/_util_resolveRoleFromTitle.deluge` — title-list
+- `v5/activity/_util_resolveRoleFromTitle.deluge` — title-list
   membership.
 
 ### T10 — Deal Opportunity (`Stage`) follows the furthest **non-closed** Contact
@@ -518,8 +518,8 @@ Establish a starting baseline:
 3. Wait 45s.
 
 > Exact mechanic: the way each Contact's progress is captured varies
-> between v3 and v4. Read `v4/processDeal.deluge` step 4 ("compute
-> furthest viable open") and `v4/processContact.deluge` to identify
+> between v3 and v5. Read `v5/processDeal.deluge` step 4 ("compute
+> furthest viable open") and `v5/processContact.deluge` to identify
 > whether progress is held on the Contact directly (e.g. a
 > `Contact_Stage` field), inferred from related Calls/Tasks, or
 > derived from the Account's history. Adapt the setup accordingly.
@@ -553,12 +553,12 @@ Establish a starting baseline:
   spec.)
 
 **On failure:**
-- `v4/processDeal.deluge` — step 4 ("Gather Contacts under the
+- `v5/processDeal.deluge` — step 4 ("Gather Contacts under the
   Account, compute furthest viable open"). The bug pattern is
   "furthest ever" instead of "furthest currently open".
-- `v4/processContact.deluge` — Contact.State change should re-fire
+- `v5/processContact.deluge` — Contact.State change should re-fire
   `processDeal` (directly or via the Account rollup hook).
-- `v4/processAccount.deluge` — Account rollup must propagate the
+- `v5/processAccount.deluge` — Account rollup must propagate the
   Contact-state change to the Deal.
 
 ### T8 — `processAccount` State/Status rollup
@@ -586,9 +586,9 @@ Account's own State/Status is recomputed:
   `Closed` (per the rule: Closed only when State = Lost).
 
 **On failure:**
-- `v4/processAccount.deluge` — State/Status rollup (~lines 580-595).
-- `v4/processDeal.deluge` — Account rollup hook (~lines 540-548).
-- `v4/processContact.deluge` — same rollup pattern (~lines 727-741).
+- `v5/processAccount.deluge` — State/Status rollup (~lines 580-595).
+- `v5/processDeal.deluge` — Account rollup hook (~lines 540-548).
+- `v5/processContact.deluge` — same rollup pattern (~lines 727-741).
 
 ---
 
@@ -612,6 +612,7 @@ createRecords on Deals with:
   Stage1           = "Marketing Qualification"
   State            = "Open"
   Sequence_Status  = "Not Started"
+  Sequence_Action_Mode = "Call First"
   Closing_Date     = <today + 60 days>
   Amount           = 0
 ```
@@ -631,8 +632,8 @@ Wait 30s.
 
 **On failure:**
 1. WF002 active? (`getWorkflowRules` filter by `WF002`)
-2. `v4/activity/sequenceRouter.deluge` — bootstrap branch logic
-3. `v4/activity/createStageCall.deluge` — Call creation + duplicate
+2. `v5/activity/sequenceRouter.deluge` — bootstrap branch logic
+3. `v5/activity/createStageCall.deluge` — Call creation + duplicate
    prevention
 
 ### T12 — Stage change supersedes the old sequence
@@ -656,8 +657,8 @@ Wait 30s.
 
 **On failure:**
 1. WF003 active?
-2. `v4/activity/sequenceRouter.deluge` — `stageChanged` branch
-3. `v4/activity/supersedeOldSequence.deluge`
+2. `v5/activity/sequenceRouter.deluge` — `stageChanged` branch
+3. `v5/activity/supersedeOldSequence.deluge`
 
 ### T13 — Commercials_Status = Signed keeps the Deal Open (regression for the State=Won bug)
 
@@ -681,7 +682,7 @@ Wait 30s.
   sequence on the next tick)
 
 **On failure (any `State == "Won"` is a hard fail):**
-1. `v4/activity/handleCommercialsStatusChange.deluge` — the `Signed`
+1. `v5/activity/handleCommercialsStatusChange.deluge` — the `Signed`
    branch
 2. The header comment block should document `State = Open`. If the
    code still writes `Won`, the user republished an old version of the
@@ -701,7 +702,7 @@ Wait 30s.
 - `Reason_For_Loss__s` is not empty (e.g. `Commercial Rejected`)
 
 **On failure:**
-- `v4/activity/handleCommercialsStatusChange.deluge` — the `Rejected`
+- `v5/activity/handleCommercialsStatusChange.deluge` — the `Rejected`
   branch
 
 ### T15 — Demo_Outcome = Attended - Qualified
@@ -712,15 +713,15 @@ Wait 30s.
 **Action:** Update `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
 
 **Assertions:**
-- `Stage1` == `Demo Hosted`
-- `Stage` == `SQL`
+- `Stage1` == `Proposal Preparation`
+- `Stage` == `FTP`
 - `Commercials_Status` == `Drafting`
 - One related Task exists with `Subject` containing
   `Draft Commercials`, `Task_Type` == `Draft Commercials`,
   `Sequence_Managed` == `Yes`.
 
 **On failure:**
-- `v4/activity/handleDemoOutcome.deluge` — `Attended - Qualified`
+- `v5/activity/handleDemoOutcome.deluge` — `Attended - Qualified`
   branch
 
 ### T16 — Positive Call outcome advances the Deal
@@ -743,7 +744,7 @@ Wait 30s.
 
 **On failure:**
 - WF006 active?
-- `v4/activity/handleCallOutcome.deluge` — `Positive` branch + stage
+- `v5/activity/handleCallOutcome.deluge` — `Positive` branch + stage
   map.
 
 ### T17 — Neutral / No Answer creates Call N+1
@@ -763,7 +764,7 @@ Wait 30s.
   `Sequence_Attempt` = 2, `Stale` = `No`.
 
 **On failure:**
-- `v4/activity/handleCallOutcome.deluge` — `Neutral`/`No Answer` branch
+- `v5/activity/handleCallOutcome.deluge` — `Neutral`/`No Answer` branch
 
 ### T18 — Idempotency: second update doesn't duplicate Calls
 
@@ -774,7 +775,7 @@ with a no-op field change (e.g. add a trailing space to
 `createStageCall` duplicate prevention should hold.
 
 **On failure:**
-- `v4/activity/createStageCall.deluge` — duplicate search criteria.
+- `v5/activity/createStageCall.deluge` — duplicate search criteria.
 
 ### T24 — Task Lifecycle (Creation & Completion)
 
@@ -783,7 +784,7 @@ with a no-op field change (e.g. add a trailing space to
 **Setup:** Use the Deal from T1 or create a fresh Deal `<sessionPrefix>_T24`. Advance the Deal to `Demo Confirmation` and set `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
 
 **Assertions (Creation):**
-- Verify Deal `Stage1` == `Demo Hosted`, `Stage` == `SQL`, and `Commercials_Status` == `Drafting`.
+- Verify Deal `Stage1` == `Proposal Preparation`, `Stage` == `FTP`, and `Commercials_Status` == `Drafting`.
 - Read Deal's related Tasks via `getRelatedRecords`. Verify exactly **one** Task exists with:
   - `Subject` containing `Draft Commercials`
   - `Task_Type` == `Draft Commercials`
@@ -799,7 +800,7 @@ with a no-op field change (e.g. add a trailing space to
 
 **Assertions (Task Completion):**
 - Assert `WF008` (Task Completion Handler) executed successfully.
-- Assert Deal `Stage1` remains `Demo Hosted` and `Commercials_Status` remains `Drafting` (completing `Draft Commercials` does not advance the sequence prematurely).
+- Assert Deal `Stage1` remains `Proposal Preparation` and `Commercials_Status` remains `Drafting` (completing `Draft Commercials` does not advance the sequence prematurely).
 
 **Branch Action (Data Repair Task Completion):**
 - Set `Call_Outcome = "Bad Data"` on any open Call related to an active Deal. Wait 30s.
@@ -808,7 +809,7 @@ with a no-op field change (e.g. add a trailing space to
 - Assert: Deal `Sequence_Status` returns to `Waiting on Call` and a new Call is created.
 
 **On failure:**
-- `v4/activity/handleTaskCompletion.deluge`
+- `v5/activity/handleTaskCompletion.deluge`
 - WF008 configuration and argument bindings in Zoho.
 
 ### T25 — Demo Event Lifecycle (Scheduled, Rescheduled, Confirmed, Cancelled, No Show)
@@ -858,7 +859,7 @@ Wait 30s.
 - Assert: Deal `Demo_Status` is updated to `No Show` and the demo outcome logic executes.
 
 **On failure:**
-- `v4/activity/handleMeetingEvent.deluge`
+- `v5/activity/handleMeetingEvent.deluge`
 - WF007 configuration and argument bindings in Zoho.
 
 ---

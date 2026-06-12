@@ -644,6 +644,25 @@ void automation.processDeal(string deal_id)
 		info "Deal updateRecord resp: " + dealUpdResp;
 	}
 
+	postState = ifnull(dUpd.get("State"), ifnull(targetDeal.get("State"), "Open")).toString();
+	if(canonicalDealId != "" && postState == "Open")
+	{
+		latestDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
+		currSeqStatus = ifnull(latestDeal.get("Sequence_Status"), "").toString();
+		if(currSeqStatus == "")
+		{
+			proposedMode = automation.resolveSequenceRoute(canonicalDealId);
+			updMode = Map();
+			updMode.put("Sequence_Action_Mode", proposedMode);
+			updMode.put("Sequence_Status", "Not Started");
+			triggerMapMode = Map();
+			triggerMapMode.put("trigger", List());
+			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), updMode, triggerMapMode);
+		}
+		info "sequenceRouter hook (processDeal): canonicalDealId=" + canonicalDealId;
+		automation.sequenceRouter(canonicalDealId);
+	}
+
 	// ---- 8. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
 	anyDealOpen = false;

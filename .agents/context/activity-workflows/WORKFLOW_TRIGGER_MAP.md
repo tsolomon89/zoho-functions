@@ -96,19 +96,25 @@ sequenceRouter(deal_id)
 
 ## Purpose
 
-Initialize the correct Stage sequence. In every Stage, the first action should be `Call 1`.
+Initialize the correct Stage sequence based on the resolved Sequence Action Mode.
 
 ## Expected behavior
 
 ```text
-Stage = Demo Booking
-→ create Demo Booking Call 1
+Sequence_Action_Mode = Manual Review First
+→ create Sequence Activation Task
+→ Sequence Status = Waiting on Internal Task
+```
+
+```text
+Sequence_Action_Mode = Call First
+→ create Stage Call 1
 → Sequence Status = Waiting on Call
 ```
 
 ```text
-Stage = Commercial Agreement
-→ create Commercial Agreement Call 1
+Sequence_Action_Mode = Email First
+→ send Stage Email 1 + create Stage Call 1 (due in 2 business days)
 → Sequence Status = Waiting on Call
 ```
 
@@ -144,7 +150,7 @@ When Stage changes:
 1. Supersede old sequence.
 2. Stop stale scheduled actions where possible.
 3. Reset sequence state for new Stage.
-4. Create Call 1 for the new Stage.
+4. Bootstrap new sequence (Call 1, Email 1, or Task First blocking Task depending on stage action mode).
 
 Only one active Stage sequence is allowed per Deal.
 
@@ -181,7 +187,7 @@ Commercials Status = Sent
 → Stage = Commercial Agreement
 → Opportunity = FTP
 → Commercial Agreement At = now if empty
-→ create Commercial Agreement Call 1
+→ Route sequence via sequenceRouter (runs Call First mode by default)
 ```
 
 FTP begins only after commercial terms have actually been sent.
@@ -218,16 +224,18 @@ Examples:
 
 ```text
 Demo Outcome = Attended - Qualified
-→ Stage = Demo Hosted
-→ send post-demo email
+→ Stage = Proposal Preparation
+→ send post-demo email (Demo Hosted Post-Demo Email)
 → Commercials Status = Drafting
-→ create task: Draft Commercials
+→ Route sequence via sequenceRouter (runs Task First mode by default, creating Draft Commercials Task)
 ```
 
 ```text
 Demo Outcome = No Show
-→ create recovery Call
-→ keep/return Stage to Demo Booking or Demo Confirmation depending on process
+→ supersede old sequence
+→ send recovery email (Demo Confirmation No-Show Email)
+→ set Sequence Status = Not Started, Demo_Status = No Show
+→ Route sequence via sequenceRouter (runs Call First mode by default, creating Call 1)
 ```
 
 ---

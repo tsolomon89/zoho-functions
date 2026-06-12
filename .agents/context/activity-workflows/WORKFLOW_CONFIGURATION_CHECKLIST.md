@@ -7,7 +7,7 @@ Step-by-step checklist for configuring the 10 workflow rules from
 one rule. Configure in the order shown — earlier rules are dependencies
 of later ones.
 
-Each workflow invokes a Deluge function from `v3/activity/`. Before turning
+Each workflow invokes a Deluge function from `v5/activity/`. Before turning
 any workflow on, make sure the function is published (Setup → Developer
 Hub → Functions) under the same name (`automation.<functionName>`).
 
@@ -43,7 +43,7 @@ Hub → Functions) under the same name (`automation.<functionName>`).
       - `Automation_Suppressed` != true
 - [ ] **Action:** Function → `processLead(lead_id)`
 - [ ] **Arg mapping:** `lead_id` ← `${Leads.id}`
-- [ ] **Note:** v3 already in production. New criteria gates protect imported records that haven't been marked ready.
+- [ ] **Note:** v5 already in production. New criteria gates protect imported records that haven't been marked ready.
 
 ## WF002 — Deal Sequence Router (bootstrap)
 
@@ -55,7 +55,7 @@ Hub → Functions) under the same name (`automation.<functionName>`).
       - `Automation_Suppressed` != true
 - [ ] **Action:** Function → `sequenceRouter(deal_id)`
 - [ ] **Arg mapping:** `deal_id` ← `${Deals.id}`
-- [ ] **Expected outcome:** Creates Call 1 for `Stage1`; sets Sequence_Status = Waiting on Call.
+- [ ] **Expected outcome:** Bootstraps sequence (creates Activation Task, Call 1, Email 1, or Stage Task) based on the resolved Sequence Action Mode.
 
 ## WF003 — Deal Stage Change Router (supersede + re-bootstrap)
 
@@ -122,7 +122,7 @@ WF003 watches a field that processLead always populates at create. Without `Repe
 - [ ] **Arg mapping:** `deal_id` ← `${Deals.id}`
 - [ ] **Watch:** `Sent` advances Stage to `Commercial Agreement` (Opportunity = FTP)
       and writes `Sequence_Status = Not Started`, which causes WF003 to fire
-      `sequenceRouter` and create `Commercial Agreement Call 1`. Test for the
+      `sequenceRouter` and bootstrap the Commercial Agreement sequence (e.g. Call First). Test for the
       double-fire scenario in Test 10.
 
 ## WF005 — Deal Demo Outcome Handler

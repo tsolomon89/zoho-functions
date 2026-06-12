@@ -81,8 +81,7 @@ Run the smoke test from [VERIFICATION_PLAN.md §1](VERIFICATION_PLAN.md):
 3. Watch the function log for:
    - `sequenceRouter hook (processLead): canonicalDealId=...`
    - `automation_event func=sequenceRouter ... action=bootstrap outcome=success`
-   - `automation_event func=createStageCall ... action=create outcome=success`
-4. Confirm a `Marketing Qualification Call 1` Call appears with `Sequence_Managed=Yes`, `Sequence_Stage=Marketing Qualification`, `Sequence_Attempt=1`.
+4. Confirm the correct initial activity is created depending on the resolved route (e.g., a `Sequence Activation` Task for manual/unknown sources, a `Marketing Qualification Call 1` Call for Call-First sources, or a `Marketing Qualification Email 1` if Email-First).
 
 If any step fails, check the rule's Audit Log in Zoho UI.
 

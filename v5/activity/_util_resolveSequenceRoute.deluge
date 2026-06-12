@@ -17,11 +17,11 @@ string automation.resolveSequenceRoute(string dealIdStr)
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return "Manual Review First"; }
 
-	// 1. Explicit selection
+	// 1. Existing Deal Sequence Action Mode
 	explicitMode = ifnull(deal.get("Sequence_Action_Mode"), "").toString().trim();
 	if(explicitMode != "") { return explicitMode; }
 
-	// 2. Contact classification
+	// 2. Gather classification fields
 	contactSource = "";
 	cnLookup = deal.get("Contact_Name");
 	if(!isNull(cnLookup) && !isNull(cnLookup.get("id")))
@@ -34,47 +34,58 @@ string automation.resolveSequenceRoute(string dealIdStr)
 		}
 	}
 
-	// 3. Deal Lead_Source fallback
+	accountSource = "";
+	accLookup = deal.get("Account_Name");
+	if(!isNull(accLookup) && !isNull(accLookup.get("id")))
+	{
+		accountId = accLookup.get("id").toLong();
+		account = zoho.crm.getRecordById("Accounts", accountId);
+		if(!isNull(account) && !isNull(account.get("id")))
+		{
+			accountSource = ifnull(account.get("Account_Source_Class"), "").toString().trim();
+		}
+	}
+
 	dealLeadSource = ifnull(deal.get("Lead_Source"), "").toString().trim();
 
-	// Resolve route based on Contact_Source_Class or Deal Lead_Source
-	resolvedRoute = "";
-	sourceVal = contactSource;
-	if(sourceVal == "") { sourceVal = dealLeadSource; }
-
-	if(sourceVal != "")
+	// 3. Exact matching of recognized classifications
+	sources = {contactSource, accountSource, dealLeadSource};
+	for each s in sources
 	{
-		sourceLower = sourceVal.toLowerCase();
-		if(sourceLower == "inbound form" || sourceLower.contains("inbound") || sourceLower.contains("form") || sourceLower.contains("website"))
+		if(s != "")
 		{
-			resolvedRoute = "Call First";
-		}
-		else if(sourceLower == "partner referral" || sourceLower.contains("referral") || sourceLower.contains("partner"))
-		{
-			resolvedRoute = "Call First";
-		}
-		else if(sourceLower == "linkedin prospecting" || sourceLower.contains("linkedin") || sourceLower.contains("prospecting") || sourceLower.contains("outbound") || sourceLower.contains("cold"))
-		{
-			resolvedRoute = "Email First";
-		}
-		else if(sourceLower == "calendar booking" || sourceLower.contains("booking") || sourceLower.contains("calendly") || sourceLower.contains("meeting") || sourceLower.contains("demo"))
-		{
-			resolvedRoute = "Meeting First";
-		}
-		else if(sourceLower == "existing database" || sourceLower == "migration" || sourceLower == "bulk import" || sourceLower == "manual add" || sourceLower == "existing client")
-		{
-			resolvedRoute = "Manual Review First";
-		}
-		else if(sourceLower.contains("migrate") || sourceLower.contains("import") || sourceLower.contains("bulk") || sourceLower.contains("manual") || sourceLower.contains("database"))
-		{
-			resolvedRoute = "Manual Review First";
+			sLower = s.toLowerCase();
+			if(sLower == "inbound form" || sLower == "partner referral") { return "Call First"; }
+			if(sLower == "linkedin prospecting") { return "Email First"; }
+			if(sLower == "calendar booking") { return "Meeting First"; }
+			if(sLower == "existing database" || sLower == "migration" || sLower == "bulk import" || sLower == "manual add" || sLower == "existing client") { return "Manual Review First"; }
 		}
 	}
 
-	if(resolvedRoute == "")
+	// 4. Fallback: free-text substring inference
+	for each s in sources
 	{
-		resolvedRoute = "Manual Review First";
+		if(s != "")
+		{
+			sLower = s.toLowerCase();
+			if(sLower.contains("inbound") || sLower.contains("form") || sLower.contains("website") || sLower.contains("referral") || sLower.contains("partner"))
+			{
+				return "Call First";
+			}
+			if(sLower.contains("linkedin") || sLower.contains("prospecting") || sLower.contains("outbound") || sLower.contains("cold"))
+			{
+				return "Email First";
+			}
+			if(sLower.contains("booking") || sLower.contains("calendly") || sLower.contains("meeting") || sLower.contains("demo"))
+			{
+				return "Meeting First";
+			}
+			if(sLower.contains("migrate") || sLower.contains("import") || sLower.contains("bulk") || sLower.contains("manual") || sLower.contains("database") || sLower.contains("client"))
+			{
+				return "Manual Review First";
+			}
+		}
 	}
 
-	return resolvedRoute;
+	return "Manual Review First";
 }

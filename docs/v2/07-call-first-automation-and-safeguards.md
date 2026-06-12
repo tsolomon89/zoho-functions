@@ -1,10 +1,8 @@
-# 07 — Call-First Automation and Safeguards
+# 07 — Task-Gated Sequence Routing and Safeguards
 
 ## TLDR
 > [!NOTE]
-> This document describes the **Call-First** execution path, which is one of the supported sequence modes within the larger routing model (which also supports Email First, Meeting First, Task First, and Manual Review First).
-> 
-> In the Call-First route, each Stage starts with a Call so a sales representative checks the prospect before emails or follow-up sequences continue.
+> This document describes the **Task-Gated Sequence Routing** model, which supports multiple action modes (Call First, Email First, Meeting First, Task First, and Manual Review First) depending on source classification or explicit representative override.
 
 ---
 
@@ -28,17 +26,22 @@ When a representative or event updates a field, the matching function decides th
 
 ---
 
-## Why Every Stage Starts With a Call
-A Call is the human gate and the primary control point.
+## Task-Gated Routing & Sequence Modes
+The system does not assume that every Stage starts with a Call. Instead, it determines the sequence route based on the contact/account source classification, the lead source, or an explicit override.
 
-We do not immediately drop prospects into blind email sequences the moment a record moves to a new Stage. 
+The primary control point is the **Sequence Activation Task** which gates sequences for manual, bulk-imported, migrated, or unknown-source records. The representative must select a route outcome on this task to activate the sequence.
 
-The Call Outcome tells the system what is safe to do next. It lets the representative confirm the prospect's situation before any automated follow-up is allowed to exit the CRM.
+### Supported Action Modes:
+1. **Call First**: Standard inbound route where human call check happens before emails go out.
+2. **Email First**: Standard outbound route where a sequenced email goes out immediately, followed by a Call 1 due in 2 business days.
+3. **Meeting First**: Used for booked meetings/demos, where the system pauses for the scheduled event and sends confirmation/reminders.
+4. **Task First**: Used for operational stages like `Proposal Preparation` (requires `Draft Commercials` task) or `Onboarding` (requires `Onboarding Setup` task).
+5. **Manual Review First**: Default route for ambiguous/unknown records, creating a `Sequence Activation` task.
 
 | Safeguard | Meaning |
 | :--- | :--- |
-| **Human check first** | A representative confirms the prospect is reachable and relevant before emails go out. |
-| **No blind email sequences** | Emails only follow a Call Outcome, never a random, automated field update. |
+| **Activation Task Gate** | Prevents blind email/call sequences on migrated, manual, or unknown source leads. |
+| **Human check first** | For Call-First, a representative confirms the prospect is reachable and relevant before emails go out. |
 | **Bad data catch** | Bad phone numbers or invalid emails pause the sequence and trigger cleanup tasks. |
 | **Do-not-contact handling** | Automation is completely suppressed if the prospect opts out. |
 | **Deferred handling** | Sequence automatically pauses and schedules a future resume date. |
@@ -64,7 +67,7 @@ Logging a Call Outcome is the single most important action a representative take
 
 | Call Outcome | What actually happens in the system |
 | :--- | :--- |
-| **Positive** | Moves Deal to the next Stage, which triggers the sequence router to start Call 1 there. |
+| **Positive** | Moves Deal to the next Stage, which triggers the sequence router to bootstrap the new Stage sequence based on its action mode. |
 | **Neutral** | Sends the current Stage email and creates the next Call (up to Call 5). |
 | **No Answer** | Sends the no-answer email and creates the next Call (up to Call 5). |
 | **Negative** | Marks Deal State as `Lost`, Status as `Closed`, and halts further automation. |
@@ -103,7 +106,7 @@ To keep the CRM pristine and prevent erratic behaviors, the system enforces thes
 
 ### Example 2: Representative logs "Positive" on Call 1
 * **System**: Moves the Deal to the next *Stage* (e.g., from *Marketing Qualification* to *Demo Booking*).
-* **System**: Automatically triggers the sequence router to cancel the previous Stage and create Call 1 for the new *Stage*.
+* **System**: Automatically triggers the sequence router to cancel the previous Stage and bootstrap the new Stage sequence based on its action mode.
 
 ### Example 3: Customer replies to a sequenced email
 * **System**: The outbound email replied event handler pauses the sequence immediately.
@@ -113,22 +116,22 @@ To keep the CRM pristine and prevent erratic behaviors, the system enforces thes
 * **System**: Moves the Deal's *Stage* to `Onboarding` and sets Opportunity to `RTP`.
 * **System**: Stays in the `Open` State (keeping it active for onboarding, retention, and renewal).
 * **System**: Resets sequence status to `Not Started` and sends the Commercial Agreement Confirmation Email.
-* **System**: Automatically starts Call 1 for the *Onboarding* Stage.
+* **System**: Automatically bootstraps the Onboarding Stage sequence (creating the Onboarding Setup task).
 
 ---
 
 ## What Still Needs Testing
 Before these automations are turned on at scale, the following operational scenarios must be verified in Zoho CRM:
-* **Stage Bootstrapping**: Confirming every single Stage successfully starts with Call 1.
+* **Stage Bootstrapping**: Confirming every single Stage successfully bootstraps the correct sequence action mode (e.g. Activation Task, Call 1, Email 1, or Stage Task).
 * **Positive Outcome Progression**: Verifying a Positive Call Outcome correctly moves the Deal to the target next Stage.
 * **Neutral / No Answer Routing**: Verifying a Neutral or No Answer outcome sends the correct template and schedules the next Call.
 * **Post-Call Chain**: Verifying that a Neutral outcome on Call 5 starts the 7-email post-call chain.
 * **Email Interruptions**: Testing outbound email replies and bounces to ensure the Deal pauses and the correct Review/Repair Tasks are created.
 * **Stale Call Protection**: Ensuring a rep completing an old Call on a transitioned Deal is ignored.
-* **Stage Override**: Testing manual Stage changes to verify that the old sequence is superseded and the new sequence bootstraps call-first.
+* **Stage Override**: Testing manual Stage changes to verify that the old sequence is superseded and the new sequence bootstraps.
 * **Suppression**: Confirming that suppressed Deals never trigger sequence router actions.
 * **Task Resumption**: Confirming that completing a Data Repair or Review Reply Task successfully restarts sequence routing.
-* **Commercial Status Triggers**: Verifying that setting commercials to "Sent" or "Signed" triggers the correct Stage, State, Opportunity, and Call 1.
+* **Commercial Status Triggers**: Verifying that setting commercials to "Sent" or "Signed" triggers the correct Stage, State, Opportunity, and sequence bootstrap.
 * **Lead Intake Gate**: Ensuring newly imported Leads do not enter sequences until *Ready for Conversion* is manually checked.
 
 ---
@@ -138,15 +141,15 @@ Before these automations are turned on at scale, the following operational scena
 Reviewed files:
 - `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`
 - `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`
-- `v4/activity/sequenceRouter.deluge`
-- `v4/activity/createStageCall.deluge`
-- `v4/activity/handleCallOutcome.deluge`
-- `v4/activity/handleTaskCompletion.deluge`
-- `v4/activity/handleEmailEvent.deluge`
-- `v4/activity/handleCommercialsStatusChange.deluge`
-- `v4/activity/handleDemoOutcome.deluge`
-- `v4/activity/supersedeOldSequence.deluge`
-- `v4/processLead.deluge`
-- `v4/processContact.deluge`
-- `v4/processAccount.deluge`
-- `v4/processDeal.deluge`
+- `v5/activity/sequenceRouter.deluge`
+- `v5/activity/createStageCall.deluge`
+- `v5/activity/handleCallOutcome.deluge`
+- `v5/activity/handleTaskCompletion.deluge`
+- `v5/activity/handleEmailEvent.deluge`
+- `v5/activity/handleCommercialsStatusChange.deluge`
+- `v5/activity/handleDemoOutcome.deluge`
+- `v5/activity/supersedeOldSequence.deluge`
+- `v5/processLead.deluge`
+- `v5/processContact.deluge`
+- `v5/processAccount.deluge`
+- `v5/processDeal.deluge`

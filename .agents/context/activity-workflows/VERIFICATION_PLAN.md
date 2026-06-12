@@ -29,24 +29,20 @@ if left unchecked.
 
 ## 1 — Hook smoke test (workflows still OFF)
 
-Goal: confirm the v3 → activity hook fires without workflow help.
+Goal: confirm the v5 → activity hook fires without workflow help.
 
 - [ ] Open Setup → Developer Hub → Functions → `processLead`. Run with a
       seeded Lead ID from `test_data/zoho_lead_workflow_test_upload.csv`.
 - [ ] In the Function logs, search for `sequenceRouter hook (processLead)`.
 - [ ] Then `automation_event func=sequenceRouter ... action=bootstrap outcome=success`.
-- [ ] Then `automation_event func=createStageCall ... action=create outcome=success`.
 - [ ] In the CRM, navigate to the canonical Deal that was created.
       Verify:
-      - [ ] `Sequence_Status` = `Waiting on Call`
       - [ ] `Active_Sequence_Stage` = `Marketing Qualification` (or the Stage1
             value set by processLead)
-      - [ ] `Active_Sequence_Attempt` = 1
-      - [ ] An associated Call exists with `Subject` = `Marketing Qualification Call 1`,
-            `Sequence_Managed` = true, `Sequence_Attempt` = 1, `Stale` = false.
-- [ ] Re-run `processLead` on the same Lead ID. Verify **no** duplicate
-      Call is created (the `createStageCall` duplicate-prevention search
-      returns the existing Call's ID).
+      - [ ] `Sequence_Status` and initial activity reflect the resolved `Sequence_Action_Mode`. For example:
+            - If mode is `Manual Review First` (e.g. unknown source): `Sequence_Status` = `Waiting on Internal Task` and a `Sequence Activation` Task exists (`Sequence_Managed` = Yes, `Blocks_Sequence` = Yes).
+            - If mode is `Call First`: `Sequence_Status` = `Waiting on Call`, `Active_Sequence_Attempt` = 1, and an associated Call exists (`Subject` = `Marketing Qualification Call 1`, `Sequence_Managed` = Yes).
+- [ ] Re-run `processLead` on the same Lead ID. Verify **no** duplicate activity is created.
 
 ## 2 — Field model audit
 
@@ -72,19 +68,17 @@ Order from `WORKFLOW_CONFIGURATION_CHECKLIST.md`:
 
 - [ ] **WF001** Lead Processor — on. Re-run T1 (new Lead) below.
 - [ ] **WF002** Deal Sequence Router — on. Manually create a Deal with
-      `Stage1` set, `Sequence_Status` empty; confirm Call 1 appears.
+      `Stage1` set, `Sequence_Status` empty; confirm the correct activity (Activation Task, Call, Email, or Task) appears.
 - [ ] **WF003** Stage Change Router — on. Manually change Stage1 on the
-      Deal above; confirm old Call goes `Stale`, new Call 1 created for
-      new Stage.
+      Deal above; confirm old sequence Tasks go `Deferred` (if sequence-managed and matching old stage) and Calls go `Stale`, and new stage sequence bootstraps.
 - [ ] **WF006** Call Outcome Handler — on. Set Call_Outcome = No Answer;
       confirm email sent (look at Last_Email_Template), Call 2 created.
 - [ ] **WF004** Commercials Status Handler — on. Set Commercials_Status =
       Sent; confirm Stage1 → Commercial Agreement, Opportunity → FTP,
-      Commercial Agreement Terms Email sent, Commercial Agreement Call 1 created.
+      Commercial Agreement Terms Email sent, and sequenceRouter bootstraps the Commercial Agreement sequence (e.g. Call First).
 - [ ] **WF005** Demo Outcome Handler — on. Set Demo_Outcome =
-      Attended - Qualified; confirm Stage1 → Demo Hosted,
-      Commercials_Status = Drafting, Draft Commercials task created,
-      Demo Hosted Post-Demo Email sent.
+      Attended - Qualified; confirm Stage1 → Proposal Preparation,
+      Commercials_Status = Drafting, sequenceRouter bootstraps the stage (creates Draft Commercials task), and post-demo email is sent (mapped via demo_attended_qualified to Demo Hosted Post-Demo Email).
 - [ ] **WF007** Event / Meeting Handler — on. Test via Event creation, reschedule, and cancellation (T8).
 - [ ] **WF008** Task Completion Handler — on. Test via Task completion (T9).
 - [ ] **WF009/010** — on as needed; see test cases 13, 15, 16 below for verification.
@@ -94,14 +88,14 @@ Order from `WORKFLOW_CONFIGURATION_CHECKLIST.md`:
 The numbered tests below correspond 1-to-1 with the cases in
 `TEST_CASES.md`. Run in order; each builds confidence in the next.
 
-- [ ] **T1** New Lead with complete data → graph created, Call 1, no email.
+- [ ] **T1** New Lead with complete data → graph created, initial activity matches resolved route (Activation Task, Call 1, Email 1, or Meeting wait), no email unless Email-First.
 - [ ] **T2** Existing Contact and Account, no Deal → Deal created,
-      Contact linked, Call 1, no email.
+      Contact linked, initial activity matches resolved route.
 - [ ] **T3** Existing Contact/Account/Deal → no dupes, sequence consistent.
 - [ ] **T4** Product lookup fails → graph still created;
       `Product_Resolution_Status` set; sequence does not crash.
 - [ ] **T5** Imported Deal at Commercial Agreement → Sequence initialized,
-      Commercial Agreement Call 1 only, no chase email.
+      bootstrapped sequence activity (e.g. Call 1) only, no chase email.
 - [ ] **T6** Demo Booking Call 1 = No Answer → Demo Booking Email 1 sent,
       Call 2 created, attempt incremented.
 - [ ] **T7** Demo Booking Call 1 = Positive → Stage1 = Demo Confirmation, old

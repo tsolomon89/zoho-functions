@@ -66,7 +66,6 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 			dealUpd.put("Commercials_Sent_At", now);
 		}
 		dealUpd.put("Sequence_Status", "Not Started");
-		dealUpd.put("Active_Sequence_Stage", "");
 		dealUpd.put("Active_Sequence_Attempt", 0);
 		dealUpd.put("Active_Email_Chain_Step", 0);
 		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1 via its
@@ -111,7 +110,6 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 		currStatus = ifnull(deal.get("Status"), "").toString();
 		if(currStatus != "Working") { dealUpd.put("Status", "New"); }
 		dealUpd.put("Sequence_Status", "Not Started");
-		dealUpd.put("Active_Sequence_Stage", "");
 		dealUpd.put("Active_Sequence_Attempt", 0);
 		dealUpd.put("Active_Email_Chain_Step", 0);
 		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1/Stage via its

@@ -63,11 +63,15 @@ void automation.handleMeetingEvent(string eventIdStr)
 
 	if(meetingStatus == "Cancelled")
 	{
+		automation.supersedeOldSequence(dealId.toString());
+
 		dealUpd = Map();
 		dealUpd.put("Demo_Status", "Cancelled");
 		dealUpd.put("Demo_Reminder_Send_At", null);
+		dealUpd.put("Sequence_Status", "Not Started");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.createStageCall(dealId.toString(), "Demo Confirmation", 1);
+
+		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "recovery_call", {"deal":dealId});
 		return;
 	}

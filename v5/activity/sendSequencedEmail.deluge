@@ -53,6 +53,25 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		return;
 	}
 
+	supAt = ifnull(deal.get("Sequence_Superseded_At"), "None").toString();
+	actMode = ifnull(deal.get("Sequence_Action_Mode"), "None").toString();
+	sendKey = dealIdStr + "|" + stage + "|" + supAt + "|" + actMode + "|" + templateName + "|" + attemptOrChainStep;
+
+	existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+	if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
+	{
+		for each tk in existingTasks
+		{
+			tDesc = ifnull(tk.get("Description"), "").toString();
+			tStatus = ifnull(tk.get("Status"), "").toString();
+			if(tStatus == "Completed" && tDesc.contains("SendKey: " + sendKey))
+			{
+				automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "idempotency_skip", "already_sent", {"sendKey":sendKey});
+				return;
+			}
+		}
+	}
+
 	cnLookup = deal.get("Contact_Name");
 	if(isNull(cnLookup) || isNull(cnLookup.get("id")))
 	{
@@ -96,10 +115,6 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	dataList.add(sendItem);
 	sendPayload.put("data", dataList);
 
-	// Wrap the send_mail invokeurl in try/catch so an Invalid Domain (or any other send-time
-	// failure) doesn't throw out of this function and halt the caller mid-pipeline. The
-	// downstream code below tolerates a null sendResp (sentMessageId stays empty, Deal
-	// still gets timestamp + template name for audit).
 	sendResp = null;
 	try
 	{
@@ -118,13 +133,6 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		sendResp = null;
 	}
 
-	dealUpd = Map();
-	dealUpd.put("Last_Email_Template", templateName);
-	// zoho.currenttime returns ORG-LOCAL time (Round 8 T1 confirmed). XXX appends the org
-	// TZ offset → valid ISO-8601 that Zoho re-parses to the same wall-clock. Round 5's
-	// 'Z' switch was reverted in Round 8.
-	dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
-
 	sentMessageId = "";
 	if(!isNull(sendResp) && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)
 	{
@@ -134,22 +142,41 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 			sentMessageId = firstResult.get("details").get("message_id").toString();
 		}
 	}
+
 	if(sentMessageId != "")
 	{
+		dealUpd = Map();
+		dealUpd.put("Last_Email_Template", templateName);
+		dealUpd.put("Last_Email_Sent_At", zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 		dealUpd.put("Last_Email_Message_ID", sentMessageId);
 		if(ifnull(deal.get("Seq_Thread_Message_ID"), "").toString() == "")
 		{
 			dealUpd.put("Seq_Thread_Message_ID", sentMessageId);
 		}
+		if(triggerContext == "post_call_chain")
+		{
+			dealUpd.put("Active_Email_Chain_Step", attemptOrChainStep);
+		}
+
+		triggerMap = Map();
+		triggerMap.put("trigger", List());
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+
+		tkMap = Map();
+		tkMap.put("Subject", "Email Sent: " + templateName);
+		tkMap.put("Status", "Completed");
+		tkMap.put("What_Id", dealId);
+		tkMap.put("$se_module", "Deals");
+		tkMap.put("Sequence_Managed", "Yes");
+		tkMap.put("Description", "SendKey: " + sendKey);
+		ownerLookup = deal.get("Owner");
+		if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { tkMap.put("Owner", ownerLookup.get("id").toString()); }
+		zoho.crm.createRecord("Tasks", tkMap);
+
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "complete", {"template":templateName, "to":contactEmail, "message_id":sentMessageId, "resp":sendResp, "sendKey":sendKey});
 	}
-	if(triggerContext == "post_call_chain")
+	else
 	{
-		dealUpd.put("Active_Email_Chain_Step", attemptOrChainStep);
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "failed", {"template":templateName, "to":contactEmail, "resp":sendResp});
 	}
-
-	triggerMap = Map();
-	triggerMap.put("trigger", List());
-	zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-
-	automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "complete", {"template":templateName, "to":contactEmail, "message_id":sentMessageId, "resp":sendResp});
 }

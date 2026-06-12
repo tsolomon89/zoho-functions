@@ -62,16 +62,6 @@ void automation.handleDemoOutcome(string dealIdStr)
 		automation.sequenceRouter(dealId.toString());
 		automation.sendSequencedEmail(dealId.toString(), "Proposal Preparation", 1, "demo_attended_qualified");
 
-		draftTask = Map();
-		draftTask.put("Subject", "Draft Commercials for Deal " + dealId);
-		draftTask.put("Status", "Not Started");
-		draftTask.put("What_Id", dealId);
-		draftTask.put("$se_module", "Deals");
-		draftTask.put("Sequence_Managed", "Yes");
-		draftTask.put("Task_Type", "Draft Commercials");
-		draftTask.put("Blocks_Sequence", "No");
-		zoho.crm.createRecord("Tasks", draftTask);
-
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "attended_qualified", "drafting_commercials", {"prev_stage":currentStage});
 		return;
 	}
@@ -82,8 +72,9 @@ void automation.handleDemoOutcome(string dealIdStr)
 		dealUpd.put("Stage1", "Demo Hosted");
 		dealUpd.put("Stage", "SQL");
 		dealUpd.put("Demo_Status", "Completed");
+		dealUpd.put("Sequence_Status", "Not Started");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.createStageCall(dealId.toString(), "Demo Hosted", 1);
+		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "needs_follow_up", "demo_hosted_call_1", null);
 		return;
 	}
@@ -107,15 +98,15 @@ void automation.handleDemoOutcome(string dealIdStr)
 
 	if(demoOutcome == "No Show")
 	{
-		dealUpd = Map();
-		dealUpd.put("Demo_Status", "No Show");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-
+		automation.supersedeOldSequence(dealId.toString());
 		automation.sendSequencedEmail(dealId.toString(), "Demo Confirmation", 1, "demo_no_show");
 		
-		// Re-create the Demo Confirmation call for attempt 1
-		automation.createStageCall(dealId.toString(), "Demo Confirmation", 1);
+		dealUpd = Map();
+		dealUpd.put("Demo_Status", "No Show");
+		dealUpd.put("Sequence_Status", "Not Started");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 
+		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "no_show", "recovery_started", null);
 		return;
 	}
@@ -135,7 +126,9 @@ void automation.handleDemoOutcome(string dealIdStr)
 		dealUpd.put("Stage1", "Demo Booking");
 		dealUpd.put("Stage", "SQL");
 		dealUpd.put("Demo_Status", "Cancelled");
+		dealUpd.put("Sequence_Status", "Not Started");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "cancelled", "back_to_demo_booking", null);
 		return;
 	}
@@ -143,19 +136,13 @@ void automation.handleDemoOutcome(string dealIdStr)
 	if(demoOutcome == "Commercials Requested")
 	{
 		dealUpd = Map();
+		dealUpd.put("Stage1", "Proposal Preparation");
+		dealUpd.put("Stage", "FTP");
 		dealUpd.put("Commercials_Status", "Drafting");
+		dealUpd.put("Demo_Status", "Completed");
+		dealUpd.put("Sequence_Status", "Not Started");
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-
-		draftTask = Map();
-		draftTask.put("Subject", "Draft Commercials for Deal " + dealId);
-		draftTask.put("Status", "Not Started");
-		draftTask.put("What_Id", dealId);
-		draftTask.put("$se_module", "Deals");
-		draftTask.put("Sequence_Managed", "Yes");
-		draftTask.put("Task_Type", "Draft Commercials");
-		draftTask.put("Blocks_Sequence", "No");
-		zoho.crm.createRecord("Tasks", draftTask);
-
+		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "commercials_requested", "drafting_task_created", null);
 		return;
 	}

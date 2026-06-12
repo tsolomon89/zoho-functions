@@ -279,19 +279,32 @@ if Stage is empty:
     create manual review task
     return
 
+if Stage changed from Active Sequence Stage:
+    supersedeOldSequence(deal_id)
+    resolve and reset default mode based on Stage (Task First for Proposal Preparation/Onboarding; Call First for others)
+    clear paused status and set Sequence Status = Not Started
+
 if Sequence Status in Paused/Manual Only/Suppressed:
     do nothing unless resume date reached
 
-if Stage changed from Active Sequence Stage:
-    supersedeOldSequence(deal_id)
-
 if Sequence Status is empty or Not Started:
-    createStageCall(deal_id, Stage, 1)
+    resolve proposed sequence action mode (resolveSequenceRoute)
+    if resolved mode is Manual Review First:
+        create/reuse Sequence Activation Task, set Sequence Status = Waiting on Internal Task
+    if resolved mode is Call First:
+        create Call 1, set Sequence Status = Waiting on Call
+    if resolved mode is Email First:
+        send Email 1, create Call 1 (due in 2 business days), set Sequence Status = Waiting on Call
+    if resolved mode is Meeting First:
+        set Sequence Status = Waiting on Meeting
+    if resolved mode is Task First:
+        create/reuse stage-specific task, set Sequence Status = Waiting on Internal Task
 ```
 
 ## Key rule
 
-Every Stage starts with Call 1.
+Sequence activation and routing are task-gated. A stage start creates Call 1, Email 1, a Meeting wait, or a blocking Task depending on the resolved sequence action mode.
+
 
 ---
 

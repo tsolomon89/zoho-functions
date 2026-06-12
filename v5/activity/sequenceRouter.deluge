@@ -76,19 +76,6 @@ void automation.sequenceRouter(string dealIdStr)
 
 	sequenceStatus = ifnull(deal.get("Sequence_Status"), "").toString();
 	activeStage    = ifnull(deal.get("Active_Sequence_Stage"), "").toString();
-	pausedUntil    = deal.get("Sequence_Paused_Until");
-	now            = zoho.currenttime;
-
-	pausedStates = {"Paused", "Manual Only", "Suppressed", "Deferred"};
-	if(pausedStates.contains(sequenceStatus))
-	{
-		if(isNull(pausedUntil) || pausedUntil > now)
-		{
-			automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "skip_paused", {"sequence_status":sequenceStatus, "paused_until":ifnull(pausedUntil, "").toString()});
-			return;
-		}
-		info "sequenceRouter: resume after pause; pausedUntil=" + pausedUntil + " now=" + now;
-	}
 
 	stageChanged = (activeStage != "" && activeStage != stage);
 	if(stageChanged)
@@ -104,6 +91,7 @@ void automation.sequenceRouter(string dealIdStr)
 		updStage = Map();
 		updStage.put("Sequence_Action_Mode", newDefaultMode);
 		updStage.put("Sequence_Status", "Not Started");
+		updStage.put("Sequence_Paused_Until", null);
 
 		triggerMapStage = Map();
 		triggerMapStage.put("trigger", List());
@@ -112,6 +100,20 @@ void automation.sequenceRouter(string dealIdStr)
 		deal = zoho.crm.getRecordById("Deals", dealId);
 		sequenceStatus = "Not Started";
 		activeStage = stage;
+	}
+
+	pausedUntil    = deal.get("Sequence_Paused_Until");
+	now            = zoho.currenttime;
+
+	pausedStates = {"Paused", "Manual Only", "Suppressed", "Deferred"};
+	if(pausedStates.contains(sequenceStatus))
+	{
+		if(isNull(pausedUntil) || pausedUntil > now)
+		{
+			automation.logAutomationEvent("sequenceRouter", "Deals", dealId.toString(), "guard", "skip_paused", {"sequence_status":sequenceStatus, "paused_until":ifnull(pausedUntil, "").toString()});
+			return;
+		}
+		info "sequenceRouter: resume after pause; pausedUntil=" + pausedUntil + " now=" + now;
 	}
 
 	// Post-call chain branch: when handleCallOutcome started the 7-email
@@ -145,7 +147,7 @@ void automation.sequenceRouter(string dealIdStr)
 		}
 	}
 
-	bootstrapStates = {"", "Not Started", "Initialized", "Superseded", "Completed", "Deferred"};
+	bootstrapStates = {"", "Not Started", "Initialized", "Superseded", "Deferred"};
 	needsBootstrap = stageChanged || bootstrapStates.contains(sequenceStatus);
 
 	if(needsBootstrap)

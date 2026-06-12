@@ -23,3 +23,5 @@ Tag,Tag,Single Line,
 Task Outcome,Task_Outcome,Pick List,Yes
 Task Owner,Owner,Ownerlookup,
 Task Type,Task_Type,Pick List,Yes
+Sequence Managed,Sequence_Managed,Pick List,Yes
+Sequence Stage,Sequence_Stage,Pick List,Yes

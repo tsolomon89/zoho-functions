@@ -5,9 +5,9 @@ The system is built on a **relative workflow calendar**.
 
 Unlike a rigid date calendar, this timeline is dynamic. It moves based on when a sales representative completes an activity, when a customer reacts, or when key commercial events occur.
 
-Every Stage in the customer lifecycle begins with **Call 1**.
+Every Stage in the customer lifecycle begins with a sequence bootstrap action matching the Stage's Action Mode (e.g. Call First, Email First, Meeting First, Task First, or Manual Review First).
 
-The system pauses and waits for the representative to log a **Call Outcome**. That outcome is the gatekeeper. It determines whether the system:
+For Call First sequences, the system pauses and waits for the representative to log a **Call Outcome** to determine downstream actions:
 * Sends an automated follow-up email.
 * Schedules the next Call in the sequence.
 * Advances the Deal to the next Stage in the pipeline.
@@ -32,7 +32,7 @@ Understanding the timing and triggers is simple when using these core concepts:
 ---
 
 ## Main Stage Sequence Calendar
-When a Deal enters any Stage, the default sequence progresses as follows. 
+When a Deal enters a Stage configured as **Call First** (or resolves to it), the sequence progresses as follows. 
 
 *Note: Automated emails and next Calls are never sent blindly on fixed dates. They are chained directly to when the representative logs a Neutral or No Answer outcome on the current Call.*
 
@@ -72,7 +72,7 @@ When a representative logs a *Call Outcome* on a sequence-managed Call, the syst
 
 | Representative Logs | System Actions | Next Scheduled Step | Sequence Status |
 | :--- | :--- | :--- | :--- |
-| **Positive** | Advances the Deal to the next Stage in the pipeline. | The new Stage sequence bootstraps with Call 1 due immediately. | `Waiting on Call` (New Stage) |
+| **Positive** | Advances the Deal to the next Stage in the pipeline. | The new Stage sequence bootstraps based on its action mode. | `Waiting on Call` or `Waiting on Internal Task` (New Stage) |
 | **Neutral** | Sends Stage Email N (matching the current attempt). | Schedules next Call (Call N+1) due in +2 business days (if N < 5). | `Waiting on Call` |
 | **No Answer** | Sends Stage Email N (matching the current attempt). | Schedules next Call (Call N+1) due in +2 business days (if N < 5). | `Waiting on Call` |
 | **Neutral / No Answer (Call 5)** | Sends Stage Email 5. | Schedules Post-Call Chase Chain Step 1 in +2 business days. | `Waiting on Email Trigger` |
@@ -172,9 +172,9 @@ When a representative completes a manual Task, the sequence is automatically eva
 | Completed Task Type | When Representative Completes It | System Action |
 | :--- | :--- | :--- |
 | **Data Repair** | Mark Task as Completed | Lifts the pause state. Sets sequence to `Not Started` and resumes routing. |
-| **Enrichment** | Mark Task as Completed | Resumes sequence routing. |
+| **Enrichment** | Mark Task as Completed | Re-resolves proposed route with Call-First fallback, sets Sequence_Status to `Not Started` and resumes routing. |
 | **Review Reply** | Mark Task as Completed | Resumes sequence routing. |
-| **Onboarding Setup** | Mark Task as Completed | Resumes sequence routing. |
+| **Onboarding Setup** | Mark Task as Completed | Sets sequence status to `Completed` (terminating next-action loops). |
 | **Send Commercials** | Mark Task as Completed | Automatically bumps Deal *Commercials_Status* to `Sent` (triggering commercial terms). |
 | **Draft Commercials**| Mark Task as Completed | Logged. No auto-advance. Rep must explicitly send the terms. |
 | **Manual Review** | Mark Task as Completed | Logged. |
@@ -185,7 +185,7 @@ When a representative completes a manual Task, the sequence is automatically eva
 ## Full Example Timeline
 This relative timeline demonstrates a scenario where a prospect goes through the entire Stage sequence and Post-Call Chase without answering:
 
-* **Step 1 (Day 0)**: Deal moves to `Demo Booking`. System immediately creates **Demo Booking Call 1**.
+* **Step 1 (Day 0)**: Deal moves to `Demo Booking`. If sequence mode resolves to Call First, the system immediately creates **Demo Booking Call 1** (or a Sequence Activation Task if it resolved to Manual Review First).
 * **Step 2 (Day 1)**: Rep dials, gets no answer, and logs Call Outcome = **No Answer**. System immediately sends **Demo Booking Email 1** and schedules **Demo Booking Call 2** for 2 business days out.
 * **Step 3 (Day 3)**: **Demo Booking Call 2** becomes due. Rep dials, gets no answer, and logs Call Outcome = **No Answer**. System sends **Demo Booking Email 2** and schedules **Demo Booking Call 3** for 2 business days out.
 * **Step 4 (Day 5)**: **Demo Booking Call 3** becomes due. Rep logs **No Answer**. System sends **Demo Booking Email 3** and schedules **Demo Booking Call 4**.
@@ -204,7 +204,7 @@ This relative timeline demonstrates a scenario where a prospect goes through the
 
 ## What Still Needs Testing
 The relative calendar logic must be validated against the following tests to ensure complete precision:
-* **Stage Bootstrapping**: Confirming that all Stage changes immediately queue Call 1.
+* **Stage Bootstrapping**: Confirming that all Stage changes bootstrap the correct action mode.
 * **Call Due-Date Offsets**: Verifying that Call 2–5 and initial chase-chain start offsets skip weekends (using business days).
 * **Call-Email Matching**: Ensuring Call N outcomes send the exact template `{Stage} Email N`.
 * **Chase Chain Hand-off**: Verifying that Call 5 outcomes correctly transition to the chase chain.
@@ -222,14 +222,14 @@ Reviewed files:
 - `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`
 - `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`
 - `.agents/context/activity-workflows/TEMPLATE_NAMING_MATRIX.md`
-- `v4/activity/sequenceRouter.deluge`
-- `v4/activity/createStageCall.deluge`
-- `v4/activity/handleCallOutcome.deluge`
-- `v4/activity/handleTaskCompletion.deluge`
-- `v4/activity/handleMeetingEvent.deluge`
-- `v4/activity/handleDemoOutcome.deluge`
-- `v4/activity/handleCommercialsStatusChange.deluge`
-- `v4/activity/handleEmailEvent.deluge`
-- `v4/activity/sendSequencedEmail.deluge`
-- `v4/activity/_util_resolveTemplate.deluge`
-- `v4/activity/_util_calculateBusinessDate.deluge`
+- `v5/activity/sequenceRouter.deluge`
+- `v5/activity/createStageCall.deluge`
+- `v5/activity/handleCallOutcome.deluge`
+- `v5/activity/handleTaskCompletion.deluge`
+- `v5/activity/handleMeetingEvent.deluge`
+- `v5/activity/handleDemoOutcome.deluge`
+- `v5/activity/handleCommercialsStatusChange.deluge`
+- `v5/activity/handleEmailEvent.deluge`
+- `v5/activity/sendSequencedEmail.deluge`
+- `v5/activity/_util_resolveTemplate.deluge`
+- `v5/activity/_util_calculateBusinessDate.deluge`

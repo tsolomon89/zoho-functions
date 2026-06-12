@@ -39,28 +39,42 @@ void automation.handleTaskCompletion(string taskIdStr)
 	tType = ifnull(task.get("Task_Type"), "").toString();
 	whatLookup = task.get("What_Id");
 	seModule   = ifnull(task.get("$se_module"), "").toString();
-	if(seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
+	tSeqManaged = ifnull(task.get("Sequence_Managed"), "No").toString();
+
+	if(tSeqManaged != "Yes" || seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")) || tType == "")
 	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"se_module":seModule, "task_type":tType});
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"se_module":seModule, "task_type":tType, "sequence_managed":tSeqManaged});
 		return;
 	}
 
 	tStatus  = ifnull(task.get("Status"), "").toString();
 	tOutcome = ifnull(task.get("Task_Outcome"), "").toString();
+
+	if(tStatus == "Deferred")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_deferred", {"status":tStatus});
+		return;
+	}
+
 	if(tStatus != "Completed" && tOutcome == "")
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_complete", {"status":tStatus, "outcome":tOutcome});
 		return;
 	}
 
-	tType = ifnull(task.get("Task_Type"), "").toString();
-	whatLookup = task.get("What_Id");
-	seModule   = ifnull(task.get("$se_module"), "").toString();
-	dealId = 0;
-	if(!isNull(whatLookup) && !isNull(whatLookup.get("id")) && seModule == "Deals") { dealId = whatLookup.get("id").toLong(); }
-	if(dealId == 0)
+	dealId = whatLookup.get("id").toLong();
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id")))
 	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "deal_not_found", {"deal":dealId});
+		return;
+	}
+
+	dealStage = ifnull(deal.get("Stage1"), "").toString();
+	taskStage = ifnull(task.get("Sequence_Stage"), "").toString();
+	if(taskStage != "" && taskStage != dealStage)
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_stale_stage", {"task_stage":taskStage, "deal_stage":dealStage});
 		return;
 	}
 
@@ -240,7 +254,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		return;
 	}
 
-	if(tType == "Data Repair" || tType == "Enrichment" || tType == "Onboarding Setup" || tType == "Review Reply")
+	if(tType == "Data Repair" || tType == "Review Reply")
 	{
 		dealUpd = Map();
 		dealUpd.put("Sequence_Status", "Not Started");
@@ -248,6 +262,34 @@ void automation.handleTaskCompletion(string taskIdStr)
 		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
 		automation.sequenceRouter(dealId.toString());
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "resumed_router", {"deal":dealId, "type":tType});
+		return;
+	}
+
+	if(tType == "Enrichment")
+	{
+		resolvedMode = automation.resolveSequenceRoute(dealId.toString());
+		if(resolvedMode == "Task First" || resolvedMode == "Manual Review First")
+		{
+			resolvedMode = "Call First";
+		}
+		dealUpd = Map();
+		dealUpd.put("Sequence_Action_Mode", resolvedMode);
+		dealUpd.put("Sequence_Status", "Not Started");
+		dealUpd.put("Sequence_Paused_Until", null);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.sequenceRouter(dealId.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "enrichment_completed", {"deal":dealId, "next_mode":resolvedMode});
+		return;
+	}
+
+	if(tType == "Onboarding Setup")
+	{
+		dealUpd = Map();
+		dealUpd.put("Sequence_Status", "Completed");
+		dealUpd.put("Next_Action_Type", null);
+		dealUpd.put("Next_Action_Due_Date", null);
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "onboarding_setup_completed", {"deal":dealId});
 		return;
 	}
 
