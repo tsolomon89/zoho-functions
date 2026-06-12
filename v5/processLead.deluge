@@ -1267,27 +1267,17 @@ void automation.processLead(string lead_id)
 			triggerMapMode = Map();
 			triggerMapMode.put("trigger", List());
 			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), updMode, triggerMapMode);
+			currSeqStatus = "Not Started";
 		}
 		
-		createdTimeStr = ifnull(latestDeal.get("Created_Time"), "").toString();
-		isNewDeal = false;
-		if(createdTimeStr != "")
-		{
-			createdTime = createdTimeStr.toDateTime();
-			if(zoho.currenttime.toLong() - createdTime.toLong() < 120000)
-			{
-				isNewDeal = true;
-			}
-		}
-		
-		if(!isNewDeal)
+		if(currSeqStatus != "" && currSeqStatus != "Not Started")
 		{
 			info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
 			automation.sequenceRouter(canonicalDealId);
 		}
 		else
 		{
-			info "sequenceRouter hook (processLead): skipped for newly created Deal=" + canonicalDealId + " (handled by processDeal)";
+			info "sequenceRouter hook (processLead): skipped for unbootstrapped/new Deal=" + canonicalDealId + " (handled by processDeal)";
 		}
 	}
 
