@@ -133,6 +133,26 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	sendPayload = Map();
 	dataList = List();
 	sendItem = Map();
+	fromMap = Map();
+	ownerEmail = "";
+	ownerName = "";
+	if(!isNull(ownerLookup))
+	{
+		ownerEmail = ifnull(ownerLookup.get("email"), "").toString();
+		ownerName = ifnull(ownerLookup.get("name"), "").toString();
+	}
+	if(ownerEmail == "")
+	{
+		ownerEmail = "timothy@jurnii.io";
+		ownerName = "Timothy Solomon";
+	}
+	fromMap.put("email", ownerEmail);
+	if(ownerName != "")
+	{
+		fromMap.put("user_name", ownerName);
+	}
+	sendItem.put("from", fromMap);
+
 	toList = List();
 	toEntry = Map();
 	toEntry.put("email", contactEmail);
