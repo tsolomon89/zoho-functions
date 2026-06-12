@@ -21,6 +21,8 @@ void automation.handleDemoOutcome(string dealIdStr)
 	//   Follow-up Required        → createStageCall Demo Hosted attempt 1.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("handleDemoOutcome", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);

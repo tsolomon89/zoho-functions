@@ -33,6 +33,8 @@ void automation.sequenceRouter(string dealIdStr)
 	// All Deal updates pass an empty triggerMap to avoid re-firing WF002/WF003.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("sequenceRouter", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
@@ -263,12 +265,7 @@ void automation.sequenceRouter(string dealIdStr)
 		}
 		else if(mode == "Email First")
 		{
-			lastEmail = ifnull(deal.get("Last_Email_Template"), "").toString();
-			email1Name = stage + " Email 1";
-			if(lastEmail != email1Name)
-			{
-				automation.sendSequencedEmail(dealId.toString(), stage, 1, "email_first_bootstrap");
-			}
+			automation.sendSequencedEmail(dealId.toString(), stage, 1, "email_first_bootstrap");
 
 			callId = automation.createStageCall(dealId.toString(), stage, 1);
 

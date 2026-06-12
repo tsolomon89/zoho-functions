@@ -23,6 +23,8 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	//   Active_Email_Chain_Step (only when triggerContext = post_call_chain).
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("sendSequencedEmail", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", {"stage":stage, "step":attemptOrChainStep, "ctx":triggerContext});
@@ -143,7 +145,7 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	{
 		sendResp = invokeurl
 		[
-			url    : "https://www.zohoapis.com/crm/v3/Contacts/" + contactId + "/actions/send_mail"
+			url    : "https://www.zohoapis.eu/crm/v3/Contacts/" + contactId + "/actions/send_mail"
 			type   : POST
 			parameters : sendPayload.toString()
 			headers : {"Content-Type":"application/json"}

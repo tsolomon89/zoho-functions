@@ -10,6 +10,8 @@ string automation.resolveSequenceRoute(string dealIdStr)
 	//   4. Fallback to "Manual Review First"
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0) { return "Manual Review First"; }
@@ -27,9 +29,15 @@ string automation.resolveSequenceRoute(string dealIdStr)
 		return "Task First";
 	}
 
+	// If it is a Stage transition for an already-activated Deal, default to Call First.
+	if(stageChanged)
+	{
+		return "Call First";
+	}
+
 	// 1. Existing Deal Sequence Action Mode (only if stage has not changed)
 	explicitMode = ifnull(deal.get("Sequence_Action_Mode"), "").toString().trim();
-	if(!stageChanged && explicitMode != "") { return explicitMode; }
+	if(explicitMode != "") { return explicitMode; }
 
 	// 2. Gather classification fields
 	contactSource = "";

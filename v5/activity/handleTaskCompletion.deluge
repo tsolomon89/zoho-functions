@@ -19,6 +19,8 @@ void automation.handleTaskCompletion(string taskIdStr)
 	//   Enrichment / Onboarding Setup / Review Reply → resume sequenceRouter.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	taskId = 0;
 	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }
 	automation.logAutomationEvent("handleTaskCompletion", "Tasks", ifnull(taskId, "").toString(), "entry", "in_progress", null);

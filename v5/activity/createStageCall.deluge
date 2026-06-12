@@ -21,6 +21,8 @@ string automation.createStageCall(string dealIdStr, string stage, int attempt)
 	// Returns the Call ID (existing or new) or "" on failure.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0 || isNull(stage) || stage == "")

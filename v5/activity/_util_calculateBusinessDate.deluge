@@ -15,6 +15,8 @@ string automation.calculateBusinessDate(date startDate, int offset, string calcM
 	// offset may be negative (e.g., -1 for "one business day before").
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	if(isNull(startDate))
 	{
 		startDate = zoho.currentdate;

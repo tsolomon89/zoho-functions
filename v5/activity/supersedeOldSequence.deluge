@@ -20,6 +20,8 @@ void automation.supersedeOldSequence(string dealIdStr)
 	// All writes use empty triggerMap so cascading workflows don't fire.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0) { return; }

@@ -24,6 +24,8 @@ void automation.handleCallOutcome(string callIdStr)
 	// Sequence_Status=Waiting on Email Trigger, scheduled via Next_Action_Due_Date).
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	callId = 0;
 	if(!isNull(callIdStr) && callIdStr != "") { callId = callIdStr.toLong(); }
 	automation.logAutomationEvent("handleCallOutcome", "Calls", ifnull(callId, "").toString(), "entry", "in_progress", null);

@@ -1527,7 +1527,11 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 ## Round 14 — 2026-06-12 18:40
 
 **Environment:** Sandbox / Production (v5 Deluge files running live on Zoho CRM)
-**Status:** PASS (100% E2E Verification)
+**Status:** PARTIAL PASS — V5 activation-routing smoke test
+
+> [!WARNING]
+> **Reconciliation Note:**
+> This was a partial run of 4 scenarios. It did not cover the full Lead-ingestion graph, email delivery validation, or Event/Meeting lifecycles.
 
 ### Test Run Log & Evidence
 
@@ -1566,7 +1570,14 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 ## Round 15 — 2026-06-12 19:12
 
 **Environment:** Sandbox / Production (v5 Deluge files with concurrency, schema, and reuse fixes)
-**Status:** PASS (100% E2E Verification)
+**Status:** PARTIAL PASS — V5 activation-routing smoke test
+
+> [!WARNING]
+> **Reconciliation Note:**
+> This was a partial run of 5 scenarios.
+> - **Failed Email Delivery**: Email 1 failed to send and its marker task status was set to `Cancelled`.
+> - **Discrepant Stage-Transition Routing**: Stage transition to `Demo Booking` on a Migration source Deal incorrectly evaluated the source-based activation gate again and returned `Manual Review First`, creating a new activation task. This contradicts the committed V5 source expectation.
+> - **Missing Modules**: Did not cover the full Lead-ingestion graph or Event/Meeting lifecycles.
 
 ### Test Run Log & Evidence
 

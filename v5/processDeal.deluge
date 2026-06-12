@@ -21,8 +21,7 @@ void automation.processDeal(string deal_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-
-	info "VERSION: v3.processDeal.spec-aligned";
+	info "VERSION: v5-round16-3644727";
 
 	if(deal_id == null || deal_id == "") { return; }
 	cleanId = deal_id.replaceAll("zcrm_", "").trim();

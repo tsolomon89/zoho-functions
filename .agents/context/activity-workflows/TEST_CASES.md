@@ -764,7 +764,7 @@ Lead_Source = "Migration" (or empty)
 
 - Deal Sequence Status = "Manual Only"
 - Sequence action type is cleared
-- Next Action Type = null
+- Next Action Type = "Manual Review"
 - No Call 1 is created, no email sent
 
 ---
@@ -828,6 +828,6 @@ Lead_Source = "Migration" (or empty)
 ## Expected
 
 - Deal Sequence Status = "Paused"
-- Next Action Type = "Task"
+- Next Action Type = "Manual Review"
 - A correction "Manual Review" Task is created (Subject = "Sequence Stage Correction: Deal...")
 - The new task blocks sequence (Blocks_Sequence = Yes)

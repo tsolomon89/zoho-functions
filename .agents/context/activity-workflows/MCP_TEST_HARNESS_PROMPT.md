@@ -865,7 +865,7 @@ Wait 30s.
 - `v5/activity/handleMeetingEvent.deluge`
 - WF007 configuration and argument bindings in Zoho.
 
-### T26 — Unknown / Imported source triggers Manual Review First (Activation Gate)
+### T28 — Unknown / Imported source triggers Manual Review First (Activation Gate)
 
 **What this tests:** When a Deal is created with an unresolved source (e.g., Migration or empty), the route resolver returns `Manual Review First`, creating a Sequence Activation task and setting status to `Waiting on Internal Task` without scheduling any calls or sending emails.
 
@@ -898,13 +898,13 @@ Wait 30s.
 - `v5/activity/sequenceRouter.deluge` — bootstrap branch for `Manual Review First` route.
 - `v5/activity/_util_resolveSequenceRoute.deluge` — source classification checks.
 
-### T27 — Sequence Activation outcome: Activate Call First
+### T29 — Sequence Activation outcome: Activate Call First
 
-**Depends on T26's Deal and activation Task.**
+**Depends on T28's Deal and activation Task.**
 
-**Action:** Update the activation Task from T26:
+**Action:** Update the activation Task from T28:
 ```
-Call_Outcome = "Activate Call First"
+Task_Outcome = "Activate Call First"
 Status = "Completed"
 ```
 Wait 30s.
@@ -923,13 +923,13 @@ Wait 30s.
 - `v5/activity/handleTaskCompletion.deluge` — `Activate Call First` logic.
 - `v5/activity/sequenceRouter.deluge` — Call-First bootstrap branch.
 
-### T28 — Sequence Activation outcome: Activate Email First
+### T30 — Sequence Activation outcome: Activate Email First
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T28` with `Lead_Source = "Migration"`, wait 30s for the activation Task to appear.
 
 **Action:** Update that activation Task:
 ```
-Call_Outcome = "Activate Email First"
+Task_Outcome = "Activate Email First"
 Status = "Completed"
 ```
 Wait 30s.
@@ -951,11 +951,11 @@ Wait 30s.
 - `v5/activity/sendSequencedEmail.deluge` — template send and marker task.
 - `v5/activity/createStageCall.deluge` — attempt 1 business date offset calculation.
 
-### T29 — Email-First Progression: No Answer Call Outcome
+### T31 — Email-First Progression: No Answer Call Outcome
 
-**Depends on T28's Deal and Call 1.**
+**Depends on T30's Deal and Call 1.**
 
-**Action:** Update Call 1 from T28:
+**Action:** Update Call 1 from T30:
 ```
 Call_Outcome = "No Answer"
 ```
@@ -970,13 +970,13 @@ Wait 30s.
 **On failure:**
 - `v5/activity/handleCallOutcome.deluge` — `Email First` attempt progression logic.
 
-### T30 — Sequence Activation outcome: Manual Only
+### T32 — Sequence Activation outcome: Manual Only
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T30` with `Lead_Source = "Migration"`, wait 30s.
 
 **Action:** Update the activation Task:
 ```
-Call_Outcome = "Manual Only"
+Task_Outcome = "Manual Only"
 Status = "Completed"
 ```
 Wait 30s.
@@ -989,13 +989,13 @@ Wait 30s.
 **On failure:**
 - `v5/activity/handleTaskCompletion.deluge` — `Manual Only` branch.
 
-### T31 — Sequence Activation outcome: Suppress
+### T33 — Sequence Activation outcome: Suppress
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T31` with `Lead_Source = "Migration"`, wait 30s.
 
 **Action:** Update the activation Task:
 ```
-Call_Outcome = "Suppress"
+Task_Outcome = "Suppress"
 Status = "Completed"
 ```
 Wait 30s.
@@ -1009,13 +1009,13 @@ Wait 30s.
 **On failure:**
 - `v5/activity/handleTaskCompletion.deluge` — `Suppress` branch.
 
-### T32 — Sequence Activation outcome: Already Handled
+### T34 — Sequence Activation outcome: Already Handled
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T32` with `Lead_Source = "Migration"`, wait 30s.
 
 **Action:** Update the activation Task:
 ```
-Call_Outcome = "Already Handled"
+Task_Outcome = "Already Handled"
 Status = "Completed"
 ```
 Wait 30s.
@@ -1028,13 +1028,13 @@ Wait 30s.
 **On failure:**
 - `v5/activity/handleTaskCompletion.deluge` — `Already Handled` branch.
 
-### T33 — Sequence Activation outcome: Stage Incorrect
+### T35 — Sequence Activation outcome: Stage Incorrect
 
 **Setup:** Create a fresh Deal `<sessionPrefix>_T33` with `Lead_Source = "Migration"`, wait 30s.
 
 **Action:** Update the activation Task:
 ```
-Call_Outcome = "Stage Incorrect"
+Task_Outcome = "Stage Incorrect"
 Status = "Completed"
 ```
 Wait 30s.

@@ -20,6 +20,8 @@ void automation.handleMeetingEvent(string eventIdStr)
 	//                                    recompute Demo_Reminder_Send_At.
 	// =========================================================================
 
+	info "VERSION: v5-round16-3644727";
+
 	eventId = 0;
 	if(!isNull(eventIdStr) && eventIdStr != "") { eventId = eventIdStr.toLong(); }
 	automation.logAutomationEvent("handleMeetingEvent", "Events", ifnull(eventId, "").toString(), "entry", "in_progress", null);
