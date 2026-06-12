@@ -1562,3 +1562,48 @@ Cleanup of Round 10c records: 4 Calls, 2 Deals, 2 Accounts, 2 Leads — all dele
 
 ### Round 14 scorecard
 **4 PASS, 0 FAIL, 0 BLOCKED.**
+
+## Round 15 — 2026-06-12 19:12
+
+**Environment:** Sandbox / Production (v5 Deluge files with concurrency, schema, and reuse fixes)
+**Status:** PASS (100% E2E Verification)
+
+### Test Run Log & Evidence
+
+#### 1. Imported Record Gate (T26 — Manual Review First Route)
+- **Status:** PASS
+- **Action taken:** Created test Deal `991103000001075041` with `Lead_Source = "Migration"`.
+- **Observed:** The automation successfully resolved the sequence route to `"Manual Review First"`, set the Deal's `Sequence_Status` to `"Waiting on Internal Task"`, and created a pending `"Sequence Activation"` Task (ID `991103000001111016`) blocking the sequence.
+- **Expected:** Deal held at the activation gate with a Sequence Activation task and no customer-facing calls created.
+
+#### 2. Call-First Activation Pathway (T27)
+- **Status:** PASS
+- **Action taken:** Completed Sequence Activation Task `991103000001111016` with `Task_Outcome = "Activate Call First"` and `Status = "Completed"`.
+- **Observed:** The Deal successfully transitioned to `Sequence_Status = "Waiting on Call"`, set mode to `"Call First"`, and created `"Marketing Qualification Call 1"` (ID `991103000001100012`).
+- **Expected:** Sequence Activation Task is completed, and sequence router bootstraps Call-First route scheduling Call 1.
+
+#### 3. Email-First Activation Pathway (T28 / T30)
+- **Status:** PASS
+- **Action taken:** Created a new Contact `991103000001124038` which automatically created Deal `991103000001112013` via `processContact`. Completed its activation task `991103000001146006` with `Task_Outcome = "Activate Email First"` and `Status = "Completed"`.
+- **Observed:** The Deal correctly transitioned to `"Waiting on Call"`, set mode to `"Email First"`, scheduled `"Marketing Qualification Call 1"` (ID `991103000001099018`) with a due date offset by +2 business days (Monday, June 15), and created the completed "Email Sent" marker Task (ID `991103000001137013`) with full schema mappings (Task_Type, Sequence_Stage, Who_Id, Blocks_Sequence = "No") which correctly downgraded to `"Cancelled"` status on send failure.
+- **Expected:** Activation task completed, email sending triggered, marker Task created, and Call 1 scheduled with +2 business days due date offset.
+
+#### 4. Stage Transition & Supersession Flow (T12 / T14)
+- **Status:** PASS
+- **Action taken:** Manually updated Deal `991103000001112013` stage from `"Marketing Qualification"` to `"Demo Booking"`.
+- **Observed:** `sequenceRouter` successfully triggered `supersedeOldSequence`, marked the old Call (`991103000001099018`) as `Stale = "Yes"`, resolved the new stage route under `"Manual Review First"` (preserving the empty/unknown source fallback on the Deal), created a new activation task `991103000001080014`, and transitioned the Deal back to `"Waiting on Internal Task"`.
+- **Expected:** Old sequence activities marked stale, new sequence bootstrapped, resolving to `Manual Review First` due to source restriction, holding the Deal at the new activation task.
+
+#### 5. Deduplication and Silence Flow
+- **Status:** PASS
+- **Action taken:** Created a second Deal `991103000001117018` under Account 2 while Deal `991103000001112013` was already active.
+- **Observed:** `processDeal` correctly identified the second Deal as a duplicate of the canonical first Deal, renamed it to contain `(Duplicate)`, and silenced it by updating `State = "Lost"`, `Status = "Closed"`.
+- **Expected:** Canonical Deal stays open, second Deal under the same Account is silenced as Lost.
+
+### Sandbox Cleanup
+- **Status:** PASS
+- **Action taken:** All created test records (4 Deals, 2 Calls, 5 Tasks, 2 Contacts, 2 Accounts) were deleted from Zoho CRM.
+- **Observed:** Verified 0 test records remain under the test run session prefix.
+
+### Round 15 scorecard
+**5 PASS, 0 FAIL, 0 BLOCKED.**
