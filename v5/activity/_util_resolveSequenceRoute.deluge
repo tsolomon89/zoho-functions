@@ -17,9 +17,19 @@ string automation.resolveSequenceRoute(string dealIdStr)
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return "Manual Review First"; }
 
-	// 1. Existing Deal Sequence Action Mode
+	stage = ifnull(deal.get("Stage1"), "").toString();
+	activeStage = ifnull(deal.get("Active_Sequence_Stage"), "").toString();
+	stageChanged = (activeStage != "" && activeStage != stage);
+
+	// Proposal Preparation and Onboarding stages are strictly Task First.
+	if(stage == "Proposal Preparation" || stage == "Onboarding")
+	{
+		return "Task First";
+	}
+
+	// 1. Existing Deal Sequence Action Mode (only if stage has not changed)
 	explicitMode = ifnull(deal.get("Sequence_Action_Mode"), "").toString().trim();
-	if(explicitMode != "") { return explicitMode; }
+	if(!stageChanged && explicitMode != "") { return explicitMode; }
 
 	// 2. Gather classification fields
 	contactSource = "";

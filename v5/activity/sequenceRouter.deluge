@@ -98,6 +98,9 @@ void automation.sequenceRouter(string dealIdStr)
 		zoho.crm.updateRecord("Deals", dealId, updStage, triggerMapStage);
 
 		deal = zoho.crm.getRecordById("Deals", dealId);
+		deal.put("Sequence_Action_Mode", newDefaultMode);
+		deal.put("Sequence_Status", "Not Started");
+		deal.put("Sequence_Paused_Until", null);
 		sequenceStatus = "Not Started";
 		activeStage = stage;
 	}

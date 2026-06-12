@@ -134,13 +134,21 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 	}
 
 	sentMessageId = "";
-	if(!isNull(sendResp) && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)
+	try
 	{
-		firstResult = sendResp.get("data").get(0);
-		if(!isNull(firstResult.get("details")) && firstResult.get("details").get("message_id") != null)
+		if(!isNull(sendResp) && sendResp.toString().startsWith("{") && !isNull(sendResp.get("data")) && sendResp.get("data").size() > 0)
 		{
-			sentMessageId = firstResult.get("details").get("message_id").toString();
+			firstResult = sendResp.get("data").get(0);
+			if(!isNull(firstResult.get("details")) && firstResult.get("details").get("message_id") != null)
+			{
+				sentMessageId = firstResult.get("details").get("message_id").toString();
+			}
 		}
+	}
+	catch (e)
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "parse_failed", {"error":e.toString(), "resp":ifnull(sendResp,"").toString()});
+		sentMessageId = "";
 	}
 
 	if(sentMessageId != "")
