@@ -214,7 +214,7 @@ void automation.sendSequencedEmail(string dealIdStr, string stage, int attemptOr
 		{
 			taskUpd = Map();
 			taskUpd.put("Status", "Cancelled");
-			taskUpd.put("Description", "SendKey: " + sendKey + "\nSend failed");
+			taskUpd.put("Description", "SendKey: " + sendKey + "\nSend failed. Response: " + ifnull(sendResp, "null").toString());
 			zoho.crm.updateRecord("Tasks", markerTaskId.toLong(), taskUpd);
 		}
 		automation.logAutomationEvent("sendSequencedEmail", "Deals", dealId.toString(), "send", "failed", {"template":templateName, "to":contactEmail, "resp":sendResp});
