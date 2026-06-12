@@ -1270,15 +1270,8 @@ void automation.processLead(string lead_id)
 			currSeqStatus = "Not Started";
 		}
 		
-		if(currSeqStatus != "" && currSeqStatus != "Not Started")
-		{
-			info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
-			automation.sequenceRouter(canonicalDealId);
-		}
-		else
-		{
-			info "sequenceRouter hook (processLead): skipped for unbootstrapped/new Deal=" + canonicalDealId + " (handled by processDeal)";
-		}
+		info "sequenceRouter hook (processLead): canonicalDealId=" + canonicalDealId;
+		automation.sequenceRouter(canonicalDealId);
 	}
 
 	// ---- 13. Roll up Account State / Status ----
