@@ -79,7 +79,7 @@ void automation.sequenceRouter(string dealIdStr)
 	sequenceStatus = ifnull(deal.get("Sequence_Status"), "").toString();
 	activeStage    = ifnull(deal.get("Active_Sequence_Stage"), "").toString();
 
-	stageChanged = (activeStage != "" && activeStage != stage);
+	stageChanged = (activeStage != stage);
 	if(stageChanged)
 	{
 		automation.supersedeOldSequence(dealId.toString());
