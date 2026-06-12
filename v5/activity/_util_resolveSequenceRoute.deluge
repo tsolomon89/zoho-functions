@@ -5,8 +5,8 @@ string automation.resolveSequenceRoute(string dealIdStr)
 	//
 	// Canonical routing engine that resolves the Sequence_Action_Mode for a Deal:
 	//   1. Deal-level explicit Sequence_Action_Mode (if set)
-	//   2. Normalised Contact_Source_Class from primary contact lookup
-	//   3. Deal-level Lead_Source (normalised free-text / picklist)
+	//   2. Deal-level Lead_Source (normalised free-text / picklist)
+	//   3. Normalised Contact_Source_Class from primary contact lookup
 	//   4. Fallback to "Manual Review First"
 	// =========================================================================
 
@@ -67,7 +67,7 @@ string automation.resolveSequenceRoute(string dealIdStr)
 	dealLeadSource = ifnull(deal.get("Lead_Source"), "").toString().trim();
 
 	// 3. Exact matching of recognized classifications
-	sources = {contactSource, accountSource, dealLeadSource};
+	sources = {dealLeadSource, contactSource, accountSource};
 	for each s in sources
 	{
 		if(s != "")
