@@ -1,12 +1,23 @@
 void automation.sendDemoReminder(string dealIdStr)
 {
 	// =========================================================================
-	// sendDemoReminder
+	// sendDemoReminder  (WF010c — Deals, date-based on Deal.Demo_Reminder_Send_At)
 	//
-	// Fired by the date-based Deal workflow on Demo_Reminder_Send_At (same native
-	// pattern as WF010). Sends the Demo Confirmation Reminder email to the Deal's
-	// Primary Contact to protect attendance. Guarded so it only sends while the
-	// demo is still upcoming (Demo_Status Scheduled/Confirmed/Rescheduled).
+	// Date-based workflows cannot be bound to the Meetings/Tasks modules, so WF010c
+	// stays on Deals and fires on the Deal's Demo_Reminder_Send_At. The Meeting/Event
+	// remains the UPSTREAM source of truth: handleMeetingEvent writes the demo summary
+	// mirrors (Demo_Start_DateTime, Demo_Reminder_Send_At, Demo_Outcome) onto the Deal
+	// from the Event, and clears Demo_Reminder_Send_At when the meeting is Cancelled.
+	// This function gates on those mirrors — no Demo_Status / Demo_Meeting_ID.
+	//
+	// Binding: Module = Deals, date field = Demo_Reminder_Send_At,
+	//   function = sendDemoReminder, arg dealIdStr <- ${Deals.id}.  (unchanged)
+	//
+	// Guards:
+	//   Automation_Suppressed != true
+	//   Demo_Outcome blank or "Scheduled"      (a real outcome means the demo already happened)
+	//   Demo_Start_DateTime still in the future (an upcoming demo exists)
+	//   Deal Primary Contact exists and State = Open
 	// =========================================================================
 
 	info "VERSION: v5-contact-centric";
@@ -18,13 +29,31 @@ void automation.sendDemoReminder(string dealIdStr)
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return; }
 
-	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true") { return; }
-
-	demoStatus = ifnull(deal.get("Demo_Status"), "").toString();
-	upcoming = {"Scheduled", "Confirmed", "Rescheduled"};
-	if(!upcoming.contains(demoStatus))
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
 	{
-		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_not_upcoming", {"demo_status":demoStatus});
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	// Demo already concluded? (mirror of Meeting_Outcome)
+	demoOutcome = ifnull(deal.get("Demo_Outcome"), "").toString();
+	if(demoOutcome != "" && demoOutcome != "Scheduled")
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_outcome_present", {"demo_outcome":demoOutcome});
+		return;
+	}
+
+	// Upcoming demo? (mirror of Meeting Start_DateTime)
+	demoStart = deal.get("Demo_Start_DateTime");
+	if(isNull(demoStart))
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_no_demo_start", null);
+		return;
+	}
+	startDt = demoStart.toString().toDateTime("yyyy-MM-dd'T'HH:mm:ssXXX");
+	if(startDt < zoho.currenttime)
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_start_passed", {"start":demoStart.toString()});
 		return;
 	}
 
@@ -34,6 +63,12 @@ void automation.sendDemoReminder(string dealIdStr)
 	if(primaryId == "")
 	{
 		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "no_primary_contact", null);
+		return;
+	}
+	primary = zoho.crm.getRecordById("Contacts", primaryId.toLong());
+	if(isNull(primary) || ifnull(primary.get("State"), "").toString() != "Open")
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "primary_not_open", {"contact":primaryId});
 		return;
 	}
 

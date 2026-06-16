@@ -22,6 +22,6 @@ Subject,Subject,Single Line,
 Tag,Tag,Single Line,
 Task Outcome,Task_Outcome,Pick List,Yes
 Task Owner,Owner,Ownerlookup,
+Task Sequence Managed,Task_Sequence_Managed,Boolean,Yes
+Task Sequence Stage,Task_Sequence_Stage,Single Line,Yes
 Task Type,Task_Type,Pick List,Yes
-Sequence Managed,Sequence_Managed,Pick List,Yes
-Sequence Stage,Sequence_Stage,Pick List,Yes

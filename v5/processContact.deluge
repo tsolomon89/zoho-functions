@@ -280,7 +280,7 @@ void automation.processContact(string contact_id)
 				tWho = "";
 				whoL = tk.get("Who_Id");
 				if(!isNull(whoL) && !isNull(whoL.get("id"))) { tWho = whoL.get("id").toString(); }
-				if(tWho == cleanId && ifnull(tk.get("Task_Type"), "").toString() == "Sequence Activation" && ifnull(tk.get("Sequence_Stage"), "").toString() == contactStage && (ifnull(tk.get("Status"), "").toString() == "Not Started" || ifnull(tk.get("Status"), "").toString() == "In Progress"))
+				if(tWho == cleanId && ifnull(tk.get("Task_Type"), "").toString() == "Sequence Activation" && ifnull(tk.get("Task_Sequence_Stage"), "").toString() == contactStage && (ifnull(tk.get("Status"), "").toString() == "Not Started" || ifnull(tk.get("Status"), "").toString() == "In Progress"))
 				{
 					activationExists = true;
 					break;
@@ -306,9 +306,9 @@ void automation.processContact(string contact_id)
 			actTask.put("What_Id", dealId);
 			actTask.put("$se_module", "Deals");
 			actTask.put("Who_Id", cleanId);
-			actTask.put("Sequence_Managed", "Yes");
+			actTask.put("Task_Sequence_Managed", true);
 			actTask.put("Task_Type", "Sequence Activation");
-			actTask.put("Sequence_Stage", contactStage);
+			actTask.put("Task_Sequence_Stage", contactStage);
 			actTask.put("Blocks_Sequence", "Yes");
 			actTask.put("Description", actDesc);
 			if(ownerId != "") { actTask.put("Owner", ownerId); }

@@ -242,8 +242,7 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		upd = Map();
 		upd.put("Status", "Completed");
 		upd.put("Task_Type", "Email Sent");
-		upd.put("Sequence_Stage", ifnull(stage, "").toString());
-		upd.put("Sequence_Attempt", step);
+		upd.put("Task_Sequence_Stage", ifnull(stage, "").toString());
 		upd.put("Blocks_Sequence", "No");
 		upd.put("Subject", "Email Sent: " + canonicalKey);
 		upd.put("Description", auditDesc);
@@ -258,10 +257,9 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		tkMap.put("What_Id", dealId);
 		tkMap.put("$se_module", "Deals");
 		tkMap.put("Who_Id", contactId);
-		tkMap.put("Sequence_Managed", "Yes");
+		tkMap.put("Task_Sequence_Managed", true);
 		tkMap.put("Task_Type", "Email Sent");
-		tkMap.put("Sequence_Stage", ifnull(stage, "").toString());
-		tkMap.put("Sequence_Attempt", step);
+		tkMap.put("Task_Sequence_Stage", ifnull(stage, "").toString());
 		tkMap.put("Blocks_Sequence", "No");
 		tkMap.put("Description", auditDesc);
 		if(ownerId != "") { tkMap.put("Owner", ownerId); }

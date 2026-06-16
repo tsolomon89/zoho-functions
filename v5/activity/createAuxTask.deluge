@@ -45,7 +45,7 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	tkMap.put("What_Id", dealId);
 	tkMap.put("$se_module", "Deals");
 	tkMap.put("Who_Id", contactId);
-	tkMap.put("Sequence_Managed", "Yes");
+	tkMap.put("Task_Sequence_Managed", true);
 	tkMap.put("Task_Type", taskType);
 	tkMap.put("Blocks_Sequence", "Yes");
 	tkMap.put("Description", ifnull(note, "").toString());

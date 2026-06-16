@@ -50,9 +50,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 		return;
 	}
 
-	tSeqManaged = ifnull(task.get("Sequence_Managed"), "No").toString();
+	tSeqManaged = ifnull(task.get("Task_Sequence_Managed"), false).toString();
 	knownTypes = {"Sequence Activation", "Data Repair", "Enrichment", "Review Reply", "Draft Commercials", "Send Commercials", "Onboarding Setup", "Manual Review", "Suppression Review"};
-	if(tSeqManaged != "Yes" && !knownTypes.contains(tType))
+	if(tSeqManaged != "true" && !knownTypes.contains(tType))
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"task_type":tType});
 		return;
@@ -98,7 +98,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 	contactSeqState = ifnull(contact.get("Sequence_State"), "").toString();
 
 	// ---- stale: task belongs to a Stage the Contact has left ----
-	taskStage = ifnull(task.get("Sequence_Stage"), "").toString();
+	taskStage = ifnull(task.get("Task_Sequence_Stage"), "").toString();
 	if(taskStage != "" && taskStage != contactStage)
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_stale_stage", {"task_stage":taskStage, "contact_stage":contactStage});

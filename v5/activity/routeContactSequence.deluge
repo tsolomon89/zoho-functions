@@ -76,7 +76,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				whoL = bt.get("Who_Id");
 				if(!isNull(whoL) && !isNull(whoL.get("id"))) { btWho = whoL.get("id").toString(); }
 				btStatus = ifnull(bt.get("Status"), "").toString();
-				btSeqStage = ifnull(bt.get("Sequence_Stage"), "").toString();
+				btSeqStage = ifnull(bt.get("Task_Sequence_Stage"), "").toString();
 				// A blocking Task only blocks if it belongs to THIS Contact, is open
 				// (not Completed/Cancelled/Deferred), and is NOT an old-Stage leftover
 				// (supersede defers those; this also excludes any that slipped through).
@@ -148,7 +148,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				tStatus = ifnull(tsk.get("Status"), "").toString();
 				tType = ifnull(tsk.get("Task_Type"), "").toString();
 				tDesc = ifnull(tsk.get("Description"), "").toString();
-				if(tWho == contactId.toString() && ifnull(tsk.get("Sequence_Managed"), "No").toString() == "Yes" && tType != "Email Sent" && tStatus != "Completed" && tStatus != "Cancelled" && tStatus != "Deferred")
+				if(tWho == contactId.toString() && ifnull(tsk.get("Task_Sequence_Managed"), false).toString() == "true" && tType != "Email Sent" && tStatus != "Completed" && tStatus != "Cancelled" && tStatus != "Deferred")
 				{
 					if(tDesc.contains("ScheduledSend|"))
 					{
@@ -281,9 +281,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				schedTask.put("What_Id", dealId);
 				schedTask.put("$se_module", "Deals");
 				schedTask.put("Who_Id", contactId);
-				schedTask.put("Sequence_Managed", "Yes");
-				schedTask.put("Sequence_Stage", nextStage);
-				schedTask.put("Sequence_Attempt", emailStep);
+				schedTask.put("Task_Sequence_Managed", true);
+				schedTask.put("Task_Type", "Scheduled Send");
+				schedTask.put("Task_Sequence_Stage", nextStage);
 				schedTask.put("Blocks_Sequence", "No");
 				schedTask.put("Due_Date", schedDue);
 				schedTask.put("Description", schedPayload + "\n(Awaiting Due_Date " + schedDue + " to send.)");
@@ -312,7 +312,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				xt2Who = "";
 				xw2 = xt2.get("Who_Id");
 				if(!isNull(xw2) && !isNull(xw2.get("id"))) { xt2Who = xw2.get("id").toString(); }
-				if(xt2Who == contactId.toString() && ifnull(xt2.get("Task_Type"), "").toString() == stTaskType && ifnull(xt2.get("Sequence_Stage"), "").toString() == nextStage && (ifnull(xt2.get("Status"), "").toString() == "Not Started" || ifnull(xt2.get("Status"), "").toString() == "In Progress")) { taskDup = true; }
+				if(xt2Who == contactId.toString() && ifnull(xt2.get("Task_Type"), "").toString() == stTaskType && ifnull(xt2.get("Task_Sequence_Stage"), "").toString() == nextStage && (ifnull(xt2.get("Status"), "").toString() == "Not Started" || ifnull(xt2.get("Status"), "").toString() == "In Progress")) { taskDup = true; }
 			}
 		}
 		if(!taskDup)
@@ -323,9 +323,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			stTask.put("What_Id", dealId);
 			stTask.put("$se_module", "Deals");
 			stTask.put("Who_Id", contactId);
-			stTask.put("Sequence_Managed", "Yes");
+			stTask.put("Task_Sequence_Managed", true);
 			stTask.put("Task_Type", stTaskType);
-			stTask.put("Sequence_Stage", nextStage);
+			stTask.put("Task_Sequence_Stage", nextStage);
 			stTask.put("Blocks_Sequence", "Yes");
 			stTask.put("Description", "Task-First route for " + nextStage + ". Complete with a positive outcome to advance the Contact sequence.");
 			if(dealOwnerId != "") { stTask.put("Owner", dealOwnerId); }
