@@ -1,0 +1,42 @@
+void automation.sendDemoReminder(string dealIdStr)
+{
+	// =========================================================================
+	// sendDemoReminder
+	//
+	// Fired by the date-based Deal workflow on Demo_Reminder_Send_At (same native
+	// pattern as WF010). Sends the Demo Confirmation Reminder email to the Deal's
+	// Primary Contact to protect attendance. Guarded so it only sends while the
+	// demo is still upcoming (Demo_Status Scheduled/Confirmed/Rescheduled).
+	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
+
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(dealId == 0) { return; }
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true") { return; }
+
+	demoStatus = ifnull(deal.get("Demo_Status"), "").toString();
+	upcoming = {"Scheduled", "Confirmed", "Rescheduled"};
+	if(!upcoming.contains(demoStatus))
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_not_upcoming", {"demo_status":demoStatus});
+		return;
+	}
+
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
+	if(primaryId == "")
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "no_primary_contact", null);
+		return;
+	}
+
+	automation.sendSequencedEmail(primaryId, dealId.toString(), "Demo Confirmation", 0, "demo_reminder", "");
+	automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "reminder", "sent", {"contact":primaryId});
+}

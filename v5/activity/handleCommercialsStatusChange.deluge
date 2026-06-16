@@ -1,47 +1,29 @@
 void automation.handleCommercialsStatusChange(string dealIdStr)
 {
 	// =========================================================================
-	// handleCommercialsStatusChange
+	// handleCommercialsStatusChange  (thin, token-producing — WF004)
 	//
-	// Triggered by WF004 when Deal.Commercials_Status changes. Implements
-	// FUNCTION_SPEC.md §12.
+	// Fires when Deal.Commercials_Status changes. Updates only Deal-owned commercial
+	// fields, then invokes routeContactSequence once with a commercial:* token for the
+	// transitions that move the Primary Contact (the router owns Stage + boundary email).
 	//
-	// Boundary rule (AGENTS.md §Commercial Boundary): FTP starts only when
-	// commercials have actually been sent. Stage1 advance below enforces it.
-	//
-	//   Sent      → Stage1=Commercial Agreement, Stage=FTP,
-	//               Commercials_Sent_At=now (if empty),
-	//               Sequence_Status=Not Started (so sequenceRouter creates
-	//               Commercial Agreement Call 1 via WF003 stage-change router).
-	//   Discussed → Commercials_Discussed_At=now (if empty); no Stage move.
-	//   Intent to Sign → Intent_To_Sign=true; no Stage move yet.
-	//   Signed    → Stage1=Onboarding, Stage=RTP, Signed_At=now,
-	//               State=Open (Deal stays active for onboarding / retention /
-	//               renewal; "Won" is a transition event, not a durable State),
-	//               Status=Working if already Working else New,
-	//               Sequence_Status=Not Started.
-	//   Deferred  → Sequence_Status=Deferred,
-	//               Sequence_Paused_Until=Next_Commercial_Follow_Up_Date.
-	//   Rejected  → Deal Lost/Closed, Reason "Commercial Rejected".
+	//   Sent      -> commercial:sent     (Deal: Commercials_Sent_At)
+	//   Signed    -> commercial:signed   (Deal: Signed_At, State stays Open)
+	//   Rejected  -> commercial:rejected (Contact+Deal loss in router)
+	//   Discussed -> stamp Commercials_Discussed_At; no transition
+	//   Intent to Sign -> Intent_To_Sign=true; no transition
+	//   Deferred  -> no transition (cadence keeps running; no Paused)
 	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
-
-	if(dealId == 0)
-	{
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", "", "guard", "skip_no_id", null);
-		return;
-	}
+	if(dealId == 0) { return; }
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
-	if(isNull(deal) || isNull(deal.get("id")))
-	{
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_not_found", null);
-		return;
-	}
-
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
 	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
 	{
 		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
@@ -49,108 +31,66 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	}
 
 	cStatus = ifnull(deal.get("Commercials_Status"), "").toString();
-	// zoho.currenttime returns ORG-LOCAL time (Round 8 T1 confirmed). XXX appends the org
-	// TZ offset → valid ISO-8601 that Zoho re-parses to the same wall-clock. Round 5's
-	// 'Z' switch was reverted in Round 8.
 	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
-	triggerMap = Map();
-	triggerMap.put("trigger", List());
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
 
-	if(cStatus == "Sent")
-	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Commercial Agreement");
-		dealUpd.put("Stage", "FTP");
-		if(isNull(deal.get("Commercials_Sent_At")))
-		{
-			dealUpd.put("Commercials_Sent_At", now);
-		}
-		dealUpd.put("Sequence_Status", "Not Started");
-		dealUpd.put("Active_Sequence_Attempt", 0);
-		dealUpd.put("Active_Email_Chain_Step", 0);
-		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1 via its
-		// "recompute from Contacts" logic. Explicitly route the new stage's sequence below.
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
 
-		automation.sendSequencedEmail(dealId, "Commercial Agreement", 0, "commercials_terms");
-
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "sent", "stage_to_commercial_agreement", {"sent_at":now});
-		return;
-	}
-
+	// ---- non-transition stamps ----
 	if(cStatus == "Discussed")
 	{
-		dealUpd = Map();
-		if(isNull(deal.get("Commercials_Discussed_At"))) { dealUpd.put("Commercials_Discussed_At", now); }
-		if(dealUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap); }
+		if(isNull(deal.get("Commercials_Discussed_At"))) { zoho.crm.updateRecord("Deals", dealId, {"Commercials_Discussed_At": now}, noTrigger); }
 		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "discussed", "stamped", null);
 		return;
 	}
-
 	if(cStatus == "Intent to Sign")
 	{
-		dealUpd = Map();
-		dealUpd.put("Intent_To_Sign", true);
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
+		zoho.crm.updateRecord("Deals", dealId, {"Intent_To_Sign": true}, noTrigger);
 		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "intent_to_sign", "flag_set", null);
 		return;
 	}
-
-	if(cStatus == "Signed")
-	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Onboarding");
-		dealUpd.put("Stage", "RTP");
-		if(isNull(deal.get("Signed_At"))) { dealUpd.put("Signed_At", now); }
-		// "Won" is a transition event, not a durable State. Signed commercials open
-		// the next active commercial motion (onboarding / retention / renewal), so
-		// the Deal stays Open. See docs/v2/02-pipeline-model.md.
-		if(ifnull(deal.get("State"), "").toString() != "Open") { dealUpd.put("State", "Open"); }
-		currStatus = ifnull(deal.get("Status"), "").toString();
-		if(currStatus != "Working") { dealUpd.put("Status", "New"); }
-		dealUpd.put("Sequence_Status", "Not Started");
-		dealUpd.put("Active_Sequence_Attempt", 0);
-		dealUpd.put("Active_Email_Chain_Step", 0);
-		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1/Stage via its
-		// "recompute from Contacts" logic. Explicitly route the new stage's sequence below.
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
-
-		automation.sendSequencedEmail(dealId, "Onboarding", 0, "commercials_signed_confirmation");
-
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "signed", "stage_to_onboarding", {"signed_at":now});
-		return;
-	}
-
 	if(cStatus == "Deferred")
 	{
-		nextFu = deal.get("Next_Comm_Follow_Up_Date");
-		dealUpd = Map();
-		dealUpd.put("Sequence_Status", "Deferred");
-		if(!isNull(nextFu)) { dealUpd.put("Sequence_Paused_Until", nextFu); }
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "deferred", "paused", {"until":ifnull(nextFu, "").toString()});
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "deferred", "cadence_continues", null);
 		return;
 	}
 
-	if(cStatus == "Rejected")
+	// ---- transitions ----
+	token = "";
+	dUpd = Map();
+	if(cStatus == "Sent")
 	{
-		dealUpd = Map();
-		dealUpd.put("State", "Lost");
-		dealUpd.put("Status", "Closed");
-		dealUpd.put("Sequence_Status", "Completed");
-		// Reason_For_Loss__s is a Zoho system field (read-only via API); write the
-		// writable companion field Lost_Reasons instead. processDeal reads both via
-		// hasLossReason = (Reason_For_Loss__s != "" || Lost_Reasons != "").
-		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "")
-		{
-			dealUpd.put("Lost_Reasons", "Commercial Rejected");
-		}
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "rejected", "deal_lost", null);
+		token = "commercial:sent";
+		if(isNull(deal.get("Commercials_Sent_At"))) { dUpd.put("Commercials_Sent_At", now); }
+	}
+	else if(cStatus == "Signed")
+	{
+		token = "commercial:signed";
+		if(isNull(deal.get("Signed_At"))) { dUpd.put("Signed_At", now); }
+		// "Won" is a transition, not a durable State: the Deal stays Open for onboarding/renewal.
+		if(ifnull(deal.get("State"), "").toString() != "Open") { dUpd.put("State", "Open"); }
+	}
+	else if(cStatus == "Rejected")
+	{
+		token = "commercial:rejected";
+	}
+	else
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "no_action", cStatus, null);
 		return;
 	}
 
-	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "no_action", cStatus, null);
+	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
+
+	if(primaryId == "")
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "no_primary_contact", {"status":cStatus});
+		return;
+	}
+
+	automation.routeContactSequence(primaryId, dealId.toString(), token);
+	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "routed", token, {"contact":primaryId});
 }

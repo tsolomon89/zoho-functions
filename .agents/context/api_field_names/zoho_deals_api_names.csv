@@ -1,86 +1,63 @@
-Field Label,API Name,Data Type,Custom Field
-Account Name,Account_Name,Lookup,
-Active Email Chain Step,Active_Email_Chain_Step,Number,Yes
-Active Sequence Attempt,Active_Sequence_Attempt,Number,Yes
-Active Sequence Stage,Active_Sequence_Stage,Pick List,Yes
-Amount,Amount,Currency,
-Associated Product IDs,Associated_Product_IDs,Multi Line,Yes
-Automation Suppressed,Automation_Suppressed,Boolean,Yes
-Campaign Source,Campaign_Source,Lookup,
-Change Log Time,Change_Log_Time__s,DateTime,
-Closing Date,Closing_Date,Date,
-Comm Follow-Up Reason,Comm_Follow_Up_Reason,Pick List,Yes
-Commercial Agreement Completed At,Commercial_Agreement_Completed_At,DateTime,Yes
-Commercial Outcome,Commercial_Outcome,Pick List,Yes
-Commercials Discussed At,Commercials_Discussed_At,DateTime,Yes
-Commercials Sent At,Commercials_Sent_At,DateTime,Yes
-Commercials Status,Commercials_Status,Pick List,Yes
-Contact Name,Contact_Name,Lookup,
-Contract ACV Current,Contract_ACV_Current,Currency,Yes
-Contract ACV Intial,Contract_ACV_Intial,Currency,Yes
-Contract Currency,Contract_Currency,Pick List,Yes
-Contract End Date,Contract_End_Date,Date,Yes
-Contract Renewal Date,Contract_Renewal_Date,Date,Yes
-Contract Start Date,Contract_Start_Date,Date,Yes
-Contract Type,Contract_Type,Pick List,Yes
-Created By,Created_By,Ownerlookup,
-Created Time,Created_Time,DateTime,
-Deal Key,Deal_Key,Single Line (Unique),Yes
-Deal Name,Deal_Name,Single Line,
-Deal Owner,Owner,Ownerlookup,
-Deal Value Source,Deal_Value_Source,Pick List,Yes
-Demo Booking Completed At,Demo_Booking_Completed_At,DateTime,Yes
-Demo Confirmation Completed At,Demo_Confirmation_Completed_At,DateTime,Yes
-Demo End DateTime,Demo_End_DateTime,DateTime,Yes
-Demo Hosted Completed At,Demo_Hosted_Completed_At,DateTime,Yes
-Demo Meeting ID,Demo_Meeting_ID,Single Line,Yes
-Demo Outcome,Demo_Outcome,Pick List,Yes
-Demo Reminder Send At,Demo_Reminder_Send_At,DateTime,Yes
-Demo Start DateTime,Demo_Start_DateTime,DateTime,Yes
-Demo Status,Demo_Status,Pick List,Yes
-Description,Description,Multi Line,
-Expected Revenue,Expected_Revenue,Currency,
-Expected Signature Date,Expected_Signature_Date,Date,Yes
-Intent To Sign,Intent_To_Sign,Boolean,Yes
-Last Activity Time,Last_Activity_Time,DateTime,
-Last Email Message ID,Last_Email_Message_ID,Single Line,Yes
-Last Email Sent At,Last_Email_Sent_At,DateTime,Yes
-Last Email Template,Last_Email_Template,Single Line,Yes
-Lead Conversion Time,Lead_Conversion_Time,Number,
-Lead Source,Lead_Source,Pick List,
-Locked,Locked__s,Boolean,
-Lost Reasons,Lost_Reasons,Pick List,Yes
-Marketing Qualification Completed At,Marketing_Qualification_Completed_At,DateTime,Yes
-Modified By,Modified_By,Ownerlookup,
-Modified Time,Modified_Time,DateTime,
-Next Action Due Date,Next_Action_Due_Date,DateTime,Yes
-Next Action Type,Next_Action_Type,Pick List,Yes
-Next Comm Follow-Up Date,Next_Comm_Follow_Up_Date,DateTime,Yes
-Next Step,Next_Step,Single Line,
-Onboarding Completed At,Onboarding_Completed_At,DateTime,Yes
-Opportunity,Stage,Pick List,
-Overall Sales Duration,Overall_Sales_Duration,Number,
-Pipeline,Pipeline,Pick List,
-Probability (%),Probability,Number,
-Primary Contact,Primary_Contact,Multi-Select Lookup,Yes
-Product Interest Staging,Product_Interest_Staging,Multi Line,Yes
-Product Resolution Status,Product_Resolution_Status,Pick List,Yes
-Proposal Preparation Completed At,Proposal_Preparation_Completed_At,DateTime,Yes
-Reason For Loss,Reason_For_Loss__s,Pick List,
-Record Id,id,Long Integer,
-Record Status,Record_Status__s,Pick List,
-Renewal Completed At,Renewal_Completed_At,DateTime,Yes
-Sales Cycle Duration,Sales_Cycle_Duration,Number,
-Seq Thread Message ID,Seq_Thread_Message_ID,Single Line,Yes
-Sequence Action Mode,Sequence_Action_Mode,Pick List,Yes
-Sequence Paused Until,Sequence_Paused_Until,DateTime,Yes
-Sequence Status,Sequence_Status,Pick List,Yes
-Sequence Superseded At,Sequence_Superseded_At,DateTime,Yes
-Signed At,Signed_At,DateTime,Yes
-Stage,Stage1,Pick List,Yes
-Stage Modified Time,Stage_Modified_Time,DateTime,
-State,State,Pick List,Yes
-Status,Status,Pick List,Yes
-Suppression Reason,Suppression_Reason,Pick List,Yes
-Tag,Tag,Single Line,
-Type,Type,Pick List,
+Field Label,API Name,Data Type,Custom Field,Deletion Dependency / Deletion Note
+Account Name,Account_Name,Lookup,,
+Amount,Amount,Currency,,
+Automation Suppressed,Automation_Suppressed,Boolean,Yes,"Actions - Field update
+WF Placeholder Marker Deals
+Workflow Rules - Condition
+WF010d Date Router Comm Follow-Up
+WF010b Date Router Sequence Paused Until
+WF010a Date Router Next Action Due
+WF010c Date Router Demo Reminder
+WF003 Deal Stage Change Router
+WF002 Deal Sequence Router"
+Campaign Source,Campaign_Source,Lookup,,
+Closing Date,Closing_Date,Date,,
+Commercial Outcome,Commercial_Outcome,Pick List,Yes,Want to Remove Maybe
+Commercials Discussed At,Commercials_Discussed_At,DateTime,Yes,
+Commercials Status,Commercials_Status,Pick List,Yes,
+Connected To,Commercials_Status,MultiModuleLookup,,
+Contact Name,Contact_Name,Lookup,,Could Be used for Primary Contact... Should be used
+Contract ACV Current,Contract_ACV_Current,Currency,Yes,
+Contract ACV Initial,Contract_ACV_Initial,Currency,Yes,
+Contract Currency,Contract_Currency,Pick List,Yes,
+Contract End Date,Contract_End_Date,Date,Yes,
+Contract Renewal Date,Contract_Renewal_Date,Date,Yes,
+Contract Start Date,Contract_Start_Date,Date,Yes,
+Contract Type,Contract_Type,Pick List,Yes,
+Created By,Created_By,Ownerlookup,,
+Deal Key,Deal_Key,Single Line (Unique),Yes,
+Deal Name,Deal_Name,Single Line,,
+Deal Owner,Owner,Ownerlookup,,
+Deal Primary Contact,Deal_Primary_Contact,Lookup,Yes,
+Demo Outcome,Demo_Outcome,Pick List,Yes,"Workflow Rules - Execute On
+WF005 Demo Outcome Handler > Trigger"
+Demo Reminder Send At,Demo_Reminder_Send_At,DateTime,Yes,"Workflow Rules - Execute On
+WF010c Date Router Demo Reminder > Trigger"
+Demo Start DateTime,Demo_Start_DateTime,DateTime,Yes,"Email Template(s)
+Demo Confirmation Email
+Demo Confirmation Reminder Email"
+Description,Description,Multi Line,,
+Expected Revenue,Expected_Revenue,Currency,,
+Intent To Sign,Intent_To_Sign,Boolean,Yes,
+Lead Source,Lead_Source,Pick List,,
+Lost Reasons,Lost_Reasons,Pick List,Yes,
+Modified By,Modified_By,Single Line,,
+Next Action Due Date,Next_Action_Due_Date,DateTime,Yes,"Workflow Rules - Execute On
+WF010a Date Router Next Action Due > Trigger"
+Next Comm Follow-Up Date,Next_Comm_Follow_Up_Date,DateTime,Yes,"Workflow Rules - Execute On
+WF010d Date Router Comm Follow-Up > Trigger"
+Next Step,Next_Step,Single Line,,Cannot Delete but don't need
+Opportunity Pipeline,Pipeline,Pick List,,
+Opportunity Stage,Opportunity_Stage,Pick List,Yes,
+Opportunity State,Opportunity_State,Pick List,Yes,
+Opportunity Status,Opportunity_Status,Pick List,Yes,
+Opportunity Type,Stage,Pick List,,
+Probability (%),Probability,Number,,
+Reason For Loss,Reason_For_Loss__s,Pick List,,
+Sequence Paused Until,Sequence_Paused_Until,DateTime,Yes,"Workflow Rules - Execute On
+WF010b Date Router Sequence Paused Until > Trigger"
+Sequence Status,Sequence_Status,Pick List,Yes,"Workflow Rules - Condition
+WF002 Deal Sequence Router"
+Suppression Reason,Suppression_Reason,Pick List,Yes,
+Tag,Tag,Single Line,,
+Type,Type,Pick List,,

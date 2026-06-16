@@ -1,3 +1,18 @@
+> [!WARNING]
+> **SUPERSEDED — V5 Contact-Centric consolidation.** This document predates the
+> Contact-centric refactor and still contains legacy Deal-owned-sequence content
+> (e.g. "Deal owns sequence", `Opportunity_Stage`, Email-First/Call-First branches, retired
+> functions/workflows). Authoritative sources:
+> `docs/v5/FUNCTION_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/WORKFLOW_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/FUNCTION_CUTOVER_AND_ROLLBACK.md`,
+> `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`,
+> `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`,
+> `.agents/context/activity-workflows/SEQUENCE_TRANSITION_MATRIX.md`,
+> `.agents/context/activity-workflows/V5_CONTACT_CENTRIC_*.md`.
+> Final model: Contact owns sequence state; Deal `Opportunity_Stage` rolls up from
+> the Primary Contact via `processDeal`; 24 functions / 17 workflows.
+
 # FUNCTION_SPEC.md — Zoho CRM Automation Function Specifications
 
 ## Purpose
@@ -713,7 +728,7 @@ Return the single Deal that represents the current active commercial position fo
 ```text
 account_id           — id of the Account being reconciled
 contact_ids          — list of Contact ids relevant to the inbound signal
-incoming_stage       — Stage1 implied by the inbound signal (may be null)
+incoming_stage       — Opportunity_Stage implied by the inbound signal (may be null)
 incoming_opportunity — Opportunity implied by the inbound signal (may be null)
 ```
 
@@ -721,7 +736,7 @@ incoming_opportunity — Opportunity implied by the inbound signal (may be null)
 
 - All Deals related to Account.
 - All Deals linked to any Contact in contact_ids.
-- Each Deal's: Stage1, Stage (Opportunity), State, Status, Modified_Time, linked Contact_Roles.
+- Each Deal's: Opportunity_Stage, Stage (Opportunity), State, Status, Modified_Time, linked Contact_Roles.
 
 ## Logic
 

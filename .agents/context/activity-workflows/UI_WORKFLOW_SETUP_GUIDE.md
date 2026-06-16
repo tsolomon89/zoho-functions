@@ -9,7 +9,7 @@
 | Rule | Zoho ID | Module | Trigger | Placeholder action |
 |---|---|---|---|---|
 | WF002 Deal Sequence Router | `991103000000796079` | Deals | Create/Edit, Sequence_Status=Not Started, Automation_Suppressed!=true | field_updates → `WF Placeholder Marker Deals` |
-| WF003 Deal Stage Change Router | `991103000000784137` | Deals | Field Update on Stage1 (${ANYVALUE}), Automation_Suppressed!=true | field_updates → `WF Placeholder Marker Deals` |
+| WF003 Deal Stage Change Router | `991103000000784137` | Deals | Field Update on Opportunity_Stage (${ANYVALUE}), Automation_Suppressed!=true | field_updates → `WF Placeholder Marker Deals` |
 | WF004 Commercials Status Handler | `991103000000800001` | Deals | Field Update on Commercials_Status | field_updates → `WF Placeholder Marker Deals` |
 | WF005 Demo Outcome Handler | `991103000000801001` | Deals | Field Update on Demo_Outcome | field_updates → `WF Placeholder Marker Deals` |
 | WF007 Event Meeting Handler | `991103000000782052` | Events | Create/Edit | assign_owner (no-op merge_field) |

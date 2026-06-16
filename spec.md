@@ -1,3 +1,20 @@
+> [!WARNING]
+> **SUPERSEDED — V5 Contact-Centric consolidation.** This document predates the
+> Contact-centric refactor and still contains legacy Deal-owned-sequence content
+> (e.g. "Deal owns sequence", the legacy `Stage`-suffixed shorthand for the Deal
+> Opportunity-Stage field, Email-First/Call-First branches, retired functions/workflows).
+> Use `Deal.Opportunity_Stage` / `Deal.Stage` (Opportunity Type) / `Contact.Stage`.
+> Authoritative sources:
+> `docs/v5/FUNCTION_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/WORKFLOW_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/FUNCTION_CUTOVER_AND_ROLLBACK.md`,
+> `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`,
+> `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`,
+> `.agents/context/activity-workflows/SEQUENCE_TRANSITION_MATRIX.md`,
+> `.agents/context/activity-workflows/V5_CONTACT_CENTRIC_*.md`.
+> Final model: Contact owns sequence state; Deal `Opportunity_Stage` rolls up from
+> the Primary Contact via `processDeal`; 24 functions / 17 workflows.
+
 # CRM CRUD Convergence Spec
 
 ## Core rule
@@ -39,7 +56,7 @@ This is the pipeline bucket.
 
 API field:
 
-`Stage1`
+`Opportunity_Stage`
 
 Values:
 
@@ -102,7 +119,7 @@ Automated workflow emails do not make a record `Working`.
 
 ## Stage to Opportunity mapping
 
-`Stage1` determines `Stage`.
+`Opportunity_Stage` determines `Stage`.
 
 Mapping:
 
@@ -117,13 +134,13 @@ Mapping:
 
 Examples:
 
-- `Stage1 = Demo Confirmation`
+- `Opportunity_Stage = Demo Confirmation`
 - `Stage = SQL`
 
-- `Stage1 = Commercial Agreement`
+- `Opportunity_Stage = Commercial Agreement`
 - `Stage = FTP`
 
-- `Stage1 = Onboarding`
+- `Opportunity_Stage = Onboarding`
 - `Stage = RTP`
 
 ---
@@ -140,7 +157,7 @@ When a Lead is created or updated:
 6. Add the Contact to the Deal through `Contact_Roles`.
 7. Merge Product Interest into the Deal.
 8. Resolve Products and attach them through the Products related list.
-9. Recalculate Deal `Stage`, `Stage1`, `State`, `Status`, primary Contact, and Amount.
+9. Recalculate Deal `Stage`, `Opportunity_Stage`, `State`, `Status`, primary Contact, and Amount.
 10. Roll up Account State / Status.
 11. Map Lead `Imported_Record_Type` to `Contacts.Contact_Source_Class` and `Accounts.Account_Source_Class`.
 12. Resolve proposed sequence routing mode first: if Deal `Sequence_Status` is empty, determine `Sequence_Action_Mode` and set `Sequence_Status = "Not Started"` before running the sequence router.
@@ -160,7 +177,7 @@ When a Contact is created or updated:
 3. Add or update the Contact in `Contact_Roles` on the Deal.
 4. Recalculate the furthest viable Contact.
 5. Set the Deal primary Contact.
-6. Recalculate Deal `Stage`, `Stage1`, `State`, and `Status`.
+6. Recalculate Deal `Stage`, `Opportunity_Stage`, `State`, and `Status`.
 7. Recalculate Product mapping and Deal Amount.
 8. Roll up Account `State` and `Status`.
 
@@ -178,7 +195,7 @@ When an Account is created or updated:
 6. Ensure all relevant Contacts are linked through `Contact_Roles`.
 7. Recalculate the furthest viable Contact.
 8. Set the Deal primary Contact.
-9. Recalculate Deal `Stage`, `Stage1`, `State`, and `Status`.
+9. Recalculate Deal `Stage`, `Opportunity_Stage`, `State`, and `Status`.
 10. Recalculate Product mapping and Deal Amount.
 11. Roll up Account `State` and `Status`.
 
@@ -195,7 +212,7 @@ When a Deal is created or updated:
 5. Ensure all relevant Contacts are linked through `Contact_Roles`.
 6. Recalculate the furthest viable Contact.
 7. Set the Deal primary Contact.
-8. Recalculate Deal `Stage`, `Stage1`, `State`, and `Status`.
+8. Recalculate Deal `Stage`, `Opportunity_Stage`, `State`, and `Status`.
 9. Recalculate Product mapping and Deal Amount.
 10. Roll up Account `State` and `Status`.
 
@@ -243,7 +260,7 @@ Rank:
 The furthest viable open Contact determines:
 
 - Deal primary Contact
-- `Deal.Stage1`
+- `Deal.Opportunity_Stage`
 - `Deal.Stage`
 
 If two open Contacts are at the same furthest Stage, keep the existing primary Contact unless it is blank.
@@ -343,7 +360,7 @@ Routing Rules:
 
 ### Gated Activation Tasks
 When the resolved mode is `Manual Review First` or unresolved, sequence automation is gated. The system creates a `Sequence Activation` Task:
-- **Subject**: `Activate sequence: {Deal Name} — {Stage1}`
+- **Subject**: `Activate sequence: {Deal Name} — {Opportunity_Stage}`
 - **Task Type**: `Sequence Activation`
 - **Blocks Sequence**: `Yes`
 - **Deal Sequence Status**: Set to `Waiting on Internal Task`
@@ -380,7 +397,7 @@ After any Lead, Contact, Account, or Deal create/update:
 - all relevant Contacts are linked through `Contact_Roles`
 - resolved Products are linked through the Products related list
 - furthest viable open Contact is the Deal primary Contact
-- `Deal.Stage1` reflects the furthest Contact’s Stage
+- `Deal.Opportunity_Stage` reflects the furthest Contact’s Stage
 - `Deal.Stage` reflects the correct Opportunity
 - `Deal.State` is Open or Lost correctly
 - `Deal.Status` is New, Working, or Closed correctly

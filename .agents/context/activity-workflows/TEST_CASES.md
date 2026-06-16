@@ -1,3 +1,18 @@
+> [!WARNING]
+> **SUPERSEDED — V5 Contact-Centric consolidation.** This document predates the
+> Contact-centric refactor and still contains legacy Deal-owned-sequence content
+> (e.g. "Deal owns sequence", `Opportunity_Stage`, Email-First/Call-First branches, retired
+> functions/workflows). Authoritative sources:
+> `docs/v5/FUNCTION_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/WORKFLOW_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/FUNCTION_CUTOVER_AND_ROLLBACK.md`,
+> `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`,
+> `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`,
+> `.agents/context/activity-workflows/SEQUENCE_TRANSITION_MATRIX.md`,
+> `.agents/context/activity-workflows/V5_CONTACT_CENTRIC_*.md`.
+> Final model: Contact owns sequence state; Deal `Opportunity_Stage` rolls up from
+> the Primary Contact via `processDeal`; 24 functions / 17 workflows.
+
 # TEST_CASES.md — Zoho CRM Automation Test Plan
 
 ## Purpose
@@ -672,7 +687,7 @@ Lead_Source = "Migration" (or empty)
 
 ## Expected
 
-- Deal Stage1 = Marketing Qualification
+- Deal Opportunity_Stage = Marketing Qualification
 - Sequence Status = Waiting on Internal Task
 - Sequence Activation Task created
 - Task blocks sequence (Blocks_Sequence = Yes)

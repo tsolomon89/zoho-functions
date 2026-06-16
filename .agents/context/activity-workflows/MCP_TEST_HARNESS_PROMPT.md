@@ -1,3 +1,18 @@
+> [!WARNING]
+> **SUPERSEDED — V5 Contact-Centric consolidation.** This document predates the
+> Contact-centric refactor and still contains legacy Deal-owned-sequence content
+> (e.g. "Deal owns sequence", `Opportunity_Stage`, Email-First/Call-First branches, retired
+> functions/workflows). Authoritative sources:
+> `docs/v5/FUNCTION_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/WORKFLOW_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/FUNCTION_CUTOVER_AND_ROLLBACK.md`,
+> `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`,
+> `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`,
+> `.agents/context/activity-workflows/SEQUENCE_TRANSITION_MATRIX.md`,
+> `.agents/context/activity-workflows/V5_CONTACT_CENTRIC_*.md`.
+> Final model: Contact owns sequence state; Deal `Opportunity_Stage` rolls up from
+> the Primary Contact via `processDeal`; 24 functions / 17 workflows.
+
 # MCP Test Harness — Prompt for a Claude Code session
 
 > Paste this file's contents to a fresh Claude Code session in the
@@ -178,7 +193,7 @@ The harness MUST NOT report a "full end-to-end PASS" unless a single test execut
 1. **Lead** (which successfully converts to Contact + Account + Deal)
 2. **Contact** (with correct Job-Title-to-Role assignment and suppression attributes)
 3. **Account** (with proper State and Status rollups)
-4. **Deal** (with correctly populated Product details, summed Amount, Stage1/Stage, and active sequence state)
+4. **Deal** (with correctly populated Product details, summed Amount, Opportunity_Stage/Stage, and active sequence state)
 5. **Call** (with correct attempt progression, stale flagging, outcome handling, and polymorphic What_Id/Who_Id linkage)
 6. **Task** (with correct creation for drafting commercials/bad data/manual reviews, proper polymorphic linkage, and verified completion handler execution)
 7. **Event / Meeting** (with correct reminder generation, reschedule, and cancellation/no-show recovery handling)
@@ -203,7 +218,7 @@ Any skipped or deferred Call, Task, or Event test prevents the session from bein
 
 **What this tests:** WF001 fires `processLead` on Lead create_or_edit.
 The function should create or link a Contact, an Account, and a Deal,
-then call the activity-layer hook so Stage1 = Marketing Qualification on the
+then call the activity-layer hook so Opportunity_Stage = Marketing Qualification on the
 new Deal triggers WF002 → sequenceRouter → Call 1.
 
 **Action:** create a Lead via `createRecords` on Leads with:
@@ -228,7 +243,7 @@ Wait 60s — Lead pipeline is heavier than Deal-only.
 - A **Deal** exists with:
   - `Account_Name` = the new Account
   - `Contact_Name` = the new Contact
-  - `Stage1` = `Marketing Qualification`
+  - `Opportunity_Stage` = `Marketing Qualification`
   - `State` = `Open`
   - `Deal_Key` is non-empty and ends with `::active`
 - The Lead's `Lead_Processing_Status` reflects completion (e.g.
@@ -291,7 +306,7 @@ Wait 45s.
 **Assertions:**
 - The Contact's `Account_Name` lookup is now populated.
 - An Account exists, with a non-empty `Account_Key`.
-- A Deal exists under that Account with `Stage1` = `Marketing Qualification`,
+- A Deal exists under that Account with `Opportunity_Stage` = `Marketing Qualification`,
   `State` = `Open`.
 - The Deal's `Contact_Roles` related list contains this Contact with
   role **End User** (per the `euTitles` list — `Product Manager` is
@@ -340,7 +355,7 @@ sentinel that automation must not revive.
 Deal_Name              = <sessionPrefix>_T5 (Duplicate)
 Account_Name           = <test account id>
 Contact_Name           = <test contact id>
-Stage1                 = "Marketing Qualification"
+Opportunity_Stage                 = "Marketing Qualification"
 State                  = "Open"
 Reason_For_Loss__s     = "Duplicate / Test Record"
 Closing_Date           = <today + 60>
@@ -348,7 +363,7 @@ Closing_Date           = <today + 60>
 Wait 30s.
 
 **Assertions:**
-- The Deal exists but its `Stage1`, `State`, `Sequence_Status` were
+- The Deal exists but its `Opportunity_Stage`, `State`, `Sequence_Status` were
   NOT mutated by automation.
 - No `Marketing Qualification Call 1` was created against this Deal.
 - The Deal's `Sequence_Status` is still its initial value (empty or
@@ -369,11 +384,11 @@ keeps a non-empty `Deal_Key`.
 
 **Action:**
 1. Create Deal A under `<test account id>`:
-   `Deal_Name = <sessionPrefix>_T6_A`, `Stage1 = Marketing Qualification`,
+   `Deal_Name = <sessionPrefix>_T6_A`, `Opportunity_Stage = Marketing Qualification`,
    `State = Open`.
 2. Wait 45s. Assert Deal A is the canonical one (Call 1 exists).
 3. Create Deal B under the same Account:
-   `Deal_Name = <sessionPrefix>_T6_B`, `Stage1 = Marketing Qualification`,
+   `Deal_Name = <sessionPrefix>_T6_B`, `Opportunity_Stage = Marketing Qualification`,
    `State = Open`.
 4. Wait 45s.
 
@@ -503,7 +518,7 @@ Contact); the rest live in `Contact_Roles`.
 ### T10 — Deal Opportunity (`Stage`) follows the furthest **non-closed** Contact
 
 **What this tests:** when multiple Contacts are linked to a Deal, the
-Deal's `Stage1` and derived `Stage` (Opportunity bucket: MQL / SQL /
+Deal's `Opportunity_Stage` and derived `Stage` (Opportunity bucket: MQL / SQL /
 FTP / RTP) reflect the **furthest-along Contact that is still Open**.
 If the furthest Contact is closed (`State = Lost` or equivalent), the
 Deal must fall back to the next-furthest **Open** Contact, not stay
@@ -514,8 +529,8 @@ stuck at the closed Contact's progress.
 canonical Deal under it (created by T9 or a fresh `processX` run).
 Establish a starting baseline:
 1. Set Contact A's "progress hints" so processDeal computes the
-   Deal at, say, `Stage1 = Demo Hosted` (`Stage` = `SQL`).
-2. Set Contact B at `Stage1 = Commercial Agreement` (`Stage` = `FTP`) —
+   Deal at, say, `Opportunity_Stage = Demo Hosted` (`Stage` = `SQL`).
+2. Set Contact B at `Opportunity_Stage = Commercial Agreement` (`Stage` = `FTP`) —
    B is "furthest" so the Deal should reflect FTP.
 3. Wait 45s.
 
@@ -529,14 +544,14 @@ Establish a starting baseline:
 > log this in the run log as a coverage gap and skip the test.
 
 **Phase A — baseline:**
-- Assert Deal `Stage1` = `Commercial Agreement`, `Stage` = `FTP`
+- Assert Deal `Opportunity_Stage` = `Commercial Agreement`, `Stage` = `FTP`
   (Contact B's progress wins because B is Open and furthest).
 
 **Phase B — close the furthest Contact:**
 - Update Contact B's `State` to `Lost`. Wait 30s.
 
 **Assertions:**
-- Deal `Stage1` reverts to `Demo Hosted`, `Stage` = `SQL` —
+- Deal `Opportunity_Stage` reverts to `Demo Hosted`, `Stage` = `SQL` —
   Contact A's progress now wins because A is the furthest Open
   Contact.
 - Deal `State` stays `Open` (still has at least one open Contact).
@@ -545,7 +560,7 @@ Establish a starting baseline:
 
 **Phase C — revive Contact B:**
 - Update Contact B's `State` back to `Open`. Wait 30s.
-- Assert Deal `Stage1` returns to `Commercial Agreement`, `Stage` =
+- Assert Deal `Opportunity_Stage` returns to `Commercial Agreement`, `Stage` =
   `FTP`.
 
 **Phase D — close all Contacts:**
@@ -611,7 +626,7 @@ createRecords on Deals with:
   Deal_Name        = <sessionPrefix>_T11
   Account_Name     = <test account id>
   Contact_Name     = <test contact id>
-  Stage1           = "Marketing Qualification"
+  Opportunity_Stage           = "Marketing Qualification"
   State            = "Open"
   Sequence_Status  = "Not Started"
   Sequence_Action_Mode = "Call First"
@@ -644,7 +659,7 @@ Wait 30s.
 
 **Action:** Update the T11 Deal:
 ```
-Stage1 = "Demo Booking"
+Opportunity_Stage = "Demo Booking"
 ```
 Wait 30s.
 
@@ -664,7 +679,7 @@ Wait 30s.
 
 ### T13 — Commercials_Status = Signed keeps the Deal Open (regression for the State=Won bug)
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T13`, Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T13`, Opportunity_Stage =
 `Commercial Agreement`, State = `Open`, Sequence_Status =
 `Waiting on Call`. Wait 15s for any incidental triggers to settle.
 
@@ -675,7 +690,7 @@ Commercials_Status = "Signed"
 Wait 30s.
 
 **Assertions:**
-- `Stage1` == `Onboarding`
+- `Opportunity_Stage` == `Onboarding`
 - `Stage` == `RTP`
 - `State` == `Open`  ← critical, NOT `Won`
 - `Status` is one of `New` or `Working` — NOT `Closed`
@@ -693,7 +708,7 @@ Wait 30s.
 
 ### T14 — Commercials_Status = Rejected → Deal Lost
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T14` at Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T14` at Opportunity_Stage =
 `Commercial Agreement`.
 
 **Action:** Update `Commercials_Status = "Rejected"`. Wait 30s.
@@ -710,13 +725,13 @@ Wait 30s.
 
 ### T15 — Demo_Outcome = Attended - Qualified
 
-**Setup:** Create a fresh Deal `<sessionPrefix>_T15` at Stage1 =
+**Setup:** Create a fresh Deal `<sessionPrefix>_T15` at Opportunity_Stage =
 `Demo Confirmation`.
 
 **Action:** Update `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
 
 **Assertions:**
-- `Stage1` == `Proposal Preparation`
+- `Opportunity_Stage` == `Proposal Preparation`
 - `Stage` == `FTP`
 - `Commercials_Status` == `Drafting`
 - One related Task exists with `Subject` containing
@@ -731,7 +746,7 @@ Wait 30s.
 
 **Depends on T11 or T12's Deal having an open `Marketing Qualification Call 1`
 or `Demo Booking Call 1`.** Use whichever exists from prior tests, or
-create a new Deal `<sessionPrefix>_T16` with Stage1 =
+create a new Deal `<sessionPrefix>_T16` with Opportunity_Stage =
 `Marketing Qualification`, wait 30s for Call 1 to appear, then proceed.
 
 **Action:** Update that Call:
@@ -741,7 +756,7 @@ Call_Outcome = "Positive"
 Wait 30s.
 
 **Assertions:**
-- Deal `Stage1` advanced one step (Marketing Qualification →
+- Deal `Opportunity_Stage` advanced one step (Marketing Qualification →
   `Demo Booking`, Demo Booking → `Demo Confirmation`, etc.)
 - Deal `Stage` updated accordingly (`MQL` → `SQL`, etc.)
 
@@ -752,7 +767,7 @@ Wait 30s.
 
 ### T17 — Neutral / No Answer creates Call N+1
 
-**Setup:** Use a fresh Deal `<sessionPrefix>_T17` with Stage1 =
+**Setup:** Use a fresh Deal `<sessionPrefix>_T17` with Opportunity_Stage =
 `Marketing Qualification`. Wait 30s for Call 1.
 
 **Action:** Update Call 1:
@@ -787,7 +802,7 @@ with a no-op field change (e.g. add a trailing space to
 **Setup:** Use the Deal from T1 or create a fresh Deal `<sessionPrefix>_T24`. Advance the Deal to `Demo Confirmation` and set `Demo_Outcome = "Attended - Qualified"`. Wait 30s.
 
 **Assertions (Creation):**
-- Verify Deal `Stage1` == `Proposal Preparation`, `Stage` == `FTP`, and `Commercials_Status` == `Drafting`.
+- Verify Deal `Opportunity_Stage` == `Proposal Preparation`, `Stage` == `FTP`, and `Commercials_Status` == `Drafting`.
 - Read Deal's related Tasks via `getRelatedRecords`. Verify exactly **one** Task exists with:
   - `Subject` containing `Draft Commercials`
   - `Task_Type` == `Draft Commercials`
@@ -803,7 +818,7 @@ with a no-op field change (e.g. add a trailing space to
 
 **Assertions (Task Completion):**
 - Assert `WF008` (Task Completion Handler) executed successfully.
-- Assert Deal `Stage1` remains `Proposal Preparation` and `Commercials_Status` remains `Drafting` (completing `Draft Commercials` does not advance the sequence prematurely).
+- Assert Deal `Opportunity_Stage` remains `Proposal Preparation` and `Commercials_Status` remains `Drafting` (completing `Draft Commercials` does not advance the sequence prematurely).
 
 **Branch Action (Data Repair Task Completion):**
 - Set `Call_Outcome = "Bad Data"` on any open Call related to an active Deal. Wait 30s.
@@ -874,7 +889,7 @@ createRecords on Deals with:
   Deal_Name        = <sessionPrefix>_T26
   Account_Name     = <test account id>
   Contact_Name     = <test contact id>
-  Stage1           = "Marketing Qualification"
+  Opportunity_Stage           = "Marketing Qualification"
   State            = "Open"
   Sequence_Status  = "Not Started"
   Lead_Source      = "Migration"
@@ -1058,7 +1073,7 @@ Run only if §2A + §2B are all green and the user wants deeper coverage.
 
 After T12, attempt to set `Call_Outcome = Positive` on the *stale*
 Marketing Qualification Call (the one that got marked `Stale = Yes`).
-Assert: the Deal's Stage1 does **not** change. The handler should drop
+Assert: the Deal's Opportunity_Stage does **not** change. The handler should drop
 the call as stale.
 
 ### T21 — Bad data → Manual Review Task
@@ -1078,7 +1093,7 @@ Pick a single canonical Deal that survived §2A. Trigger
 `processContact` on its primary Contact (no-op edit), then
 `processAccount` on its Account (no-op edit), then `processDeal` on
 the Deal itself. After each step, read the Deal back and assert that
-`Stage1`, `State`, `Status`, `Sequence_Status`, `Amount`,
+`Opportunity_Stage`, `State`, `Status`, `Sequence_Status`, `Amount`,
 `Active_Sequence_Stage`, and `Active_Sequence_Attempt` are **unchanged
 across all three triggers**. This guards against any of the four
 process functions overwriting fields owned by another layer.
@@ -1227,19 +1242,19 @@ Note for the run log: if Calls/Tasks are assigned to the service user
 and not the Deal Owner, users will not see them in their default views
 and the sequence will appear stuck.
 
-### Stage1 → Stage (Opportunity) derived value
+### Opportunity_Stage → Stage (Opportunity) derived value
 
-Every code path that writes `Stage1` should also write the matching
+Every code path that writes `Opportunity_Stage` should also write the matching
 `Stage` (Opportunity bucket). The mapping is:
 
-| Stage1 | Stage |
+| Opportunity_Stage | Stage |
 |---|---|
 | Marketing Qualification | MQL |
 | Demo Booking, Demo Confirmation, Demo Hosted | SQL |
 | Commercial Agreement | FTP |
 | Onboarding, Onboarding, Renewal | RTP |
 
-If a test ever finds `Stage1 = Onboarding` with `Stage = SQL`
+If a test ever finds `Opportunity_Stage = Onboarding` with `Stage = SQL`
 (or any other mismatch), the writing function has a bug. Spot-check
 this invariant after T12 (stage change), T13 (Signed), T15 (Demo
 Attended).
@@ -1272,7 +1287,7 @@ sensible default, or does the Deal end up with `Closing_Date = null`
 
 ### Onboarding / Renewal stages (under-tested)
 
-The 8 Stage1 values include `Onboarding` and `Renewal`, but the test
+The 8 Opportunity_Stage values include `Onboarding` and `Renewal`, but the test
 plan focuses on the pre-sign path. The post-sign path
 (`Onboarding → Onboarding → Renewal`) is exercised
 incidentally by T13 but not asserted end-to-end. If those stages have
@@ -1283,7 +1298,7 @@ cadence), add tests in a future round.
 
 T22 covers this for the activity layer. Worth verifying it also gates
 the graph layer — i.e. set `Automation_Suppressed = true` on a Deal,
-then trigger `processDeal` via a no-op edit, and assert no Stage1 /
+then trigger `processDeal` via a no-op edit, and assert no Opportunity_Stage /
 Account-rollup recompute happens. The graph layer should also
 short-circuit on the suppression flag, not just the activity layer.
 

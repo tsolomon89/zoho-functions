@@ -13,7 +13,7 @@ void automation.processDeal(string deal_id)
 	//      overwrite a manual role)
 	//   6. Resolve Products by name, attach to Deal Products related list,
 	//      sum Unit_Price into Deal.Amount
-	//   7. Update Deal primary Contact, Stage1, Stage (Opportunity), State,
+	//   7. Update Deal primary Contact, Opportunity_Stage, Stage (Opportunity Type), State,
 	//      Status
 	//   8. Roll up Account State / Status
 	//
@@ -29,7 +29,7 @@ void automation.processDeal(string deal_id)
 	dealRecord = zoho.crm.getRecordById("Deals", cleanId.toLong());
 	if(dealRecord.get("id") == null) { return; }
 
-	stageRanks = {"Marketing Qualification":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 
 	// Title → Contact_Role mapping (from .agents/context/field_mapping/Jurnii Personas - Job Tile to Contact Role Mapping.csv).
 	// Precedence on duplicate titles (per existing pattern): End User > Influencer > Decision Maker.
@@ -119,7 +119,7 @@ void automation.processDeal(string deal_id)
 	lowercasePIList = List();
 
 	maxRank = 0;
-	bestStage = "Marketing Qualification";
+	bestStage = "Marketing Consent";
 	bestOpp = "MQL";
 	anyContactOpen = false;
 	openContactIdsAtMax = List();
@@ -142,14 +142,14 @@ void automation.processDeal(string deal_id)
 			if(fullC != null && fullC.get("id") != null)
 			{
 				cState = ifnull(fullC.get("State"), "Open").toString();
-				cStage = ifnull(fullC.get("Stage"), "Marketing Qualification").toString();
+				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
 				cJobTitleLoop = ifnull(fullC.get("Job_Title"), "").toString().trim();
 				contactJobTitleMap.put(cId, cJobTitleLoop);
 				contactRoleMap.put(cId, ifnull(fullC.get("Contact_Role1"), "Decision Maker").toString());
 				contactStageMap.put(cId, cStage);
 				
 				cDates = Map();
-				cDates.put("Marketing Qualification", ifnull(fullC.get("Contact_Completed_Marketing_Qualification_At"), ""));
+				cDates.put("Marketing Consent", ifnull(fullC.get("Contact_Completed_Marketing_Qualification_At"), ""));
 				cDates.put("Demo Booking", ifnull(fullC.get("Contact_Completed_Demo_Booking_At"), ""));
 				cDates.put("Demo Confirmation", ifnull(fullC.get("Contact_Completed_Demo_Confirmation_At"), ""));
 				cDates.put("Demo Hosted", ifnull(fullC.get("Contact_Completed_Demo_Hosted_At"), ""));
@@ -582,23 +582,23 @@ void automation.processDeal(string deal_id)
 	else if(hasContacts)
 	{
 		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		// Never-regress Stage1/Stage: handleCommercialsStatusChange/handleDemoOutcome/etc.
-		// may have advanced Stage1 past the bestStage derived from Contact stages. Only
-		// ADVANCE Stage1, never roll backward.
-		currentStage1 = ifnull(targetDeal.get("Stage1"), "").toString();
-		currentRank = ifnull(stageRanks.get(currentStage1), 0).toLong();
+		// Never-regress Opportunity_Stage: handleCommercialsStatusChange/handleDemoOutcome/
+		// etc. may have advanced Opportunity_Stage past the bestStage derived from Contact
+		// stages. Only ADVANCE Opportunity_Stage, never roll backward.
+		currentOppStage = ifnull(targetDeal.get("Opportunity_Stage"), "").toString();
+		currentRank = ifnull(stageRanks.get(currentOppStage), 0).toLong();
 		bestRank = ifnull(stageRanks.get(bestStage), 0).toLong();
 		if(currentRank < bestRank)
 		{
-			dUpd.put("Stage1", bestStage);
+			dUpd.put("Opportunity_Stage", bestStage);
 			dUpd.put("Stage", bestOpp);
 		}
 	}
 
 	// Stage completion date dynamic stamping
-	stagesList = {"Marketing Qualification", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
+	stagesList = {"Marketing Consent", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
 	stageFields = Map();
-	stageFields.put("Marketing Qualification", "Marketing_Qualification_Completed_At");
+	stageFields.put("Marketing Consent", "Marketing_Qualification_Completed_At");
 	stageFields.put("Demo Booking", "Demo_Booking_Completed_At");
 	stageFields.put("Demo Confirmation", "Demo_Confirmation_Completed_At");
 	stageFields.put("Demo Hosted", "Demo_Hosted_Completed_At");
@@ -607,8 +607,8 @@ void automation.processDeal(string deal_id)
 	stageFields.put("Onboarding", "Onboarding_Completed_At");
 	stageFields.put("Renewal", "Renewal_Completed_At");
 
-	finalStage1 = ifnull(dUpd.get("Stage1"), ifnull(targetDeal.get("Stage1"), "Marketing Qualification")).toString();
-	finalRank = ifnull(stageRanks.get(finalStage1), 1).toLong();
+	finalOppStage = ifnull(dUpd.get("Opportunity_Stage"), ifnull(targetDeal.get("Opportunity_Stage"), "Marketing Consent")).toString();
+	finalRank = ifnull(stageRanks.get(finalOppStage), 1).toLong();
 
 	for each stageItem in stagesList
 	{
@@ -643,24 +643,10 @@ void automation.processDeal(string deal_id)
 		info "Deal updateRecord resp: " + dealUpdResp;
 	}
 
-	postState = ifnull(dUpd.get("State"), ifnull(targetDeal.get("State"), "Open")).toString();
-	if(canonicalDealId != "" && postState == "Open")
-	{
-		latestDeal = zoho.crm.getRecordById("Deals", canonicalDealId.toLong());
-		currSeqStatus = ifnull(latestDeal.get("Sequence_Status"), "").toString();
-		if(currSeqStatus == "")
-		{
-			proposedMode = automation.resolveSequenceRoute(canonicalDealId);
-			updMode = Map();
-			updMode.put("Sequence_Action_Mode", proposedMode);
-			updMode.put("Sequence_Status", "Not Started");
-			triggerMapMode = Map();
-			triggerMapMode.put("trigger", List());
-			zoho.crm.updateRecord("Deals", canonicalDealId.toLong(), updMode, triggerMapMode);
-		}
-		info "sequenceRouter hook (processDeal): canonicalDealId=" + canonicalDealId;
-		automation.sequenceRouter(canonicalDealId);
-	}
+	// processDeal maintains commercial/contract data and the Primary Contact rollup
+	// only. It does NOT own individual sequence progression: no Deal sequence
+	// bootstrap, no sequenceRouter call. The Contact owns its sequence; Deal
+	// Opportunity_* fields roll up from the Primary Contact via routeContactSequence.
 
 	// ---- 8. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
@@ -693,6 +679,6 @@ void automation.processDeal(string deal_id)
 	}
 	if(accUpd.size() > 0)
 	{
-		zoho.crm.updateRecord("Accounts", accountId.toLong(), accUpd);
+		zoho.crm.updateRecord("Accounts", accountId.toLong(), accUpd, {"trigger": List()});
 	}
 }

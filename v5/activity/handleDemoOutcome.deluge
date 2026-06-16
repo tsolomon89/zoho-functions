@@ -1,45 +1,30 @@
 void automation.handleDemoOutcome(string dealIdStr)
 {
 	// =========================================================================
-	// handleDemoOutcome
+	// handleDemoOutcome  (thin, token-producing — WF005)
 	//
-	// Triggered by WF005 when Deal.Demo_Outcome changes. Implements
-	// FUNCTION_SPEC.md §11 outcome branches.
+	// Fires when Deal.Demo_Outcome changes. A Deal has no activity Who_Id, so the
+	// Contact is the Primary Contact (Deal.Contact_Name). Updates only Deal-owned
+	// demo fields, then invokes routeContactSequence exactly once with a demo:* token
+	// (which owns the Stage transition, supersede, and any boundary email).
 	//
-	//   Attended - Qualified      → Stage1=Proposal Preparation, send Post-Demo email,
-	//                               Commercials_Status=Drafting, create
-	//                               "Draft Commercials" Task.
-	//   Attended - Needs Follow-up→ Stage1=Demo Hosted, createStageCall.
-	//   Attended - Not Qualified  → Deal Lost/Closed, Reason "Demo Disqualified".
-	//   No Show                   → send No-Show recovery email, create recovery
-	//                               Call at Demo Confirmation stage.
-	//   Rescheduled               → recompute Demo_Reminder_Send_At from Event
-	//                               (handleMeetingEvent owns the calculation).
-	//   Cancelled                 → Stage1=Demo Booking, supersede current.
-	//   Commercials Requested     → Commercials_Status=Drafting + task (same as
-	//                               Attended - Qualified path without auto email).
-	//   Follow-up Required        → createStageCall Demo Hosted attempt 1.
+	//   Attended - Qualified / Commercials Requested -> demo:qualified
+	//        (Deal: Commercials_Status=Drafting, Demo_Status=Completed)
+	//   Attended - Needs Follow-up / Follow-up Required -> demo:followup
+	//   Attended - Not Qualified -> demo:not_qualified (Contact+Deal loss in router)
+	//   No Show   -> demo:noshow      Cancelled -> demo:cancelled
+	//   Rescheduled -> demo:rescheduled (no sequence change; stamp Demo_Status only)
 	// =========================================================================
 
-	info "VERSION: v5-round16-3644727";
+	info "VERSION: v5-contact-centric";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	automation.logAutomationEvent("handleDemoOutcome", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
-
-	if(dealId == 0)
-	{
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", "", "guard", "skip_no_id", null);
-		return;
-	}
+	if(dealId == 0) { return; }
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
-	if(isNull(deal) || isNull(deal.get("id")))
-	{
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "guard", "skip_not_found", null);
-		return;
-	}
-
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
 	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
 	{
 		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
@@ -47,107 +32,67 @@ void automation.handleDemoOutcome(string dealIdStr)
 	}
 
 	demoOutcome = ifnull(deal.get("Demo_Outcome"), "").toString();
-	currentStage = ifnull(deal.get("Stage1"), "").toString();
-	triggerMap = Map();
-	triggerMap.put("trigger", List());
-
-	if(demoOutcome == "Attended - Qualified")
+	if(demoOutcome == "")
 	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Proposal Preparation");
-		dealUpd.put("Stage", "FTP");
-		dealUpd.put("Commercials_Status", "Drafting");
-		dealUpd.put("Demo_Status", "Completed");
-		// Suppress workflow cascade so WF001d/processDeal can't revert Stage1.
-		// Explicitly route the new stage's sequence (supersedes prior Demo Booking sequence).
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
-		automation.sendSequencedEmail(dealId.toString(), "Proposal Preparation", 1, "demo_attended_qualified");
-
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "attended_qualified", "drafting_commercials", {"prev_stage":currentStage});
+		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "guard", "skip_no_outcome", null);
 		return;
 	}
 
-	if(demoOutcome == "Attended - Needs Follow-up" || demoOutcome == "Follow-up Required")
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	// map outcome -> (token, Deal-owned field updates)
+	token = "";
+	dUpd = Map();
+	if(demoOutcome == "Attended - Qualified" || demoOutcome == "Commercials Requested")
 	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Demo Hosted");
-		dealUpd.put("Stage", "SQL");
-		dealUpd.put("Demo_Status", "Completed");
-		dealUpd.put("Sequence_Status", "Not Started");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "needs_follow_up", "demo_hosted_call_1", null);
+		token = "demo:qualified";
+		dUpd.put("Demo_Status", "Completed");
+		dUpd.put("Commercials_Status", "Drafting");
+	}
+	else if(demoOutcome == "Attended - Needs Follow-up" || demoOutcome == "Follow-up Required")
+	{
+		token = "demo:followup";
+		dUpd.put("Demo_Status", "Completed");
+	}
+	else if(demoOutcome == "Attended - Not Qualified")
+	{
+		token = "demo:not_qualified";
+		dUpd.put("Demo_Status", "Completed");
+	}
+	else if(demoOutcome == "No Show")
+	{
+		token = "demo:noshow";
+		dUpd.put("Demo_Status", "No Show");
+	}
+	else if(demoOutcome == "Cancelled")
+	{
+		token = "demo:cancelled";
+		dUpd.put("Demo_Status", "Cancelled");
+	}
+	else if(demoOutcome == "Rescheduled")
+	{
+		token = "demo:rescheduled";
+		dUpd.put("Demo_Status", "Rescheduled");
+	}
+	else
+	{
+		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "unknown_outcome", demoOutcome, null);
 		return;
 	}
 
-	if(demoOutcome == "Attended - Not Qualified")
+	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
+
+	if(primaryId == "")
 	{
-		dealUpd = Map();
-		dealUpd.put("State", "Lost");
-		dealUpd.put("Status", "Closed");
-		dealUpd.put("Sequence_Status", "Completed");
-		dealUpd.put("Demo_Status", "Completed");
-		// Reason_For_Loss__s is read-only via API; write the writable companion Lost_Reasons.
-		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "")
-		{
-			dealUpd.put("Lost_Reasons", "Demo Disqualified");
-		}
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "not_qualified", "deal_lost", null);
+		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "guard", "no_primary_contact", {"outcome":demoOutcome});
 		return;
 	}
 
-	if(demoOutcome == "No Show")
-	{
-		automation.supersedeOldSequence(dealId.toString());
-		automation.sendSequencedEmail(dealId.toString(), "Demo Confirmation", 1, "demo_no_show");
-		
-		dealUpd = Map();
-		dealUpd.put("Demo_Status", "No Show");
-		dealUpd.put("Sequence_Status", "Not Started");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-
-		automation.sequenceRouter(dealId.toString());
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "no_show", "recovery_started", null);
-		return;
-	}
-
-	if(demoOutcome == "Rescheduled")
-	{
-		dealUpd = Map();
-		dealUpd.put("Demo_Status", "Rescheduled");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "rescheduled", "awaiting_event_recalc", null);
-		return;
-	}
-
-	if(demoOutcome == "Cancelled")
-	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Demo Booking");
-		dealUpd.put("Stage", "SQL");
-		dealUpd.put("Demo_Status", "Cancelled");
-		dealUpd.put("Sequence_Status", "Not Started");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "cancelled", "back_to_demo_booking", null);
-		return;
-	}
-
-	if(demoOutcome == "Commercials Requested")
-	{
-		dealUpd = Map();
-		dealUpd.put("Stage1", "Proposal Preparation");
-		dealUpd.put("Stage", "FTP");
-		dealUpd.put("Commercials_Status", "Drafting");
-		dealUpd.put("Demo_Status", "Completed");
-		dealUpd.put("Sequence_Status", "Not Started");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, triggerMap);
-		automation.sequenceRouter(dealId.toString());
-		automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "commercials_requested", "drafting_task_created", null);
-		return;
-	}
-
-	automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "unknown_outcome", demoOutcome, null);
+	automation.routeContactSequence(primaryId, dealId.toString(), token);
+	automation.logAutomationEvent("handleDemoOutcome", "Deals", dealId.toString(), "routed", token, {"contact":primaryId});
 }

@@ -30,7 +30,7 @@ Deals own the commercial state machine.
 |---|---|---|---|---|
 | Label | API Name | Type | Values / Notes | Required |
 |---|---|---|---|---|
-| Stage | `Stage1` | Picklist | Marketing Qualification; Demo Booking; Demo Confirmation; Demo Hosted; Commercial Agreement; Onboarding; Onboarding; Renewal | Yes |
+| Stage | `Opportunity_Stage` | Picklist | Marketing Qualification; Demo Booking; Demo Confirmation; Demo Hosted; Commercial Agreement; Onboarding; Onboarding; Renewal | Yes |
 | Stage Rank | `(derived)` | Number | 1-8 | Yes |
 | Opportunity | `Stage` | Picklist | MQL; SQL; FTP; RTP | Yes |
 | Sequence Status | `Sequence_Status` | Picklist | Not Started; Initialized; Waiting on Call; Waiting on Meeting; Waiting on Email Trigger; Waiting on Internal Task; Paused; Deferred; Manual Only; Completed; Superseded; Suppressed | Yes |

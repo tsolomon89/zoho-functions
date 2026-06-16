@@ -1,3 +1,18 @@
+> [!WARNING]
+> **SUPERSEDED — V5 Contact-Centric consolidation.** This document predates the
+> Contact-centric refactor and still contains legacy Deal-owned-sequence content
+> (e.g. "Deal owns sequence", `Opportunity_Stage`, Email-First/Call-First branches, retired
+> functions/workflows). Authoritative sources:
+> `docs/v5/FUNCTION_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/WORKFLOW_CONSOLIDATION_MATRIX.md`,
+> `docs/v5/FUNCTION_CUTOVER_AND_ROLLBACK.md`,
+> `.agents/context/activity-workflows/WORKFLOW_TRIGGER_MAP.md`,
+> `.agents/context/activity-workflows/WORKFLOW_CONFIGURATION_CHECKLIST.md`,
+> `.agents/context/activity-workflows/SEQUENCE_TRANSITION_MATRIX.md`,
+> `.agents/context/activity-workflows/V5_CONTACT_CENTRIC_*.md`.
+> Final model: Contact owns sequence state; Deal `Opportunity_Stage` rolls up from
+> the Primary Contact via `processDeal`; 24 functions / 17 workflows.
+
 # VERIFICATION_PLAN.md — End-to-end verification before production rollout
 
 ## Purpose
@@ -37,7 +52,7 @@ Goal: confirm the v5 → activity hook fires without workflow help.
 - [ ] Then `automation_event func=sequenceRouter ... action=bootstrap outcome=success`.
 - [ ] In the CRM, navigate to the canonical Deal that was created.
       Verify:
-      - [ ] `Active_Sequence_Stage` = `Marketing Qualification` (or the Stage1
+      - [ ] `Active_Sequence_Stage` = `Marketing Qualification` (or the Opportunity_Stage
             value set by processLead)
       - [ ] `Sequence_Status` and initial activity reflect the resolved `Sequence_Action_Mode`. For example:
             - If mode is `Manual Review First` (e.g. unknown source): `Sequence_Status` = `Waiting on Internal Task` and a `Sequence Activation` Task exists (`Sequence_Managed` = Yes, `Blocks_Sequence` = Yes).
@@ -49,7 +64,7 @@ Goal: confirm the v5 → activity hook fires without workflow help.
 Walk the 8 modules in `zoho_custom_fields_by_module.csv` once more,
 now in the sandbox UI:
 
-- [ ] **Deals**: Stage1, Stage, State, Status, all 35 new custom fields
+- [ ] **Deals**: Opportunity_Stage, Stage, State, Status, all 35 new custom fields
       listed in the CSV.
 - [ ] **Calls**: all 11 fields (10 spec + 1 `Stale`).
 - [ ] **Events**: all 9 fields.
@@ -68,16 +83,16 @@ Order from `WORKFLOW_CONFIGURATION_CHECKLIST.md`:
 
 - [ ] **WF001** Lead Processor — on. Re-run T1 (new Lead) below.
 - [ ] **WF002** Deal Sequence Router — on. Manually create a Deal with
-      `Stage1` set, `Sequence_Status` empty; confirm the correct activity (Activation Task, Call, Email, or Task) appears.
-- [ ] **WF003** Stage Change Router — on. Manually change Stage1 on the
+      `Opportunity_Stage` set, `Sequence_Status` empty; confirm the correct activity (Activation Task, Call, Email, or Task) appears.
+- [ ] **WF003** Stage Change Router — on. Manually change Opportunity_Stage on the
       Deal above; confirm old sequence Tasks go `Deferred` (if sequence-managed and matching old stage) and Calls go `Stale`, and new stage sequence bootstraps.
 - [ ] **WF006** Call Outcome Handler — on. Set Call_Outcome = No Answer;
       confirm email sent (look at Last_Email_Template), Call 2 created.
 - [ ] **WF004** Commercials Status Handler — on. Set Commercials_Status =
-      Sent; confirm Stage1 → Commercial Agreement, Opportunity → FTP,
+      Sent; confirm Opportunity_Stage → Commercial Agreement, Opportunity → FTP,
       Commercial Agreement Terms Email sent, and sequenceRouter bootstraps the Commercial Agreement sequence (e.g. Call First).
 - [ ] **WF005** Demo Outcome Handler — on. Set Demo_Outcome =
-      Attended - Qualified; confirm Stage1 → Proposal Preparation,
+      Attended - Qualified; confirm Opportunity_Stage → Proposal Preparation,
       Commercials_Status = Drafting, sequenceRouter bootstraps the stage (creates Draft Commercials task), and post-demo email is sent (mapped via demo_attended_qualified to Demo Hosted Post-Demo Email).
 - [ ] **WF007** Event / Meeting Handler — on. Test via Event creation, reschedule, and cancellation (T8).
 - [ ] **WF008** Task Completion Handler — on. Test via Task completion (T9).
@@ -98,11 +113,11 @@ The numbered tests below correspond 1-to-1 with the cases in
       bootstrapped sequence activity (e.g. Call 1) only, no chase email.
 - [ ] **T6** Demo Booking Call 1 = No Answer → Demo Booking Email 1 sent,
       Call 2 created, attempt incremented.
-- [ ] **T7** Demo Booking Call 1 = Positive → Stage1 = Demo Confirmation, old
+- [ ] **T7** Demo Booking Call 1 = Positive → Opportunity_Stage = Demo Confirmation, old
       sequence superseded, new Demo Confirmation sequence starts; no stale
       Demo Booking Email 1 fires.
 - [ ] **T8** Demo Event Lifecycle (Scheduled, Rescheduled, Confirmed, Cancelled, No Show)
-      - [ ] Create Event fixture for Deal at Demo Confirmation Stage1.
+      - [ ] Create Event fixture for Deal at Demo Confirmation Opportunity_Stage.
       - [ ] Assert: Event exists, linked to Deal via `What_Id` (`$se_module` = Deals) and Contact via `Who_Id`.
       - [ ] Assert: Deal `Demo_Meeting_ID`, `Demo_Status` = Scheduled, `Demo_Start_DateTime`, `Demo_End_DateTime`, and `Demo_Reminder_Send_At` are populated.
       - [ ] Assert: Event `Reminder_Send_At` is populated.
@@ -113,7 +128,7 @@ The numbered tests below correspond 1-to-1 with the cases in
 - [ ] **T9** Task lifecycle (Creation & Completion)
       - [ ] Advance Deal to Demo Confirmation, set `Demo_Outcome` = "Attended - Qualified".
       - [ ] Assert: `Draft Commercials` Task exists, linked to Deal (`What_Id` + `$se_module` = "Deals"), linked to primary Contact (`Who_Id`), owned by Deal Owner.
-      - [ ] Complete the Task. Assert `WF008` fires, but does not advance Stage1/Commercials_Status immediately.
+      - [ ] Complete the Task. Assert `WF008` fires, but does not advance Opportunity_Stage/Commercials_Status immediately.
       - [ ] Branch check: Trigger `Call_Outcome` = "Bad Data". Assert sequence Paused and `Data Repair` Task created.
       - [ ] Complete `Data Repair` Task. Assert `WF008` fires, sequence resumes, and Call 1 created.
 - [ ] **T10** Commercials Status = Sent → Stage Commercial Agreement,
@@ -158,7 +173,7 @@ For each of T1, T6, T10:
       send is logged. Check `Last_Email_Template` on the Deal — it must
       not equal "Demo Booking Email 1" with a timestamp after the Stage
       change.
-- [ ] Repeat with a manual Stage change: set Stage1 from `Demo Booking`
+- [ ] Repeat with a manual Stage change: set Opportunity_Stage from `Demo Booking`
       to `Demo Confirmation` directly; confirm same guard.
 
 ## 7 — Production rollout sequence
@@ -185,7 +200,7 @@ Only proceed to production once steps 0-6 pass in sandbox.
 - [ ] Build a dashboard view of Deals where:
       - `Sequence_Status` = `Suppressed` and `Suppression_Reason` is
         empty (config drift).
-      - `Active_Sequence_Stage` != `Stage1` and
+      - `Active_Sequence_Stage` != `Opportunity_Stage` and
         `Sequence_Superseded_At` is empty (failed supersede).
       - `Sequence_Status` = `Waiting on Email Trigger` and
         `Next_Action_Due_Date` < now (stuck post-call chain).

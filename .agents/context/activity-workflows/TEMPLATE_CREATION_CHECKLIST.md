@@ -153,7 +153,7 @@ Common merge fields the resolved-template body should be able to use
 | Contact full name | `${Contacts.Full_Name}` |
 | Account name | `${Contacts.Account_Name}` or `${Deals.Account_Name}` |
 | Deal name | `${Deals.Deal_Name}` |
-| Stage | `${Deals.Stage1}` |
+| Stage | `${Deals.Opportunity_Stage}` |
 | Opportunity | `${Deals.Stage}` |
 | Demo Start | `${Deals.Demo_Start_DateTime}` |
 | Sender first name | `${User.First_Name}` |

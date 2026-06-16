@@ -95,7 +95,7 @@ The automation logic is triggered by Zoho CRM Workflow Rules. All rules are conf
 ### v5 Workflows
 *   **Lead (WF001)**: Triggers `v5/processLead.deluge` to convert leads and resolve proposed routes.
 *   **Deal Sequence Router (WF002)**: Triggers `v5/activity/sequenceRouter.deluge` when `Sequence_Status = "Not Started"`. Resolves and bootstraps the sequence mode (Task-gating unresolved/Manual modes, creating Calls for Call-first, sending Email 1 + creating follow-up Call 1 for Email-first).
-*   **Deal Stage Change Router (WF003)**: Triggers `v5/activity/sequenceRouter.deluge` on `Stage1` changes to supersede the old sequence and restart with the default action mode for the new Stage.
+*   **Deal Stage Change Router (WF003)**: Triggers `v5/activity/sequenceRouter.deluge` on `Opportunity_Stage` changes to supersede the old sequence and restart with the default action mode for the new Stage.
 *   **Task Completion Handler (WF008)**: Triggers `v5/activity/handleTaskCompletion.deluge` on task completion or outcome setting. Handles `Sequence Activation` task outcomes to confirm and activate routes.
 *   **Call Outcome Handler (WF006)**: Triggers `v5/activity/handleCallOutcome.deluge` when sequence calls are completed. Handles progression semantics for Call-first and Email-first cadences.
 *   **Date-Based Follow-Up Router (WF010)**: Triggers `v5/activity/sequenceRouter.deluge` at `Next_Action_Due_Date` or `Sequence_Paused_Until`.

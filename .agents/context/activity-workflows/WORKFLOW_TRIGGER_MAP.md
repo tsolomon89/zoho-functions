@@ -1,521 +1,140 @@
-# WORKFLOW_TRIGGER_MAP.md — Zoho Workflow Rules and Function Triggers
+# WORKFLOW_TRIGGER_MAP.md — Zoho Workflow Rules and Function Triggers (V5 Contact-Centric)
 
-## Purpose
+Workflows are the trigger layer; functions are the logic layer. This reflects the
+**consolidated 17-rule / 24-function** architecture. See `docs/v5/` for the
+function & workflow consolidation matrices and the cutover/rollback runbook.
 
-This document defines the workflows required to run the CRM automation.
+## Architecture summary
 
-Workflows are the trigger layer.
+```text
+Leads     -> convert + build Contact/Account/Deal graph (then hand to Contact)
+Contacts  -> normalization + activation owner; reconciliation via processDeal
+Accounts  -> thin: Account_Key + canonical Deal -> processDeal
+Deals     -> sole reconciliation/rollup owner; commercial + demo handlers
+Calls     -> outcome -> Contact transition
+Tasks     -> completion -> activation / resume; scheduled-email wake-up
+Events    -> demo meeting mirror + first-link confirmation
+Emails    -> reply/bounce/passive interruption (5 wrapper rules)
+```
 
-Functions are the logic layer.
+**The Contact owns its sequence state** (`Sequence_Type/State/Stage/Step`). The
+Deal is the shared commercial container; `Deal.Opportunity_Stage/State/Status`
+roll up from the Primary Contact (`Deal.Contact_Name`) via `processDeal`. There is
+no Deal sequence state machine (WF002/WF003/WF010a/WF010b are retired).
 
 ---
 
-## Architecture Summary
+## Graph / reconciliation rules
 
-```text
-Deals  -> sequence/state machine routing
-Calls  -> outcome-driven email/call/stage transitions
-Events -> meeting/demo scheduling and outcome handling
-Tasks  -> non-call manual work completion
-Emails -> reply/bounce/no-reply interruption handling
-Leads  -> conversion/upsert trigger only
-Contacts -> consent/profile update trigger only
-```
+### WF001 — Lead Processor
+- Module: **Leads** · Trigger: Created or Edited
+- Criteria: `Lead_Processing_Status` empty OR `Not Processed`; `Ready_for_Conversion` = true; `Email` not empty; `Automation_Suppressed` != true
+- Function: `processLead(lead_id)` ← `${Leads.id}`
+- Result: builds Contact/Account/Deal graph, maps Lead data, then `processContact` → `processDeal`. Creates the Activation Task (no sequence auto-start).
 
----
+### WFC-Contact — Contact Processor (narrowed)
+- Module: **Contacts** · Trigger: Created **OR** Edited and a specific field changed
+- Field-change criteria (edit): `Stage`, `State`, `Status`, `Sequence_Type`, `Sequence_State`, `Sequence_Stage`, `Sequence_Step`, `Account_Name`, `Contact_Role1`
+- Criteria: `Automation_Suppressed` != true (if present on Contacts)
+- Function: `processContact(contact_id)` ← `${Contacts.id}`
+- Result: normalize defaults (only fills blanks), resolve canonical Deal, `processDeal`, then create/reuse the Activation Task. Idempotent. **Must not** fire on every Contact edit (recursion safety — processor writes are suppressed).
 
-# WF001 — Lead Processor
+### WFC-Account — Account Processor
+- Module: **Accounts** · Trigger: Created or Edited
+- Function: `processAccount(account_id)` ← `${Accounts.id}`
+- Result: stamp `Account_Key`, resolve/create canonical Deal, `processDeal`.
 
-## Module
-
-Leads
-
-## Trigger
-
-Created or Edited
-
-## Criteria
-
-```text
-Lead Processing Status is empty OR Lead Processing Status = Not Processed
-Ready for Conversion = true
-```
-
-Optional criteria:
-
-```text
-Email is not empty
-Automation Suppressed != true
-```
-
-## Function
-
-```text
-processLeadOrRecord(lead_id, "Leads")
-```
-
-## Purpose
-
-Convert or upsert Contact, Account, Deal, Product associations, Deal value, Stage, and Opportunity. Then initialize Deal sequence.
-
-## Notes
-
-Leads are not the long-term state machine. After a Deal exists, the Deal owns the process.
+### WFC-Deal — Deal Processor (sole rollup owner)
+- Module: **Deals** · Trigger: Created or Edited
+- Function: `processDeal(deal_id)` ← `${Deals.id}`
+- Result: Contacts gather, Contact Roles, Products, Primary Contact, `Opportunity_Stage/State/Status` rollup + `Stage` (Opportunity Type) derivation, Account rollup. All writes suppressed.
 
 ---
 
-# WF002 — Deal Sequence Router
+## Commercial / demo handlers (Deal-driven; act on Primary Contact)
 
-## Module
+### WF004 — Commercial Status Handler
+- Module: **Deals** · Trigger: Field Update — `Commercials_Status` changed
+- Function: `handleCommercialsStatusChange(deal_id)` ← `${Deals.id}`
+- Tokens: Sent → `commercial:sent`; Signed → `commercial:signed`; Rejected → `commercial:rejected`. Discussed/Intent/Deferred stamp only.
 
-Deals
-
-## Trigger
-
-Created or Edited
-
-## Criteria
-
-```text
-Stage is not empty
-Sequence Status = Not Started
-Automation Suppressed != true
-```
-
-Optional extra criteria:
-
-```text
-Opportunity is not empty
-```
-
-## Function
-
-```text
-sequenceRouter(deal_id)
-```
-
-## Purpose
-
-Initialize the correct Stage sequence based on the resolved Sequence Action Mode.
-
-## Expected behavior
-
-```text
-Sequence_Action_Mode = Manual Review First
-→ create Sequence Activation Task
-→ Sequence Status = Waiting on Internal Task
-```
-
-```text
-Sequence_Action_Mode = Call First
-→ create Stage Call 1
-→ Sequence Status = Waiting on Call
-```
-
-```text
-Sequence_Action_Mode = Email First
-→ send Stage Email 1 + create Stage Call 1 (due in 2 business days)
-→ Sequence Status = Waiting on Call
-```
+### WF005 — Demo Outcome Handler
+- Module: **Deals** · Trigger: Field Update — `Demo_Outcome` changed
+- Function: `handleDemoOutcome(deal_id)` ← `${Deals.id}`
+- Tokens: Qualified/Commercials Requested → `demo:qualified`; Needs Follow-up → `demo:followup`; Not Qualified → `demo:not_qualified`; No Show → `demo:noshow`; Cancelled → `demo:cancelled`; Rescheduled → `demo:rescheduled`.
 
 ---
 
-# WF003 — Deal Stage Change Router
+## Activity handlers (Contact from Who_Id, Deal from What_Id)
 
-## Module
+### WF006 — Call Outcome Handler
+- Module: **Calls** · Trigger: Created or Edited
+- Criteria: `Sequence_Managed`=Yes; `What_Id` not empty AND `$se_module`=Deals; `Call_Outcome` not empty; `Stale`!=Yes
+- Function: `handleCallOutcome(call_id)` ← `${Calls.id}` → `call:*` tokens.
 
-Deals
+### WF007 — Meeting Handler
+- Module: **Events** · Trigger: Created or Edited
+- Criteria: `Sequence_Managed`=Yes (or Meeting_Type=Demo); `What_Id` not empty AND `$se_module`=Deals
+- Function: `handleMeetingEvent(event_id)` ← `${Events.id}`. Emits `meeting:created` **only on first link**; mirrors demo fields + reminder otherwise; No Show delegates to `handleDemoOutcome`.
 
-## Trigger
-
-Edited
-
-## Criteria
-
-```text
-Stage changed
-Automation Suppressed != true
-```
-
-## Function
-
-```text
-sequenceRouter(deal_id)
-```
-
-## Purpose
-
-When Stage changes:
-
-1. Supersede old sequence.
-2. Stop stale scheduled actions where possible.
-3. Reset sequence state for new Stage.
-4. Bootstrap new sequence (Call 1, Email 1, or Task First blocking Task depending on stage action mode).
-
-Only one active Stage sequence is allowed per Deal.
+### WF008 — Task Completion Handler
+- Module: **Tasks** · Trigger: Field Update — `Status`=Completed OR `Task_Outcome` not empty
+- Criteria: `Sequence_Managed`=Yes; `What_Id` not empty AND `$se_module`=Deals
+- Function: `handleTaskCompletion(task_id)` ← `${Tasks.id}`
+- Guards: `Task_Type`="Email Sent" → return (audit); Description contains `ScheduledSend|` → return. Activation outcomes map to `activate:*`; Data Repair/Review Reply/Enrichment → resume.
 
 ---
 
-# WF004 — Deal Commercial Status Handler
+## Email event rules (5 independent sub-rules — wrapper architecture)
 
-## Module
+Each outgoing-email event requires its **own** rule bound to a dedicated thin
+wrapper. The wrapper hardcodes the event type in code (the Emails module exposes
+no Id merge field and UI arg mappings are immutable post-save, so a single shared
+function with a static-literal `eventType` is typo-prone and unfixable). Each
+wrapper has only the two auto-mappable merge fields and delegates to the shared
+`handleEmailEvent`. **Do not collapse WF009a–e into one rule.**
 
-Deals
+| Rule | Trigger | Wrapper |
+|---|---|---|
+| WF009a | Outgoing → Replied | `handleEmailReplied` |
+| WF009b | Outgoing → Bounced | `handleEmailBounced` |
+| WF009c | Outgoing → Unreplied (3d) | `handleEmailNotReplied` |
+| WF009d | Outgoing → Opened & Unreplied (3d) | `handleEmailOpenedNotReplied` |
+| WF009e | Outgoing → Clicked | `handleEmailClicked` |
 
-## Trigger
-
-Edited
-
-## Criteria
-
-```text
-Commercials Status changed
-```
-
-## Function
-
-```text
-handleCommercialsStatusChange(deal_id)
-```
-
-## Purpose
-
-Important transition:
-
-```text
-Commercials Status = Sent
-→ Stage = Commercial Agreement
-→ Opportunity = FTP
-→ Commercial Agreement At = now if empty
-→ Route sequence via sequenceRouter (runs Call First mode by default)
-```
-
-FTP begins only after commercial terms have actually been sent.
+- Arg mapping (each): `relatedDealIdStr` ← Deals - Deal Id; `relatedContactIdStr` ← Contacts - Contact Id.
+- Criteria (each): `Related Deal` not empty.
+- Effect: reply → Review Reply blocking Task; bounce → Data Repair blocking Task + Contact `Profile_Completion_Status`="Needs Enrichment"; passive → log only. Never advances the Deal.
 
 ---
 
-# WF005 — Deal Demo Outcome Handler
+## Date-based rules (native scheduled execution, same pattern as the old WF010)
 
-## Module
+### WF010c — Demo Reminder
+- Module: **Deals** · Trigger: Date — `Demo_Reminder_Send_At`
+- Criteria: `Automation_Suppressed` != true
+- Function: `sendDemoReminder(deal_id)` ← `${Deals.id}` (sends Demo Confirmation Reminder to Primary Contact).
 
-Deals
+### WF010d — Commercial Follow-Up (NEW)
+- Module: **Deals** · Trigger: Date — `Next_Comm_Follow_Up_Date`
+- Criteria: `Automation_Suppressed` != true (function also guards `Opportunity_Stage`="Commercial Agreement" AND `Commercials_Status`="Sent")
+- Function: `sendCommercialFollowUp(deal_id)` ← `${Deals.id}` → `commercial:followup_due`.
 
-## Trigger
-
-Edited
-
-## Criteria
-
-```text
-Demo Outcome changed
-```
-
-## Function
-
-```text
-handleDemoOutcome(deal_id)
-```
-
-## Purpose
-
-Handle demo outcome transitions.
-
-Examples:
-
-```text
-Demo Outcome = Attended - Qualified
-→ Stage = Proposal Preparation
-→ send post-demo email (Demo Hosted Post-Demo Email)
-→ Commercials Status = Drafting
-→ Route sequence via sequenceRouter (runs Task First mode by default, creating Draft Commercials Task)
-```
-
-```text
-Demo Outcome = No Show
-→ supersede old sequence
-→ send recovery email (Demo Confirmation No-Show Email)
-→ set Sequence Status = Not Started, Demo_Status = No Show
-→ Route sequence via sequenceRouter (runs Call First mode by default, creating Call 1)
-```
+### WFC-SchedEmail — Scheduled Email Send (delayed-email wake-up)
+- Module: **Tasks** · Trigger: Date — `Due_Date`
+- Criteria: `Sequence_Managed`=Yes; `Status`=Not Started; `Description` contains `ScheduledSend`
+- Function: `sendScheduledEmailFromTask(task_id)` ← `${Tasks.id}` (sends the deferred email and turns the wake-up Task into the audit record).
 
 ---
 
-# WF006 — Call Outcome Handler
+## Retired rules (disable AFTER the replacement is published & verified)
 
-## Module
-
-Calls
-
-## Trigger
-
-Created or Edited / Field update
-
-## Criteria
-
-```text
-Sequence Managed = true
-Related Deal is not empty
-Call Outcome is not empty
-```
-
-## Function
-
-```text
-handleCallOutcome(call_id)
-```
-
-## Purpose
-
-The call outcome is the primary gate for emails.
-
-The function should:
-
-1. Read Call.
-2. Read Related Deal.
-3. Confirm Call belongs to active sequence.
-4. Confirm Stage matches.
-5. Interpret Call Outcome.
-6. Decide next action.
-
-## Outcome rules
-
-| Call Outcome | Action |
+| Rule | Reason |
 |---|---|
-| Positive | Advance Stage or perform positive transition |
-| Neutral | Send current-stage email, create next Call |
-| No Answer | Send no-answer email, create next Call |
-| Negative | Move Lost / Disqualified |
-| Deferred | Pause sequence until Next Follow-Up Date |
-| Bad Data | Pause and create data repair Task |
-| Already Handled | Mark step complete or advance |
-| Not Relevant | Skip/pause/manual review |
-| Manual Only | Pause automation |
-| Do Not Contact | Suppress automation |
-
----
-
-# WF007 — Event / Meeting Handler
-
-## Module
-
-Events
-
-## Trigger
-
-Created or Edited
-
-## Criteria
-
-```text
-Sequence Managed = true
-Related Deal is not empty
-```
-
-## Function
-
-```text
-handleMeetingEvent(event_id)
-```
-
-## Purpose
-
-Handle meeting creation, rescheduling, cancellation, and reminder recalculation.
-
-Meetings are `Events` in Zoho API.
-
-The decisive commercial outcome should be stored on the Deal as `Demo Outcome`, even if mirrored on the Event.
-
----
-
-# WF008 — Task Completion Handler
-
-## Module
-
-Tasks
-
-## Trigger
-
-Edited
-
-## Criteria
-
-```text
-Sequence Managed = true
-Related Deal is not empty
-Task Outcome is not empty
-```
-
-or:
-
-```text
-Status = Completed
-Sequence Managed = true
-Related Deal is not empty
-```
-
-## Function
-
-```text
-handleTaskCompletion(task_id)
-```
-
-## Purpose
-
-Handle non-call manual work, including enrichment, data repair, commercial drafting, reply review, onboarding setup, and suppression review.
-
----
-
-# WF009 — Email Event Handler (5 sub-rules)
-
-WF009 fans out one workflow rule per Outgoing-email event type. The Zoho
-UI's Email Notifications trigger fires per event (`Replied`, `Bounced`,
-`Unreplied`, `Open and Unreplied`, `Clicked`) and lets you choose only
-one event-type per rule, so the Zoho-side configuration is a 1-to-1
-mapping: one sub-rule = one event-type → one wrapper function (which
-internally calls the shared `handleEmailEvent` core with the matching
-`eventType` literal hardcoded in code).
-
-`Sequence_Managed`, `Stale`, and consent gating are validated *inside*
-`handleEmailEvent`; the criteria below are deliberately minimal so the
-core is reached for every relevant event and can short-circuit itself.
-
-## Module
-
-All five sub-rules use the **Emails** module (Outgoing Email events).
-
-## Functions
-
-Five thin wrappers, one per sub-rule, plus the shared core:
-
-```text
-handleEmailReplied(related_deal_id, related_contact_id)
-handleEmailBounced(related_deal_id, related_contact_id)
-handleEmailNotReplied(related_deal_id, related_contact_id)
-handleEmailOpenedNotReplied(related_deal_id, related_contact_id)
-handleEmailClicked(related_deal_id, related_contact_id)
-  └─ each delegates to → handleEmailEvent("0", "<eventType>", related_deal_id, related_contact_id)
-```
-
-Why wrappers: in the Zoho "Configure for Workflow" UI, argument mappings
-are **immutable after save**, and the Emails module has no Id merge
-field, so a single function with `eventType` as a UI-bound static arg
-forces you to type literal strings into each configuration (and you
-can't fix typos later). Wrappers move `eventType` into code where it's
-editable.
-
-Each wrapper takes only two args, both auto-mappable to merge fields
-(`Deals - Deal Id`, `Contacts - Contact Id`) — zero static literals in
-the UI.
-
-## Sub-rules
-
-### WF009a — Outgoing Email Replied
-
-| Field | Value |
-|---|---|
-| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Replied` |
-| Criteria | `Related Deal` is not empty |
-| Function | `handleEmailReplied` |
-| Behavior | Pause sequence (`Sequence_Status = Paused`), create `Review Reply` Task. Reply does **not** auto-advance the Deal. |
-
-### WF009b — Outgoing Email Bounced
-
-| Field | Value |
-|---|---|
-| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Bounced` |
-| Criteria | `Related Deal` is not empty |
-| Function | `handleEmailBounced` |
-| Behavior | Pause sequence, create `Data Repair` Task, flag Contact `Profile_Completion_Status = Needs Enrichment`. |
-
-### WF009c — Outgoing Email Not Replied
-
-| Field | Value |
-|---|---|
-| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Unreplied` (Zoho prompts for a threshold window; set per sequence cadence, suggested 3 business days) |
-| Criteria | `Related Deal` is not empty |
-| Function | `handleEmailNotReplied` |
-| Behavior | Passive event. Log only. No state change; the regular call/email cadence continues to drive the sequence. |
-
-### WF009d — Outgoing Email Opened and Unreplied
-
-| Field | Value |
-|---|---|
-| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Open and Unreplied` (note: Zoho UI says "Open", not "Opened") |
-| Criteria | `Related Deal` is not empty |
-| Function | `handleEmailOpenedNotReplied` |
-| Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
-
-### WF009e — Outgoing Email Clicked
-
-| Field | Value |
-|---|---|
-| Trigger | `Execute this workflow rule based on` → `Outgoing email` → `Clicked` |
-| Criteria | `Related Deal` is not empty |
-| Function | `handleEmailClicked` |
-| Behavior | Passive event. Log only. Reserved for future engagement-aware branching. |
-
-## Purpose
-
-Interrupt or pause sequences on adverse email signals (reply, bounce).
-Passive events (opened, clicked, not replied) are recorded so the
-automation log captures engagement without auto-advancing Stage.
-
-`handleEmailEvent` is the single source of truth for the per-event
-behavior; the five wrappers are 1-line delegations. Add a new event
-type by adding a new wrapper file + a new WF009-style rule.
-
----
-
-# WF010 — Date-Based Follow-Up Router
-
-## Module
-
-Deals
-
-## Trigger
-
-Scheduled/date-time
-
-## Criteria
-
-One of these fields reached:
-
-- Next Action Due Date
-- Sequence Paused Until
-- Demo Reminder Send At
-- Next Commercial Follow-Up Date
-
-## Function
-
-```text
-sequenceRouter(deal_id)
-```
-
-## Purpose
-
-Resume or trigger scheduled actions.
-
-Examples:
-
-```text
-Demo Reminder Send At reached
-→ send demo reminder email if call-gated conditions are satisfied
-```
-
-```text
-Next Commercial Follow-Up Date reached
-→ create Commercial Agreement Call
-```
-
----
-
-## Minimum Workflow Set
-
-Start with these if time is limited:
-
-1. WF001 — Lead Processor
-2. WF002 — Deal Sequence Router
-3. WF003 — Deal Stage Change Router
-4. WF006 — Call Outcome Handler
-5. WF004 — Deal Commercial Status Handler
-6. WF005 — Deal Demo Outcome Handler
+| WF002 — Deal Sequence Router | Deal `Sequence_Status` machine removed; bootstrap is Activation-Task driven |
+| WF003 — Deal Stage Change Router | Contact owns Stage; `Opportunity_Stage` is a rollup, not a driver |
+| WF010a — Next Action Due Date | no V5 writes to `Next_Action_Due_Date` |
+| WF010b — Sequence Paused Until | no V5 writes to `Sequence_Paused_Until` (no Paused state) |
+
+The old Deal router and the new Contact engine must never both control one
+Contact's sequence — disable WF002/WF003/WF010a/WF010b only after cutover verifies.

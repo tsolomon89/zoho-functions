@@ -12,12 +12,12 @@ The authoritative current-org export is `.agents/context/api_field_names/*.csv`.
 
 | Spec label | Existing API name | Action | Reason |
 |---|---|---|---|
-| Stage | `Stage1` | **REUSE** | Org's custom `Stage1` already holds the 8 spec values. v3 reads/writes it as the stage value. Do not create a second `Stage` field. |
+| Stage | `Opportunity_Stage` | **REUSE** | Org's custom `Opportunity_Stage` already holds the 8 spec values. v3 reads/writes it as the stage value. Do not create a second `Stage` field. |
 | Opportunity | `Stage` (default) | **REUSE** | Default Zoho `Stage` field has been renamed in the UI to "Opportunity" and holds `MQL/SQL/FTP/RTP`. v3 writes it via `dealMap.put("Stage", bestOpp)`. |
 | State | `State` | **REUSE** | Existing picklist (`Open/Lost/Won`). Automation writes only `Open` or `Lost`; `Won` is a gate event, not a durable State (see `docs/v2/02-pipeline-model.md`). v3/v4 already follow this rule. |
 | Status | `Status` | **REUSE** | Existing picklist (`New/Working/Closed`). v3 already writes this. |
 | Reason For Loss | `Reason_For_Loss__s` | **REUSE** | Existing system field. v3 writes "Duplicate / Test Record" on silenced duplicates. |
-| Stage Rank | — | **DO NOT CREATE** | Derive in Deluge from `Stage1` via the `stageRanks` map already defined in v3 (and in the shared util we are extracting in Phase 2). |
+| Stage Rank | — | **DO NOT CREATE** | Derive in Deluge from `Opportunity_Stage` via the `stageRanks` map already defined in v3 (and in the shared util we are extracting in Phase 2). |
 
 The Deal already uses `Account_Name`, `Contact_Name`, `Amount`, `Deal_Key`, `Closing_Date`, `Lost_Reasons`, `Deal_Name`, `Product_Details` (subform). None of those are duplicated by the spec.
 
@@ -119,4 +119,4 @@ if(canonicalDealId != "") {
 
 1. **Backfill `Sequence Status` on existing Deals** before turning on `WF002`. Set `Sequence Status = Not Started` on Open Deals that should enter the new flow; leave blank on imported/historical/closed ones to keep the router idle.
 2. **`Automation Suppressed` defaults to false** — explicitly set `true` on every Deal currently being worked manually before the workflows are switched on.
-3. **`Stage Rank` is never persisted.** Always recompute from `Stage1` in code via the canonical map (see `_util_resolveRoleFromTitle.deluge` partner util in Phase 2).
+3. **`Stage Rank` is never persisted.** Always recompute from `Opportunity_Stage` in code via the canonical map (see `_util_resolveRoleFromTitle.deluge` partner util in Phase 2).
