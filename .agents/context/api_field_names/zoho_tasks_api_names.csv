@@ -24,4 +24,5 @@ Task Outcome,Task_Outcome,Pick List,Yes
 Task Owner,Owner,Ownerlookup,
 Task Sequence Managed,Task_Sequence_Managed,Boolean,Yes
 Task Sequence Stage,Task_Sequence_Stage,Single Line,Yes
+Task Sequence Type,Task_Sequence_Type,Pick List,Yes
 Task Type,Task_Type,Pick List,Yes

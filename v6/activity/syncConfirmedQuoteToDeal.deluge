@@ -114,8 +114,21 @@ void automation.syncConfirmedQuoteToDeal(string quoteIdStr)
 	else if(grand > 0) { nov = grand; }
 	else { nov = acv - prevCredit; }
 
-	// ---- first vs later (keyed off populated Initial fields -> idempotent) ----
-	isFirst = (ifnull(deal.get("Contract_Initial_ACV"), "").toString() == "" && ifnull(deal.get("Contract_Initial_Date_Start"), "").toString() == "");
+	// ---- idempotency: re-firing on an already-synced quote (same ACV, Deal already reflects it) is a no-op ----
+	if(!isNull(quote.get("Contract_Signed_Date")) && ifnull(quote.get("Contract_ACV"), "").toString() != "" && ifnull(quote.get("Contract_ACV"), "0").toDecimal() == acv && ifnull(deal.get("Amount"), "0").toDecimal() == acv)
+	{
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "noop", "already_synced", {"deal":dealId.toString()});
+		return;
+	}
+
+	// ---- first vs later ----
+	// First = no Initial yet, OR this quote is already the recorded Initial and nothing has
+	// superseded it (re-confirm of the initial quote after an edit). Keyed off Deal state,
+	// not quote count -> idempotent and safe to re-fire.
+	existingType = ifnull(quote.get("Contract_Type"), "").toString();
+	initialPopulated = (ifnull(deal.get("Contract_Initial_ACV"), "").toString() != "" || ifnull(deal.get("Contract_Initial_Date_Start"), "").toString() != "");
+	currentPopulated = (ifnull(deal.get("Contract_Current_Date_Start"), "").toString() != "");
+	isFirst = (!initialPopulated) || (existingType == "Initial" && !currentPopulated);
 
 	// ---- common Quote stamps ----
 	qUpd = Map();

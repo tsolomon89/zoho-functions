@@ -237,7 +237,7 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 		}
 		else
 		{
-			// demo:rescheduled -> no sequence change (handler stamps Demo_Status only)
+			// demo:rescheduled -> no sequence change (no Deal write; Event.Meeting_Status holds the lifecycle)
 			r.put("action", "none");
 			r.put("reason", "demo_rescheduled");
 			return r.toString();
