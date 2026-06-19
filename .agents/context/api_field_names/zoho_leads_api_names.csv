@@ -1,120 +1,122 @@
-Field Label,API Name,Data Type,Custom Field
-Account Key,Account_Key,Single Line (Unique),Yes
-Address,Address,Multi Line,
-Address - City,City,Single Line,
-Address - Coordinates,Coordinates,Multi Line,
-Address - Country / Region,Country,Pick List,
-Address - Flat / House No./ Building / Apartment Name,Flat_House_No_Building_Apartment_Name,Single Line,
-Address - Latitude,Latitude,Decimal,
-Address - Longitude,Longitude,Decimal,
-Address - State / Province,State,Pick List,
-Address - Street Address,Street,Single Line,
-Address - Zip / Postal Code,Zip_Code,Single Line,
-Annual Revenue,Annual_Revenue,Currency,
-Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,
-Change Log Time,Change_Log_Time__s,DateTime,
-Company,Company,Single Line,
-Company AOO Continent,Company_AOO_Continent,Multiselect,Yes
-Company AOO Country,Company_AOO_Country,Multiselect,Yes
-Company AOO Region,Company_AOO_Region,Multiselect,Yes
-Company AOO Sub Region,Company_AOO_Sub_Region,Multiselect,Yes
-Company Expansion Continent,Company_Expansion_Continent,Multiselect,Yes
-Company Expansion Country,Company_Expansion_Country,Multiselect,Yes
-Company Expansion Region,Company_Expansion_Region,Multiselect,Yes
-Company Expansion Regional,Company_Expansion_Regional,Boolean,Yes
-Company Expansion Sub Region,Company_Expansion_Sub_Region,Multiselect,Yes
-Company Expansion Timeline,Company_Expansion_Timeline,DateTime,Yes
-Company Linkedin,Company_Linkedin,Single Line,Yes
-Company Phone,Phone,,
-Contact AOR Continent,Contact_AOR_Continent,Multiselect,Yes
-Contact AOR Country,Contact_AOR_Country,Multiselect,Yes
-Contact AOR Region,Contact_AOR_Region,Multiselect,Yes
-Contact AOR Regional,Contact_AOR_Regional,Boolean,Yes
-Contact AOR Sub Region,Contact_AOR_Sub_Region,Multiselect,Yes
-Contact Completed Commercial Agreement At,Contact_Completed_Commercial_Agreement_At,DateTime,Yes
-Contact Completed Demo Booking At,Contact_Completed_Demo_Booking_At,DateTime,Yes
-Contact Completed Demo Confirmation At,Contact_Completed_Demo_Confirmation_At,DateTime,Yes
-Contact Completed Demo Hosted At,Contact_Completed_Demo_Hosted_At,DateTime,Yes
-Contact Completed Marketing Qualification At,Contact_Completed_Marketing_Qualification_At,DateTime,Yes
-Contact Completed Onboarding At,Contact_Completed_Onboarding_At,DateTime,Yes
-Contact Completed Proposal Preparation At,Contact_Completed_Proposal_Preparation_At,DateTime,Yes
-Contact Completed Renewal At,Contact_Completed_Renewal_At,DateTime,Yes
-Contact Role,Contact_Role1,Pick List,Yes
-Contract ACV Current,Contract_ACV_Current,Currency,Yes
-Contract ACV Intial,Contract_ACV_Intial,Currency,Yes
-Contract Currency,Contract_Currency,Pick List,Yes
-Contract End Date,Contract_End_Date,Date,Yes
-Contract Renewal Date,Contract_Renewal_Date,Date,Yes
-Contract Start Date,Contract_Start_Date,Date,Yes
-Contract Type,Contract_Type,Pick List,Yes
-Conversion Outcome,Conversion_Outcome,Multi Line,Yes
-Converted Account,Converted_Account,Lookup,
-Converted Contact,Converted_Contact,Lookup,
-Converted Date Time,Converted_Date_Time,DateTime,
-Converted Deal,Converted_Deal,Lookup,
-Created By,Created_By,Ownerlookup,
-Created Time,Created_Time,DateTime,
-Days Visited,Days_Visited,Number,
-Deal Key,Deal_Key,Single Line (Unique),Yes
-Description,Description,Multi Line,
-Email,Email,Email,
-Email Opt Out,Email_Opt_Out,Boolean,
-Enrich Status,Enrich_Status__s,Pick List,
-Fax,Fax,Single Line,
-First Name,First_Name,Single Line,
-First Page Visited,First_Visited_URL,URL,
-First Visit,First_Visited_Time,DateTime,
-Full Name,Full_Name,Single Line,
-Imported Record Type,Imported_Record_Type,Pick List,Yes
-Industry,Industry,Pick List,
-Initial Opportunity,Initial_Opportunity,Pick List,Yes
-Initial Stage,Initial_Stage,Pick List,Yes
-Is Converted,Converted__s,Boolean,
-Job Title,Job_Title,Pick List,Yes
-Last Activity Time,Last_Activity_Time,DateTime,
-Last Enriched Time,Last_Enriched_Time__s,DateTime,
-Last Name,Last_Name,Single Line,
-Lead Conversion Time,Lead_Conversion_Time,Number,
-Lead Image,Record_Image,Profileimage,
-Lead Owner,Owner,Ownerlookup,
-Lead Processing Status,Lead_Processing_Status,Pick List,Yes
-Lead Referrer,Lead_Referrer,Single Line,Yes
-Lead Source,Lead_Source,Pick List,
-Lead Status,Lead_Status,Pick List,
-Locked,Locked__s,Boolean,
-Lost Reasons,Lost_Reasons,Pick List,Yes
-Marketing Consent,Marketing_Consent,Boolean,Yes
-Mobile,Mobile,Phone,
-Modified By,Modified_By,Ownerlookup,
-Modified Time,Modified_Time,DateTime,
-Most Recent Visit,Last_Visited_Time,DateTime,
-No of Employees,No_of_Employees,Number,
-Number Of Chats,Number_Of_Chats,Number,
-Personal Linkedin,Personal_Linkedin,Single Line,Yes
-Personal Phone,Personal_Phone,Phone,Yes
-Processing Error,Processing_Error,Multi Line,Yes
-Product Interest,Product_Interest,Multiselect,Yes
-Product Resolution Status,Product_Resolution_Status,Pick List,Yes
-Products Linked,Products_Linked,Multi-Select Lookup,Yes
-Rating,Rating,Pick List,
-Ready for Conversion,Ready_for_Conversion,Boolean,Yes
-Record Id,id,Long Integer,
-Record Status,Record_Status__s,Pick List,
-Referrer,Referrer,URL,
-Role AOR,Role_AOR,Multi Line,Yes
-Role Priority 1,Role_Priority_1,Multi Line,Yes
-Role Priority 2,Role_Priority_2,Multi Line,Yes
-Role Priority 3,Role_Priority_3,Multi Line,Yes
-Salutation,Salutation,Pick List,
-Secondary Email,Secondary_Email,Email,
-Skype ID,Skype_ID,Single Line,
-Stage,Stage,Pick List,Yes
-Status,Status,Pick List,Yes
-Tag,Tag,Single Line,
-Technographics,Technographics,Multiselect,Yes
-Technographics Evaluating,Technographics_Evaluating,Multiselect,Yes
-Twitter,Twitter,Single Line,
-Unsubscribed Mode,Unsubscribed_Mode,Pick List,
-Unsubscribed Time,Unsubscribed_Time,DateTime,
-Visitor Score,Visitor_Score,Long Integer,
-Website,Website,URL,
+Field Label,API Name,Data Type,Custom Field,Formula
+Account Key,Account_Key,Single Line (Unique),Yes,
+Address - City,City,Single Line,,
+Address - Country / Region,Country,Pick List,,
+Address - Flat / House No./ Building / Apartment Name,Flat_House_No_Building_Apartment_Name,Single Line,,
+Address - Latitude,Latitude,Decimal,,
+Address - Longitude,Longitude,Decimal,,
+Address - State / Province,State,Pick List,,
+Address - Street Address,Street,Single Line,,
+Address - Zip / Postal Code,Zip_Code,Single Line,,
+Average Time Spent (Minutes),Average_Time_Spent_Minutes,Decimal,,
+Company,Company,Single Line,,
+Company Annual Revenue,Annual_Revenue,Currency,,
+Company AOO Continent,Company_AOO_Continent,Multiselect,Yes,
+Company AOO Country,Company_AOO_Country,Multiselect,Yes,
+Company AOO Region,Company_AOO_Region,Multiselect,Yes,
+Company AOO Sub Region,Company_AOO_Sub_Region,Multiselect,Yes,
+Company Employee Count,No_of_Employees,Number,,
+Company Expansion Continent,Company_Expansion_Continent,Multiselect,Yes,
+Company Expansion Country,Company_Expansion_Country,Multiselect,Yes,
+Company Expansion Region,Company_Expansion_Region,Multiselect,Yes,
+Company Expansion Regional,Company_Expansion_Regional,Boolean,Yes,
+Company Expansion Sub Region,Company_Expansion_Sub_Region,Multiselect,Yes,
+Company Expansion Timeline,Company_Expansion_Timeline,DateTime,Yes,
+Company Industry,Industry,Pick List,,
+Company Linkedin,Company_Linkedin,Single Line,Yes,
+Company Phone,Phone,,,
+Company Tier,Company_Tier,Pick List,Yes,
+Company Website,Website,URL,,
+Connected To,Connected_To__s,,,
+Contact Address - City,Contact_Address_City,Single Line,,
+Contact Address - Country / Region,Contact_Address_Country_Region,Pick List,,
+Contact Address - Flat / House No./ Building / Apartment Name,Contact_Address_Flat_House_No./_Building_Apartment_Name,Single Line,,
+Contact Address - Latitude,Contact_Address_Latitude,Decimal,,
+Contact Address - Longitude,Contact_Address_Longitude,Decimal,,
+Contact Address - State / Province,Contact_Address_State_Province,Pick List,,
+Contact Address - Street Address,Contact_Address_Street_Address,Single Line,,
+Contact Address - Zip / Postal Code,Contact_Address_Zip_Postal_Code,Single Line,,
+Contact AOR Continent,Contact_AOR_Continent,Multiselect,Yes,
+Contact AOR Country,Contact_AOR_Country,Multiselect,Yes,
+Contact AOR Region,Contact_AOR_Region,Multiselect,Yes,
+Contact AOR Regional,Contact_AOR_Regional,Boolean,Yes,
+Contact AOR Sub Region,Contact_AOR_Sub_Region,Multiselect,Yes,
+Contact Completed Commercial Agreement At,Contact_Completed_Commercial_Agreement_At,DateTime,Yes,
+Contact Completed Demo Booking At,Contact_Completed_Demo_Booking_At,DateTime,Yes,
+Contact Completed Demo Confirmation At,Contact_Completed_Demo_Confirmation_At,DateTime,Yes,
+Contact Completed Demo Hosted At,Contact_Completed_Demo_Hosted_At,DateTime,Yes,
+Contact Completed Marketing Qualification At,Contact_Completed_Marketing_Qualification_At,DateTime,Yes,
+Contact Completed Onboarding At,Contact_Completed_Onboarding_At,DateTime,Yes,
+Contact Completed Proposal Preparation At,Contact_Completed_Proposal_Preparation_At,DateTime,Yes,
+Contact Completed Renewal At,Contact_Completed_Renewal_At,DateTime,Yes,
+Contact Email Opt Out,Email_Opt_Out,Boolean,,
+Contact Email Primary,Email,Email,,
+Contact Email Secondary,Secondary_Email,Email,,
+Contact Linkedin,Contact_Linkedin,Single Line,Yes,
+Contact Marketing Consent,Contact_Marketing_Consent,Boolean,Yes,
+Contact Phone,Contact_Phone,Phone,Yes,
+Contact Role,Contact_Role1,Pick List,Yes,
+Contact Role AOR,Contact_Role_AOR,Multi Line,Yes,
+Contact Role Priority 1,Contact_Role_Priority_1,Multi Line,Yes,
+Contact Role Priority 2,Contact_Role_Priority_2,Multi Line,Yes,
+Contact Role Priority 3,Contact_Role_Priority_3,Multi Line,Yes,
+Contract Currency,Contract_Currency,Pick List,Yes,
+Contract Current ACV,Contract_Current_ACV,Currency,Yes,
+Contract Current ACV Gap,Contract_Current_ACV_Gap,Formula (Currency),Yes,${Leads.Contract Current ACV}-${Leads.Contract Target ACV}
+Contract Current Date End,Contract_Current_Date_End,Date,Yes,
+Contract Current Date End Days Remaining,Contract_Current_Date_End_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Current Date End}),Datecomp(${Leads.Contract Current Date End},${Leads.Contract Current Date End}),Abs(Datecomp(Now(),${Leads.Contract Current Date End})/1440))"
+Contract Current Date Renewal,Contract_Current_Date_Renewal,Formula (Date),Yes,"If(IsEmpty(${Leads.Contract Current Date End}),${Leads.Contract Current Date End},Subdate(${Leads.Contract Current Date End},45,'DAY'))"
+Contract Current Date Renewal Days Remaining,Contract_Current_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Current Date Renewal}),Datecomp(${Leads.Contract Current Date Renewal},${Leads.Contract Current Date Renewal}),Abs(Datecomp(Now(),${Leads.Contract Current Date Renewal})/1440))"
+Contract Current Date Start,Contract_Current_Date_Start,Date,Yes,
+Contract Current Plan Brands,Contract_Current_Plan_Brands,Number,Yes,
+Contract Current Plan Products,Contract_Current_Plan_Products,Pick List,Yes,
+Contract Current Plan Type,Contract_Current_Plan_Type,Pick List,Yes,
+Contract Initial ACV,Contract_Initial_ACV,Currency,Yes,
+Contract Initial ACV Gap,Contract_Initial_ACV_Gap,Formula (Currency),Yes,${Leads.Contract Initial ACV}-${Leads.Contract Target ACV}
+Contract Initial Date End,Contract_Initial_Date_End,Date,Yes,
+Contract Initial Date End Days Remaining,Contract_Initial_Date_End_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Initial Date End}),Datecomp(${Leads.Contract Initial Date End},${Leads.Contract Initial Date End}),Abs(Datecomp(Now(),${Leads.Contract Initial Date End})/1440))"
+Contract Initial Date Renewal,Contract_Initial_Date_Renewal,Formula (Date),Yes,"If(IsEmpty(${Leads.Contract Initial Date End}),${Leads.Contract Initial Date End},Subdate(${Leads.Contract Initial Date End},45,'DAY'))"
+Contract Initial Date Renewal Days Remaining,Contract_Initial_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Initial Date Renewal}),Datecomp(${Leads.Contract Initial Date Renewal},${Leads.Contract Initial Date Renewal}),Abs(Datecomp(Now(),${Leads.Contract Initial Date Renewal})/1440))"
+Contract Initial Date Start,Contract_Initial_Date_Start,Date,Yes,
+Contract Initial Plan Brands,Contract_Initial_Plan_Brands,Number,Yes,
+Contract Initial Plan Products,Contract_Initial_Plan_Products,Pick List,Yes,
+Contract Initial Plan Type,Contract_Initial_Plan_Type,Pick List,Yes,
+Contract Key,Deal_Key,Single Line (Unique),Yes,
+Contract Target ACV,Contract_Target_ACV,Formula (Currency),Yes,"If(${Leads.Company Tier}=='1',26000,If(${Leads.Company Tier}=='2',16500,If(${Leads.Company Tier}=='3',10500,0)))"
+Conversion Outcome,Conversion_Outcome,Multi Line,Yes,
+Converted Account,Converted_Account,Lookup,,
+Converted Contact,Converted_Contact,Lookup,,
+Converted Deal,Converted_Deal,Lookup,,
+Created By,Created_By,Ownerlookup,,
+Days Visited,Days_Visited,Number,,
+Description,Description,Multi Line,,
+Fax,Fax,Single Line,,
+First Name,First_Name,Single Line,,
+First Page Visited,First_Visited_URL,URL,,
+First Visit,First_Visited_Time,DateTime,,
+Imported Record Type,Imported_Record_Type,Pick List,Yes,
+Job Title,Job_Title,Pick List,Yes,
+Last Name,Last_Name,Single Line,,
+Lead Image,Record_Image,Profileimage,,
+Lead Owner,Owner,Ownerlookup,,
+Lead Referrer,Lead_Referrer,Single Line,Yes,
+Lead Source,Lead_Source,Pick List,,
+Lead Status,Lead_Status,Pick List,,
+Lost Reasons,Lost_Reasons,Pick List,Yes,
+Mobile,Mobile,Phone,,
+Modified By,Modified_By,Ownerlookup,,
+Most Recent Visit,Last_Visited_Time,DateTime,,
+Number Of Chats,Number_Of_Chats,Number,,
+Product Interest,Product_Interest,Multiselect,Yes,
+Products Linked,Products_Linked,Multi-Select Lookup,Yes,
+Rating,Rating,Pick List,,
+Referrer,Referrer,URL,,
+Salutation,Salutation,Pick List,,
+Skype ID,Skype_ID,Single Line,,
+Stage,Stage,Pick List,Yes,
+Status,Status,Pick List,Yes,
+Tag,Tag,Single Line,,
+Technographics,Technographics,Multiselect,Yes,
+Technographics Evaluating,Technographics_Evaluating,Multiselect,Yes,
+Twitter,Twitter,Single Line,,
+Visitor Score,Visitor_Score,Long Integer,,

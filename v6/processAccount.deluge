@@ -1,0 +1,98 @@
+void automation.processAccount(string account_id)
+{
+	// =========================================================================
+	// processAccount  (Contact-centric, thin)
+	//
+	// processDeal is the SOLE reconciliation/rollup owner. processAccount only:
+	//   1. Ensures Account_Key is stamped on the canonical Account (processDeal
+	//      requires it).
+	//   2. Resolves the canonical active Deal (lowest-id open Deal), creating a
+	//      minimal one if the Account has Contacts but no open Deal.
+	//   3. Delegates all reconciliation (Contacts, Roles, Products, Primary
+	//      Contact, Opportunity_* rollup, Account rollup) to processDeal(dealId).
+	//
+	// All writes use suppressTrigger so WFC-Account / WFC-Deal do not cascade.
+	//
+	// REQUIRED ZOHO CRM SETTING:
+	// - Accounts.Account_Key UNIQUE
+	// - Deals.Deal_Key UNIQUE
+	// =========================================================================
+	info "VERSION: v5-contact-centric";
+
+	if(account_id == null || account_id == "") { return; }
+	cleanId = account_id.replaceAll("zcrm_", "").trim();
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	accountRecord = zoho.crm.getRecordById("Accounts", cleanId.toLong());
+	if(isNull(accountRecord) || accountRecord.get("id") == null) { return; }
+
+	// ---- 1. Ensure Account_Key ----
+	accountKey = ifnull(accountRecord.get("Account_Key"), "").toString();
+	accountName = ifnull(accountRecord.get("Account_Name"), "").toString().trim();
+	if(accountKey == "")
+	{
+		website = ifnull(accountRecord.get("Website"), "").toString().trim();
+		normalizedDomain = "";
+		if(website != "")
+		{
+			normalizedDomain = website.toLowerCase().replaceAll("https://", "").replaceAll("http://", "").replaceAll("www.", "");
+			if(normalizedDomain.contains("/")) { normalizedDomain = normalizedDomain.toList("/").get(0); }
+		}
+		if(normalizedDomain != "") { accountKey = normalizedDomain; }
+		else if(accountName != "") { accountKey = accountName.replaceAll("[\\(\\)\\:\\,]", "").trim().toLowerCase(); }
+		else { accountKey = "unknown::" + cleanId; }
+		if(accountKey.length() > 200) { accountKey = accountKey.substring(0, 200); }
+
+		zoho.crm.updateRecord("Accounts", cleanId.toLong(), {"Account_Key": accountKey}, noTrigger);
+	}
+
+	dealKey = accountKey + "::active";
+
+	// ---- 2. Resolve canonical active Deal (lowest-id open Deal) ----
+	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
+	canonicalDealId = "";
+	minId = 999999999999999999;
+	if(!isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
+	{
+		for each d in relDeals
+		{
+			if(ifnull(d.get("State"), "Open") == "Open")
+			{
+				dIdLong = d.get("id").toLong();
+				if(dIdLong < minId)
+				{
+					minId = dIdLong;
+					canonicalDealId = d.get("id").toString();
+				}
+			}
+		}
+	}
+
+	// ---- 3. Create a minimal canonical Deal if the Account has Contacts but none open ----
+	if(canonicalDealId == "")
+	{
+		relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", cleanId.toLong());
+		if(!isNull(relContacts) && relContacts.size() > 0 && !relContacts.toString().startsWith("{\"code\""))
+		{
+			dealName = if(accountName != "", accountName + " Deal", accountKey + " Deal");
+			dealMap = Map();
+			dealMap.put("Deal_Name", dealName);
+			dealMap.put("Account_Name", cleanId);
+			dealMap.put("Deal_Key", dealKey);
+			dealMap.put("State", "Open");
+			dealMap.put("Status", "New");
+			dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+			dRes = zoho.crm.createRecord("Deals", dealMap);
+			if(!isNull(dRes) && dRes.get("id") != null) { canonicalDealId = dRes.get("id").toString(); }
+			else if(!isNull(dRes) && dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null) { canonicalDealId = dRes.get("details").get("id").toString(); }
+		}
+	}
+
+	// ---- 4. Delegate all reconciliation + rollup to processDeal ----
+	if(canonicalDealId != "")
+	{
+		automation.processDeal(canonicalDealId);
+	}
+}

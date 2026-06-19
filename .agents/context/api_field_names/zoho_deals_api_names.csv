@@ -1,63 +1,76 @@
-Field Label,API Name,Data Type,Custom Field,Deletion Dependency / Deletion Note
-Account Name,Account_Name,Lookup,,
-Amount,Amount,Currency,,
-Automation Suppressed,Automation_Suppressed,Boolean,Yes,"Actions - Field update
+Field Label,API Name,Data Type,Custom Field,Formula,Deletion Dependency / Deletion Note
+Account Name,Account_Name,Lookup,,,
+Amount,Amount,Currency,,,
+Automation Suppressed,Automation_Suppressed,Boolean,Yes,,"Actions - Field update
 WF Placeholder Marker Deals
 Workflow Rules - Condition
-WF010d Date Router Comm Follow-Up
 WF010b Date Router Sequence Paused Until
+WF010d Date Router Comm Follow-Up
 WF010a Date Router Next Action Due
 WF010c Date Router Demo Reminder
 WF003 Deal Stage Change Router
 WF002 Deal Sequence Router"
-Campaign Source,Campaign_Source,Lookup,,
-Closing Date,Closing_Date,Date,,
-Commercial Outcome,Commercial_Outcome,Pick List,Yes,Want to Remove Maybe
-Commercials Discussed At,Commercials_Discussed_At,DateTime,Yes,
-Commercials Status,Commercials_Status,Pick List,Yes,
-Connected To,Commercials_Status,MultiModuleLookup,,
-Contact Name,Contact_Name,Lookup,,Could Be used for Primary Contact... Should be used
-Contract ACV Current,Contract_ACV_Current,Currency,Yes,
-Contract ACV Initial,Contract_ACV_Initial,Currency,Yes,
-Contract Currency,Contract_Currency,Pick List,Yes,
-Contract End Date,Contract_End_Date,Date,Yes,
-Contract Renewal Date,Contract_Renewal_Date,Date,Yes,
-Contract Start Date,Contract_Start_Date,Date,Yes,
-Contract Type,Contract_Type,Pick List,Yes,
-Created By,Created_By,Ownerlookup,,
-Deal Key,Deal_Key,Single Line (Unique),Yes,
-Deal Name,Deal_Name,Single Line,,
-Deal Owner,Owner,Ownerlookup,,
-Deal Primary Contact,Deal_Primary_Contact,Lookup,Yes,
-Demo Outcome,Demo_Outcome,Pick List,Yes,"Workflow Rules - Execute On
+Campaign Source,Campaign_Source,Lookup,,,
+Closing Date,Closing_Date,Date,,,
+Commercial Outcome,Commercial_Outcome,Pick List,Yes,,Want to Remove Maybe
+Commercials Status,Commercials_Status,Pick List,Yes,,
+Company Tier,Company_Tier,Pick List,Yes,,
+Connected To,Commercials_Status,MultiModuleLookup,,,
+Contact Name,Contact_Name,Lookup,,,Could Be used for Primary Contact... Should be used
+Contract Currency,Contact_Name,Pick List,Yes,,
+Contract Current ACV,Contract_Current_ACV,Currency,Yes,,
+Contract Current ACV Gap,Contract_Current_ACV_Gap,Formula (Currency),Yes,${Deals.Contract Current ACV}-${Deals.Contract Target ACV},
+Contract Current Date End,Contract_Current_Date_End,Date,Yes,,
+Contract Current Date End Days Remaining,Contract_Current_Date_End_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Current Date End}),Datecomp(${Deals.Contract Current Date End},${Deals.Contract Current Date End}),Abs(Datecomp(Now(),${Deals.Contract Current Date End})/1440))",
+Contract Current Date Renewal,Contract_Current_Date_Renewal,Formula (Date),Yes,"If(IsEmpty(${Deals.Contract Current Date End}),${Deals.Contract Current Date End},Subdate(${Deals.Contract Current Date End},45,'DAY'))",
+Contract Current Date Renewal Days Remaining,Contract_Current_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Current Date Renewal}),Datecomp(${Deals.Contract Current Date Renewal},${Deals.Contract Current Date Renewal}),Abs(Datecomp(Now(),${Deals.Contract Current Date Renewal})/1440))",
+Contract Current Date Start,Contract_Current_Date_Start,Date,Yes,,
+Contract Current Plan Brands,Contract_Current_Plan_Brands,Number,Yes,,
+Contract Current Plan Products,Contract_Current_Plan_Products,Pick List,Yes,,
+Contract Current Plan Type,Contract_Current_Plan_Type,Pick List,Yes,,
+Contract Initial ACV,Contract_Initial_ACV,Currency,Yes,,
+Contract Initial ACV Gap,Contract_Initial_ACV_Gap,Formula (Currency),Yes,${Deals.Contract Initial ACV}-${Deals.Contract Target ACV},
+Contract Initial Date End,Contract_Initial_Date_End,Date,Yes,,
+Contract Initial Date End Days Remaining,Contract_Initial_Date_End_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Initial Date End}),Datecomp(${Deals.Contract Initial Date End},${Deals.Contract Initial Date End}),Abs(Datecomp(Now(),${Deals.Contract Initial Date End})/1440))",
+Contract Initial Date Renewal,Contract_Initial_Date_Renewal,Formula (Date),Yes,"If(IsEmpty(${Deals.Contract Initial Date End}),${Deals.Contract Initial Date End},Subdate(${Deals.Contract Initial Date End},45,'DAY'))",
+Contract Initial Date Renewal Days Remaining,Contract_Initial_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Initial Date Renewal}),Datecomp(${Deals.Contract Initial Date Renewal},${Deals.Contract Initial Date Renewal}),Abs(Datecomp(Now(),${Deals.Contract Initial Date Renewal})/1440))",
+Contract Initial Date Start,Contract_Initial_Date_Start,Date,Yes,,
+Contract Initial Plan Brands,Contract_Initial_Plan_Brands,Number,Yes,,
+Contract Initial Plan Products,Contract_Initial_Plan_Products,Pick List,Yes,,
+Contract Initial Plan Type,Contract_Initial_Plan_Type,Pick List,Yes,,
+Contract Target ACV,Contract_Target_ACV,Formula (Currency),Yes,"If(${Deals.Company Tier}=='1',26000,If(${Deals.Company Tier}=='2',16500,If(${Deals.Company Tier}=='3',10500,0)))",
+Created By,Created_By,Ownerlookup,,,
+Deal Image,Deal_Image,Record Image,,,
+Deal Key,Deal_Key,Single Line (Unique),Yes,,
+Deal Name,Deal_Name,Single Line,,,
+Deal Owner,Owner,Ownerlookup,,,
+Deal Primary Contact,Deal_Primary_Contact,Lookup,Yes,,Think we can remove as is the same as 'Contact Name'
+Demo Outcome,Demo_Outcome,Pick List,Yes,,"Workflow Rules - Execute On
 WF005 Demo Outcome Handler > Trigger"
-Demo Reminder Send At,Demo_Reminder_Send_At,DateTime,Yes,"Workflow Rules - Execute On
+Demo Reminder Send At,Demo_Reminder_Send_At,DateTime,Yes,,"Workflow Rules - Execute On
 WF010c Date Router Demo Reminder > Trigger"
-Demo Start DateTime,Demo_Start_DateTime,DateTime,Yes,"Email Template(s)
-Demo Confirmation Email
-Demo Confirmation Reminder Email"
-Description,Description,Multi Line,,
-Expected Revenue,Expected_Revenue,Currency,,
-Intent To Sign,Intent_To_Sign,Boolean,Yes,
-Lead Source,Lead_Source,Pick List,,
-Lost Reasons,Lost_Reasons,Pick List,Yes,
-Modified By,Modified_By,Single Line,,
-Next Action Due Date,Next_Action_Due_Date,DateTime,Yes,"Workflow Rules - Execute On
+Description,Description,Multi Line,,,
+Expected Revenue,Expected_Revenue,Currency,,,
+Intent To Sign,Intent_To_Sign,Boolean,Yes,,
+Lead Source,Lead_Source,Pick List,,,
+Lost Reasons,Lost_Reasons,Pick List,Yes,,
+Modified By,Modified_By,Single Line,,,
+Next Action Due Date,Next_Action_Due_Date,DateTime,Yes,,"Workflow Rules - Execute On
 WF010a Date Router Next Action Due > Trigger"
-Next Comm Follow-Up Date,Next_Comm_Follow_Up_Date,DateTime,Yes,"Workflow Rules - Execute On
+Next Comm Follow-Up Date,Next_Comm_Follow_Up_Date,DateTime,Yes,,"Workflow Rules - Execute On
 WF010d Date Router Comm Follow-Up > Trigger"
-Next Step,Next_Step,Single Line,,Cannot Delete but don't need
-Opportunity Pipeline,Pipeline,Pick List,,
-Opportunity Stage,Opportunity_Stage,Pick List,Yes,
-Opportunity State,Opportunity_State,Pick List,Yes,
-Opportunity Status,Opportunity_Status,Pick List,Yes,
-Opportunity Type,Stage,Pick List,,
-Probability (%),Probability,Number,,
-Reason For Loss,Reason_For_Loss__s,Pick List,,
-Sequence Paused Until,Sequence_Paused_Until,DateTime,Yes,"Workflow Rules - Execute On
+Next Step,Next_Step,Single Line,,,Cannot Delete Standard Field
+Opportunity Pipeline,Pipeline,Pick List,,,
+Opportunity Stage,Opportunity_Stage,Pick List,Yes,,
+Opportunity State,Opportunity_State,Pick List,Yes,,
+Opportunity Status,Opportunity_Status,Pick List,Yes,,
+Opportunity Type,Stage,Pick List,,,
+Probability (%),Probability,Number,,,
+Reason For Loss,Reason_For_Loss__s,Pick List,,,
+Sequence Paused Until,Sequence_Paused_Until,DateTime,Yes,,"Workflow Rules - Execute On
 WF010b Date Router Sequence Paused Until > Trigger"
-Sequence Status,Sequence_Status,Pick List,Yes,"Workflow Rules - Condition
+Sequence Status,Sequence_Status,Pick List,Yes,,"Workflow Rules - Condition
 WF002 Deal Sequence Router"
-Suppression Reason,Suppression_Reason,Pick List,Yes,
-Tag,Tag,Single Line,,
-Type,Type,Pick List,,
+Suppression Reason,Suppression_Reason,Pick List,Yes,,
+Tag,Tag,Single Line,,,
+Type,Type,Pick List,,,

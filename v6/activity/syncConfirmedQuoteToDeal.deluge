@@ -1,0 +1,194 @@
+void automation.syncConfirmedQuoteToDeal(string quoteIdStr)
+{
+	// =========================================================================
+	// syncConfirmedQuoteToDeal  (v6 contract-ledger engine)
+	//
+	// Fires when a Quote reaches Quote_Stage = Confirmed (via WF020 /
+	// handleQuoteStageChange, or called directly from a signed Task outcome).
+	// Implements spec sections 8 + 14.3/14.4:
+	//
+	//   First confirmed Quote  -> populate Deal Contract_Initial_*, Amount; Contract_Type=Initial
+	//   Later confirmed Quote  -> require Contract_Type; demote prior Confirmed -> Closed Won;
+	//                             populate Deal Contract_Current_*, Amount
+	//   Invariant              -> at most ONE Confirmed Quote per Deal
+	//
+	// Safety: validates BEFORE any write; demotes prior Confirmed BEFORE promoting
+	// (≤1 Confirmed holds even mid-failure); first-vs-later keyed off populated
+	// Initial fields (idempotent re-fire); all writes suppressed (noTrigger).
+	// =========================================================================
+
+	info "VERSION: v6-quote-ledger";
+
+	advanceCommercial = true;   // toggle: also drive Deal Commercials_Status -> Signed
+
+	qId = 0;
+	if(!isNull(quoteIdStr) && quoteIdStr != "") { qId = quoteIdStr.toLong(); }
+	automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", ifnull(qId, "").toString(), "entry", "in_progress", null);
+	if(qId == 0) { return; }
+
+	quote = zoho.crm.getRecordById("Quotes", qId);
+	if(isNull(quote) || isNull(quote.get("id"))) { return; }
+
+	// re-fire guard
+	if(ifnull(quote.get("Quote_Stage"), "").toString() != "Confirmed")
+	{
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "guard", "skip_not_confirmed", null);
+		return;
+	}
+
+	dealId = 0;
+	dnLookup = quote.get("Deal_Name");
+	if(!isNull(dnLookup) && !isNull(dnLookup.get("id"))) { dealId = dnLookup.get("id").toLong(); }
+	if(dealId == 0)
+	{
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "guard", "no_parent_deal", null);
+		return;
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "guard", "skip_suppressed", {"deal":dealId.toString()});
+		return;
+	}
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
+
+	// ---- validate before any write (spec 14.2) ----
+	subjOk = ifnull(quote.get("Subject"), "").toString() != "";
+	acctOk = !isNull(quote.get("Account_Name")) && !isNull(quote.get("Account_Name").get("id"));
+	contactOk = !isNull(quote.get("Contact_Name")) && !isNull(quote.get("Contact_Name").get("id"));
+	startVal = ifnull(quote.get("Contract_Date_Start"), "").toString();
+	startOk = startVal != "";
+
+	summary = automation.resolveQuotePlanSummary(qId.toString()).toMap();
+	summaryValid = ifnull(summary.get("valid"), "false").toString() == "true";
+
+	if(!subjOk || !acctOk || !contactOk || !startOk || !summaryValid)
+	{
+		failReason = "missing_required_fields";
+		if(!summaryValid) { failReason = ifnull(summary.get("reason"), "summary_invalid").toString(); }
+		if(primaryId != "")
+		{
+			automation.createAuxTask(primaryId, dealId.toString(), "Manual Review", "Quote " + qId + " cannot confirm: " + failReason);
+		}
+		zoho.crm.updateRecord("Quotes", qId, {"Quote_Stage":"On Hold"}, noTrigger);
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "validation_failed", failReason, {"deal":dealId.toString()});
+		return;
+	}
+
+	// ---- resolve derived values ----
+	acv = ifnull(summary.get("acv"), 0).toDecimal();
+	planType = ifnull(summary.get("planType"), "").toString();
+	mixed = ifnull(summary.get("mixed"), "false").toString();
+	planBrands = ifnull(summary.get("planBrands"), 0);
+
+	// planProducts is a comma-delimited family list -> rebuild the multiselect list
+	planProductsList = List();
+	planProductsStr = ifnull(summary.get("planProducts"), "").toString();
+	if(planProductsStr != "")
+	{
+		for each pp in planProductsStr.toList(",")
+		{
+			ppT = pp.trim();
+			if(ppT != "") { planProductsList.add(ppT); }
+		}
+	}
+
+	endVal = ifnull(quote.get("Contract_Date_End"), "").toString();
+	endDateStr = endVal;
+	if(endVal == "") { endDateStr = startVal.toDate().addYear(1).toString("yyyy-MM-dd"); }
+
+	// Net_Order_Value resolution order (preserve manual exception)
+	nov = 0.0;
+	existingNov = ifnull(quote.get("Net_Order_Value"), "").toString();
+	grand = ifnull(quote.get("Grand_Total"), "0").toDecimal();
+	prevCredit = ifnull(quote.get("Previous_Contract_Credit"), "0").toDecimal();
+	if(existingNov != "") { nov = existingNov.toDecimal(); }
+	else if(grand > 0) { nov = grand; }
+	else { nov = acv - prevCredit; }
+
+	// ---- first vs later (keyed off populated Initial fields -> idempotent) ----
+	isFirst = (ifnull(deal.get("Contract_Initial_ACV"), "").toString() == "" && ifnull(deal.get("Contract_Initial_Date_Start"), "").toString() == "");
+
+	// ---- common Quote stamps ----
+	qUpd = Map();
+	qUpd.put("Contract_ACV", acv);
+	qUpd.put("Net_Order_Value", nov);
+	if(endVal == "") { qUpd.put("Contract_Date_End", endDateStr); }
+	if(isNull(quote.get("Contract_Signed_Date"))) { qUpd.put("Contract_Signed_Date", zoho.currentdate.toString("yyyy-MM-dd")); }
+
+	if(isFirst)
+	{
+		if(ifnull(quote.get("Contract_Type"), "").toString() == "") { qUpd.put("Contract_Type", "Initial"); }
+		zoho.crm.updateRecord("Quotes", qId, qUpd, noTrigger);
+
+		dUpd = Map();
+		dUpd.put("Contract_Initial_ACV", acv);
+		dUpd.put("Contract_Initial_Date_Start", startVal);
+		dUpd.put("Contract_Initial_Date_End", endDateStr);
+		if(mixed == "false" && planType != "") { dUpd.put("Contract_Initial_Plan_Type", planType); }
+		if(planProductsList.size() > 0) { dUpd.put("Contract_Initial_Plan_Products", planProductsList); }
+		dUpd.put("Contract_Initial_Plan_Brands", planBrands);
+		dUpd.put("Amount", acv);
+		zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger);
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "confirmed", "initial", {"deal":dealId.toString(), "acv":acv.toString()});
+	}
+	else
+	{
+		// later confirmed Quote: Contract_Type is required and not auto-derived (A5)
+		cType = ifnull(quote.get("Contract_Type"), "").toString();
+		if(cType == "" || cType == "Initial")
+		{
+			if(primaryId != "")
+			{
+				automation.createAuxTask(primaryId, dealId.toString(), "Manual Review", "Later Quote " + qId + " needs Contract Type (Renewed / Upsold / Renewed & Upsold) before contract sync.");
+			}
+			zoho.crm.updateRecord("Quotes", qId, {"Quote_Stage":"On Hold"}, noTrigger);
+			automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "blocked", "missing_contract_type", {"deal":dealId.toString()});
+			return;
+		}
+
+		zoho.crm.updateRecord("Quotes", qId, qUpd, noTrigger);
+
+		// demote prior Confirmed FIRST (keeps the ≤1-Confirmed invariant if we die mid-run)
+		priorQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+		if(!isNull(priorQuotes) && priorQuotes.size() > 0 && !priorQuotes.toString().startsWith("{\"code\""))
+		{
+			for each pq in priorQuotes
+			{
+				pqId = "";
+				if(!isNull(pq.get("id"))) { pqId = pq.get("id").toString(); }
+				if(pqId != "" && pqId != qId.toString() && ifnull(pq.get("Quote_Stage"), "").toString() == "Confirmed")
+				{
+					zoho.crm.updateRecord("Quotes", pqId.toLong(), {"Quote_Stage":"Closed Won"}, noTrigger);
+					automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "demote_prior", pqId, {"deal":dealId.toString()});
+				}
+			}
+		}
+
+		dUpd = Map();
+		dUpd.put("Contract_Current_ACV", acv);
+		dUpd.put("Contract_Current_Date_Start", startVal);
+		dUpd.put("Contract_Current_Date_End", endDateStr);
+		if(mixed == "false" && planType != "") { dUpd.put("Contract_Current_Plan_Type", planType); }
+		if(planProductsList.size() > 0) { dUpd.put("Contract_Current_Plan_Products", planProductsList); }
+		dUpd.put("Contract_Current_Plan_Brands", planBrands);
+		dUpd.put("Amount", acv);
+		zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger);
+		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "confirmed", "superseded", {"deal":dealId.toString(), "acv":acv.toString(), "type":cType});
+	}
+
+	// ---- optional: advance Deal commercial status to Signed (reuses WF004 handler logic) ----
+	if(advanceCommercial && ifnull(deal.get("Commercials_Status"), "").toString() != "Signed")
+	{
+		zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Signed"}, noTrigger);
+		automation.handleCommercialsStatusChange(dealId.toString());
+	}
+}

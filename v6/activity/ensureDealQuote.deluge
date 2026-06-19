@@ -1,0 +1,132 @@
+void automation.ensureDealQuote(string dealIdStr)
+{
+	// =========================================================================
+	// ensureDealQuote  (v6 proposal-boundary Quote seeder — spec 10)
+	//
+	// Called inline from processDeal once Opportunity_Stage = Proposal Preparation.
+	// Ensures a Draft Quote with >=1 Quoted Item exists for the Deal, seeded from
+	// the Deal's quote-ready linked Products (family x Fixed/Flex; 360 frequency is
+	// chosen by the rep per line). Best-effort prices each line via
+	// resolveQuoteLinePrice -> List_Price. If no quote-ready product / no primary
+	// contact, raises a Manual Review task instead of an invalid empty Quote (10.4).
+	//
+	// Idempotent: skips if any open Quote already exists for the Deal.
+	// =========================================================================
+
+	info "VERSION: v6-quote-seed";
+
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	automation.logAutomationEvent("ensureDealQuote", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
+	if(dealId == 0) { return; }
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+	if(ifnull(deal.get("Opportunity_Stage"), "").toString() != "Proposal Preparation")
+	{
+		automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "guard", "skip_not_proposal_stage", null);
+		return;
+	}
+
+	// ---- dedup: skip if an open Quote already exists ----
+	existingQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+	if(!isNull(existingQuotes) && existingQuotes.size() > 0 && !existingQuotes.toString().startsWith("{\"code\""))
+	{
+		openSet = {"Draft", "Negotiation", "Delivered", "On Hold", "Confirmed"};
+		for each eq in existingQuotes
+		{
+			if(openSet.contains(ifnull(eq.get("Quote_Stage"), "").toString()))
+			{
+				automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "guard", "open_quote_exists", {"quote":ifnull(eq.get("id"), "").toString()});
+				return;
+			}
+		}
+	}
+
+	// ---- resolve Account + primary Contact ----
+	accountId = "";
+	accLookup = deal.get("Account_Name");
+	if(!isNull(accLookup) && !isNull(accLookup.get("id"))) { accountId = accLookup.get("id").toString(); }
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
+
+	if(accountId == "" || primaryId == "")
+	{
+		automation.createAuxTask(primaryId, dealId.toString(), "Manual Review", "Cannot seed Quote: Deal missing Account or primary Contact.");
+		automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "blocked", "missing_account_or_contact", null);
+		return;
+	}
+
+	// ---- gather quote-ready Products linked to the Deal ----
+	lines = List();
+	dealProds = zoho.crm.getRelatedRecords("Products", "Deals", dealId);
+	if(!isNull(dealProds) && dealProds.size() > 0 && !dealProds.toString().startsWith("{\"code\""))
+	{
+		for each dp in dealProds
+		{
+			prodId = "";
+			if(!isNull(dp.get("id"))) { prodId = dp.get("id").toString(); }
+			if(prodId == "") { continue; }
+
+			prod = zoho.crm.getRecordById("Products", prodId.toLong());
+			if(isNull(prod) || isNull(prod.get("id"))) { continue; }
+
+			isActive = ifnull(prod.get("Product_Active"), false);
+			planProducts = ifnull(prod.get("Product_Plan_Products"), "").toString().trim();
+			planType = ifnull(prod.get("Product_Plan_Type"), "").toString().trim();
+			if(planType == "Flexible") { planType = "Flex"; }
+			prodCode = ifnull(prod.get("Product_Code"), "").toString().trim();
+
+			// quote-ready gate (spec 4.7)
+			if((isActive == true || isActive == "true") && planProducts != "" && planType != "" && prodCode != "")
+			{
+				line = Map();
+				prodMap = Map();
+				prodMap.put("id", prodId);
+				line.put("Product_Name", prodMap);
+				line.put("Quantity", 1);
+				line.put("Quoted_Item_Pricing_Tier", "Base");
+
+				// seed default brand-market count from catalogue guidance (rep confirms)
+				brandsStr = ifnull(prod.get("Product_Plan_Brands"), "").toString();
+				if(brandsStr.trim() != "") { line.put("Quoted_Item_Plan_Brands", brandsStr.trim().toLong()); }
+
+				// best-effort price (360 lines need a frequency the rep picks -> may be unpriced here)
+				priceResp = automation.resolveQuoteLinePrice(prodId, planType, brandsStr, "Base", "").toMap();
+				if(ifnull(priceResp.get("valid"), "false").toString() == "true")
+				{
+					line.put("List_Price", ifnull(priceResp.get("line_acv"), 0));
+				}
+				lines.add(line);
+			}
+		}
+	}
+
+	if(lines.size() == 0)
+	{
+		automation.createAuxTask(primaryId, dealId.toString(), "Manual Review", "No quote-ready Products on Deal to seed a Quote at Proposal Preparation.");
+		automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "blocked", "no_quote_ready_products", null);
+		return;
+	}
+
+	// ---- create the Draft Quote ----
+	dealName = ifnull(deal.get("Deal_Name"), "Quote").toString();
+	qMap = Map();
+	qMap.put("Subject", dealName + " - Proposal");
+	qMap.put("Quote_Stage", "Draft");
+	accMap = Map(); accMap.put("id", accountId); qMap.put("Account_Name", accMap);
+	dMap = Map(); dMap.put("id", dealId.toString()); qMap.put("Deal_Name", dMap);
+	conMap = Map(); conMap.put("id", primaryId); qMap.put("Contact_Name", conMap);
+	qMap.put("Quoted_Items", lines);
+
+	createResp = zoho.crm.createRecord("Quotes", qMap);
+	newQuoteId = "";
+	if(!isNull(createResp) && !isNull(createResp.get("id"))) { newQuoteId = createResp.get("id").toString(); }
+	automation.logAutomationEvent("ensureDealQuote", "Deals", dealId.toString(), "seeded", "draft_quote_created", {"quote":newQuoteId, "lines":lines.size().toString()});
+}

@@ -1,0 +1,163 @@
+void automation.handleMeetingEvent(string eventIdStr)
+{
+	// =========================================================================
+	// handleMeetingEvent  (Meeting/Event = source of truth — WF007)
+	//
+	// The Meeting (Events) record owns the demo lifecycle + result. This function
+	// reads the Event's OWN fields and never relies on Deal mirror flags:
+	//   - Meeting_Status  : scheduling lifecycle
+	//                       Scheduled | Confirmed | Rescheduled | Cancelled | Completed
+	//   - Meeting_Outcome : result, read ONLY when Completed
+	//                       Attended - Qualified | Attended - Needs Follow-up
+	//                       | Attended - Not Qualified | No Show
+	//   - Reminder_Send_At: the Event's own reminder time (source of truth for WF010c)
+	//   - Start_DateTime / End_DateTime / Who_Id / What_Id
+	//
+	// IMPORTANT: Deal.Demo_Status and Deal.Demo_Meeting_ID DO NOT EXIST and are not
+	// used. The Deal keeps summary mirrors only (Demo_Start_DateTime, Demo_Reminder_Send_At,
+	// Demo_Outcome) — written with suppressTrigger and kept while WF010c is Deal-based.
+	//
+	// First-booking detection is by Contact Stage (advance to Demo Confirmation once),
+	// NOT by a Deal mirror id. "No Show" is read from Meeting_Outcome, never Meeting_Status.
+	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
+
+	eventId = 0;
+	if(!isNull(eventIdStr) && eventIdStr != "") { eventId = eventIdStr.toLong(); }
+	automation.logAutomationEvent("handleMeetingEvent", "Events", ifnull(eventId, "").toString(), "entry", "in_progress", null);
+	if(eventId == 0) { return; }
+
+	event = zoho.crm.getRecordById("Events", eventId);
+	if(isNull(event) || isNull(event.get("id"))) { return; }
+
+	// Demo meetings only (empty Meeting_Type tolerated as Demo for back-compat).
+	meetingType = ifnull(event.get("Meeting_Type"), "").toString();
+	if(meetingType != "Demo" && meetingType != "")
+	{
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_not_demo", {"meeting_type":meetingType});
+		return;
+	}
+
+	whatLookup = event.get("What_Id");
+	seModule   = ifnull(event.get("$se_module"), "").toString();
+	if(isNull(whatLookup) || isNull(whatLookup.get("id")) || seModule != "Deals")
+	{
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		return;
+	}
+	dealId = whatLookup.get("id").toLong();
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+
+	// Contact: prefer the Meeting's Who_Id; fall back to Deal.Contact_Name only when necessary.
+	contactId = "";
+	whoLookup = event.get("Who_Id");
+	if(!isNull(whoLookup) && !isNull(whoLookup.get("id"))) { contactId = whoLookup.get("id").toString(); }
+	if(contactId == "")
+	{
+		cnLookup = deal.get("Contact_Name");
+		if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { contactId = cnLookup.get("id").toString(); }
+	}
+
+	meetingStatus  = ifnull(event.get("Meeting_Status"), "").toString();
+	meetingOutcome = ifnull(event.get("Meeting_Outcome"), "").toString();
+	startDateTime  = event.get("Start_DateTime");
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	// =====================================================================
+	// CANCELLED -> clear reminders, route meeting:cancelled once. Never infer No Show.
+	// =====================================================================
+	if(meetingStatus == "Cancelled")
+	{
+		zoho.crm.updateRecord("Events", eventId, {"Reminder_Send_At": null}, noTrigger);
+		zoho.crm.updateRecord("Deals", dealId, {"Demo_Reminder_Send_At": null}, noTrigger);
+		if(contactId != "") { automation.routeContactSequence(contactId, dealId.toString(), "meeting:cancelled"); }
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "routed", {"deal":dealId.toString()});
+		return;
+	}
+
+	// =====================================================================
+	// COMPLETED -> read Meeting_Outcome and map to a demo:* token.
+	// Mirror Deal.Demo_Outcome (suppressed) for any Deal-level workflow still using it,
+	// but route the transition here so WF005 is not double-fired.
+	// =====================================================================
+	if(meetingStatus == "Completed")
+	{
+		outcomeTokens = Map();
+		outcomeTokens.put("Attended - Qualified", "demo:qualified");
+		outcomeTokens.put("Attended - Needs Follow-up", "demo:followup");
+		outcomeTokens.put("Attended - Not Qualified", "demo:not_qualified");
+		outcomeTokens.put("No Show", "demo:noshow");
+		token = ifnull(outcomeTokens.get(meetingOutcome), "").toString();
+
+		if(meetingOutcome != "")
+		{
+			zoho.crm.updateRecord("Deals", dealId, {"Demo_Outcome": meetingOutcome}, noTrigger);
+		}
+		if(token != "" && contactId != "")
+		{
+			automation.routeContactSequence(contactId, dealId.toString(), token);
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", token, {"deal":dealId.toString(), "outcome":meetingOutcome});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
+		}
+		return;
+	}
+
+	// =====================================================================
+	// SCHEDULED / CONFIRMED / RESCHEDULED -> (re)compute reminder + mirror summary.
+	// =====================================================================
+	upcoming = {"Scheduled", "Confirmed", "Rescheduled"};
+	if(!upcoming.contains(meetingStatus))
+	{
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "no_action", meetingStatus, {"deal":dealId.toString()});
+		return;
+	}
+
+	// Reminder = 1 business day (AM) before the demo start.
+	reminderAt = null;
+	if(!isNull(startDateTime))
+	{
+		reminderAtStr = automation.calculateBusinessDate(startDateTime, -1, "business_days_minus_AM");
+		reminderAt = reminderAtStr.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+	}
+
+	// Event is the source of truth: stamp its own Reminder_Send_At.
+	evUpd = Map();
+	if(reminderAt != null) { evUpd.put("Reminder_Send_At", reminderAt); }
+	if(evUpd.size() > 0) { zoho.crm.updateRecord("Events", eventId, evUpd, noTrigger); }
+
+	// Deal summary mirror (kept while WF010c remains Deal-based). No Demo_Status / Demo_Meeting_ID.
+	dUpd = Map();
+	if(!isNull(startDateTime)) { dUpd.put("Demo_Start_DateTime", startDateTime); }
+	if(reminderAt != null)     { dUpd.put("Demo_Reminder_Send_At", reminderAt); }
+	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
+
+	// First booking only -> advance the Contact to Demo Confirmation + send the Confirmation
+	// email (the router owns both). Idempotent: only when the Contact has not yet reached
+	// Demo Confirmation. Re-edits at Demo Confirmation or farther mirror fields only.
+	if(contactId != "")
+	{
+		stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+		contact = zoho.crm.getRecordById("Contacts", contactId.toLong());
+		contactStage = "";
+		if(!isNull(contact) && !isNull(contact.get("id"))) { contactStage = ifnull(contact.get("Stage"), "").toString(); }
+		contactRank = ifnull(stageRanks.get(contactStage), 0).toLong();
+		demoConfRank = 3;
+		if(contactRank < demoConfRank)
+		{
+			automation.routeContactSequence(contactId, dealId.toString(), "meeting:created");
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "first_booking", "meeting_created", {"deal":dealId.toString(), "status":meetingStatus, "contact_stage":contactStage});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "mirrored", meetingStatus, {"deal":dealId.toString(), "contact_stage":contactStage});
+		}
+	}
+}

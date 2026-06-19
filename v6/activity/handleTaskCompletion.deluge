@@ -1,0 +1,239 @@
+void automation.handleTaskCompletion(string taskIdStr)
+{
+	// =========================================================================
+	// handleTaskCompletion  (Contact-centric)
+	//
+	// WF008: fires when a sequence-managed Task is Completed or gets a Task_Outcome.
+	// Identifies the Contact (Who_Id) and Deal (What_Id) and applies the outcome.
+	//
+	// AUDIT GUARD: an "Email Sent" Task is the email audit record only -> return
+	// immediately, never advance the sequence.
+	// SCHEDULED-SEND GUARD: a "ScheduledSend|..." wake-up Task is handled by
+	// sendScheduledEmailFromTask -> return.
+	//
+	// Activation (Task_Type = "Sequence Activation"): map Task_Outcome ->
+	//   "Activate Call First"  -> activate:call
+	//   "Activate Email First" -> activate:email
+	//   "Manual Only"          -> activate:manual
+	//   "Suppress"/"Already Handled" -> activate:stop
+	//   "Stage Incorrect"      -> Manual Review Task + activate:stop
+	// Other Task_Types:
+	//   "Onboarding Setup"  -> Contact Sequence_State = Complete (terminal)
+	//   "Send Commercials"  -> Deal Commercials_Status = Sent + handleCommercialsStatusChange
+	//   "Data Repair"/"Review Reply"/"Enrichment" -> resume the Contact sequence
+	//   "Draft Commercials"/"Manual Review"/"Suppression Review" -> no auto action
+	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
+
+	taskId = 0;
+	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }
+	automation.logAutomationEvent("handleTaskCompletion", "Tasks", ifnull(taskId, "").toString(), "entry", "in_progress", null);
+	if(taskId == 0) { return; }
+
+	task = zoho.crm.getRecordById("Tasks", taskId);
+	if(isNull(task) || isNull(task.get("id"))) { return; }
+
+	tType = ifnull(task.get("Task_Type"), "").toString();
+	tDesc = ifnull(task.get("Description"), "").toString();
+
+	// ---- AUDIT GUARD: email audit Task never advances the sequence ----
+	if(tType == "Email Sent")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "audit_guard", "email_audit_no_advance", null);
+		return;
+	}
+	// ---- SCHEDULED-SEND GUARD: wake-up Task is handled by the send wrapper ----
+	if(tDesc.contains("ScheduledSend|"))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "scheduled_send_guard", "skip", null);
+		return;
+	}
+
+	tSeqManaged = ifnull(task.get("Task_Sequence_Managed"), false).toString();
+	knownTypes = {"Sequence Activation", "Data Repair", "Enrichment", "Review Reply", "Draft Commercials", "Send Commercials", "Onboarding Setup", "Manual Review", "Suppression Review"};
+	if(tSeqManaged != "true" && !knownTypes.contains(tType))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_sequence_managed", {"task_type":tType});
+		return;
+	}
+
+	whatLookup = task.get("What_Id");
+	seModule   = ifnull(task.get("$se_module"), "").toString();
+	if(seModule != "Deals" || isNull(whatLookup) || isNull(whatLookup.get("id")))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		return;
+	}
+	dealId = whatLookup.get("id").toLong();
+
+	whoLookup = task.get("Who_Id");
+	if(isNull(whoLookup) || isNull(whoLookup.get("id")))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_no_contact", null);
+		return;
+	}
+	contactId = whoLookup.get("id").toLong();
+
+	tStatus  = ifnull(task.get("Status"), "").toString();
+	tOutcome = ifnull(task.get("Task_Outcome"), "").toString();
+	if(tStatus == "Deferred")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_deferred", null);
+		return;
+	}
+	if(tStatus != "Completed" && tOutcome == "")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_complete", {"status":tStatus, "outcome":tOutcome});
+		return;
+	}
+
+	contact = zoho.crm.getRecordById("Contacts", contactId);
+	if(isNull(contact) || isNull(contact.get("id")))
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "contact_not_found", {"contact":contactId.toString()});
+		return;
+	}
+	contactStage = ifnull(contact.get("Stage"), "").toString();
+	contactSeqState = ifnull(contact.get("Sequence_State"), "").toString();
+
+	// ---- stale: task belongs to a Stage the Contact has left.
+	//      Sequence Activation is EXEMPT — it deliberately adopts Task_Sequence_Stage onto the
+	//      Contact (see the activation block below), so a mismatch must not skip it here. ----
+	taskStage = ifnull(task.get("Task_Sequence_Stage"), "").toString();
+	if(tType != "Sequence Activation" && taskStage != "" && taskStage != contactStage)
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_stale_stage", {"task_stage":taskStage, "contact_stage":contactStage});
+		return;
+	}
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	// =====================================================================
+	// ACTIVATION
+	// =====================================================================
+	if(tType == "Sequence Activation")
+	{
+		// ---- 1. Task_Outcome EXCEPTION overrides everything (wins even if Task_Sequence_Type is set) ----
+		if(tOutcome == "Suppress" || tOutcome == "Already Handled")
+		{
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop");
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stopped", {"contact":contactId.toString(), "outcome":tOutcome});
+			return;
+		}
+		if(tOutcome == "Stage Incorrect")
+		{
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Stage flagged incorrect during activation; correct Contact.Stage then re-activate.");
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop");
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stage_incorrect", {"contact":contactId.toString()});
+			return;
+		}
+
+		// ---- 2. Resolve route: Task_Sequence_Type is the primary selector; legacy Task_Outcome
+		//         ("Activate Email First" / "Activate Call First" / "Manual Only") is fallback only. ----
+		taskSeqType = ifnull(task.get("Task_Sequence_Type"), "").toString();
+		routeType = taskSeqType;
+		if(routeType == "")
+		{
+			if(tOutcome == "Activate Email First") { routeType = "Email"; }
+			else if(tOutcome == "Activate Call First") { routeType = "Call"; }
+			else if(tOutcome == "Manual Only") { routeType = "Manual"; }
+		}
+		if(routeType != "Email" && routeType != "Call" && routeType != "Manual")
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_route", "no_type", {"task_sequence_type":taskSeqType, "outcome":tOutcome});
+			return;
+		}
+
+		// ---- 3. Idempotency BEFORE any mutation: Email/Call already Running -> skip (no stage adopt,
+		//         no route). Manual is allowed even when Running (deliberate human stop/manual-control). ----
+		if((routeType == "Email" || routeType == "Call") && contactSeqState == "Running")
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", routeType, {"contact":contactId.toString()});
+			return;
+		}
+
+		// ---- 4. Stage adoption: the Activation Task's business Stage (Task_Sequence_Stage) wins
+		//         onto Contact.Stage so the sequence enters at the intended stage. ----
+		if(taskStage != "" && taskStage != contactStage)
+		{
+			zoho.crm.updateRecord("Contacts", contactId, {"Stage": taskStage}, noTrigger);
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "stage_adopted", taskStage, {"contact":contactId.toString(), "from":contactStage});
+		}
+
+		// ---- 5. Route exactly once (routeContactSequence owns the Contact.Sequence_* writes) ----
+		routeVia = "legacy_outcome";
+		if(taskSeqType != "") { routeVia = "Task_Sequence_Type"; }
+		actTrig = "activate:email";
+		if(routeType == "Call") { actTrig = "activate:call"; }
+		else if(routeType == "Manual") { actTrig = "activate:manual"; }
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig);
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":routeVia});
+		return;
+	}
+
+	// =====================================================================
+	// OTHER TASK TYPES
+	// =====================================================================
+	if(tType == "Onboarding Setup")
+	{
+		cUpd = Map();
+		cUpd.put("Sequence_State", "Complete");
+		cUpd.put("Sequence_Stage", "None");
+		cUpd.put("Sequence_Step", "None");
+		zoho.crm.updateRecord("Contacts", contactId, cUpd, noTrigger);
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "onboarding_complete", {"contact":contactId.toString()});
+		return;
+	}
+
+	if(tType == "Send Commercials")
+	{
+		// Drive the Deal's active open Quote to Delivered (suppressed: WF020 will not
+		// re-fire; Commercials_Status=Sent is set directly below). Picks the latest
+		// (highest-id) Quote still in an editable stage.
+		dealQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+		if(!isNull(dealQuotes) && dealQuotes.size() > 0 && !dealQuotes.toString().startsWith("{\"code\""))
+		{
+			editableSet = {"Draft", "Negotiation", "On Hold"};
+			chosenQuoteId = "";
+			chosenQuoteIdLong = 0;
+			for each dq in dealQuotes
+			{
+				dqId = "";
+				if(!isNull(dq.get("id"))) { dqId = dq.get("id").toString(); }
+				if(dqId != "" && editableSet.contains(ifnull(dq.get("Quote_Stage"), "").toString()))
+				{
+					if(dqId.toLong() > chosenQuoteIdLong) { chosenQuoteIdLong = dqId.toLong(); chosenQuoteId = dqId; }
+				}
+			}
+			if(chosenQuoteId != "")
+			{
+				zoho.crm.updateRecord("Quotes", chosenQuoteId.toLong(), {"Quote_Stage":"Delivered"}, noTrigger);
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "quote_delivered", {"quote":chosenQuoteId, "deal":dealId.toString()});
+			}
+		}
+
+		dealUpd = Map();
+		dealUpd.put("Commercials_Status", "Sent");
+		zoho.crm.updateRecord("Deals", dealId, dealUpd, noTrigger);
+		automation.handleCommercialsStatusChange(dealId.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "status_to_sent", {"deal":dealId.toString()});
+		return;
+	}
+
+	if(tType == "Data Repair" || tType == "Review Reply" || tType == "Enrichment")
+	{
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "resumed", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+
+	if(tType == "Draft Commercials" || tType == "Manual Review" || tType == "Suppression Review")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "no_auto_action", tType, {"contact":contactId.toString()});
+		return;
+	}
+
+	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"contact":contactId.toString()});
+}

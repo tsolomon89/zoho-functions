@@ -79,9 +79,9 @@ where noted). IDs from G1 backup.
 | WF007 (782052) | Events create_or_edit | handleMeetingEvent | `eventIdStr ← ${Events.id}` | keep |
 | WF008 (784145) | Tasks create_or_edit | handleTaskCompletion | `taskIdStr ← ${Tasks.id}` | verify (Status=Completed, not ScheduledSend) |
 | WF009a-e (790073/806019/789167/796107/799022) | Emails events | handleEmailReplied/Bounced/NotReplied/OpenedNotReplied/Clicked | `relatedDealIdStr ← ${Emails.Deal/Parent}`, `relatedContactIdStr ← ${Emails.Contact}` | keep |
-| WF010c (802001) | Deals date Demo_Reminder_Send_At | **sendDemoReminder** | `dealIdStr ← ${Deals.id}` | **REBIND** (was sequenceRouter) |
-| WF010d (790038) | Deals date Next_Comm_Follow_Up_Date | **sendCommercialFollowUp** | `dealIdStr ← ${Deals.id}` | **REBIND** (was sequenceRouter) |
-| **WFC-SchedEmail (CREATE)** | Tasks date Due_Date, criteria `Sequence_Managed=Yes` AND `Description contains ScheduledSend` | **sendScheduledEmailFromTask** | `taskIdStr ← ${Tasks.id}` | **CREATE** |
+| WF010c (802001) | Deals date Demo_Reminder_Send_At | **sendDemoReminder** | `dealIdStr ← ${Deals.id}` | DONE — **stays on Deals** (date WF can't bind to Meetings); fn guards on Deal demo mirrors written by handleMeetingEvent |
+| WF010d (790038) | Deals date Next_Comm_Follow_Up_Date | **sendCommercialFollowUp** | `dealIdStr ← ${Deals.id}` | DONE (was sequenceRouter) |
+| WFC-SchedEmail (1499121) | Tasks date Due_Date @09:00, criteria `Task_Sequence_Managed=Selected` AND `Status=Not Started` AND `Task_Type="Scheduled Send"` | **sendScheduledEmailFromTask** | `taskIdStr ← ${Tasks.id}` | created (as-built) |
 
 ## Workflows to disable/delete (bound to obsolete sequenceRouter)
 WF002 Deal Sequence Router (796079) · WF003 Stage Change Router (784137) ·
@@ -103,9 +103,12 @@ confirm `Sequence_Type` picklist values are `Email / Call / Manual` before enabl
 2. Restore prior function versions from git (`git checkout <prev> -- v5/...`) and re-publish.
 3. Email templates: the legacy bodies are in git history + the G1 list backup; recreate if needed.
 
-## Smoke / E2E test case (recipient tlcsolomon@gmail.com)
-1. Set a test Contact `Sequence_Type=Email`, activate → expect `marketing-consent:1:initial`
-   send-by-ID, one Completed "Email Sent: marketing-consent:1:initial" audit Task.
+## Smoke / E2E test case (recipient `tlcsolomon+e2eN@gmail.com` — NOT bare tlcsolomon@gmail.com; it matches an existing Contact)
+> ✅ Executed & GREEN 2026-06-16 — see `docs/v5/SESSION2_ASBUILT_AND_DEFECTS.md`. Activation is **Task-gated**, not Sequence_Type-driven.
+1. Create a test Contact (or convert a Lead) at Stage `Marketing Consent`; `processContact` creates a
+   **"Sequence Activation" Task**. Complete that Task with `Task_Outcome="Activate Email First"`
+   (do NOT edit `Sequence_Type`) → expect opener `marketing-consent:1:initial` **+ a Call 1**, one
+   Completed "Email Sent: marketing-consent:1:initial" audit Task.
 2. Force a missing key (temporary) → expect a **Manual Review** Task, no advance.
 3. Call path: log Call_Outcome neutral ×5 → cadence follow-ups + terminal `:5:final`.
 4. meeting:created → `demo-confirmation:0:confirmation`; Demo_Reminder_Send_At → reminder;

@@ -1,0 +1,171 @@
+void automation.handleCallOutcome(string callIdStr)
+{
+	// =========================================================================
+	// handleCallOutcome  (Contact-centric)
+	//
+	// WF006: fires when a sequence-managed Call gets a Call_Outcome. Identifies
+	// the Contact (Who_Id) and Deal (What_Id), maps the outcome to a resolver
+	// trigger token, and delegates the transition to routeContactSequence (the one
+	// router owner). Outcome-specific side effects (deferral reschedule, Data
+	// Repair / Manual Review Task, Lost reason) are applied here.
+	//
+	// Per-Contact idempotency: the Call's Sequence_Stage must equal the Contact's
+	// current Stage, and (for an in-cadence call) Sequence_Attempt must equal the
+	// Contact's current Sequence_Step; otherwise the Call is stale / already
+	// processed and is skipped.
+	//
+	// Call_Outcome -> trigger:
+	//   Positive->call:positive  Neutral->call:neutral  No Answer->call:noanswer
+	//   Negative->call:negative  Deferred->call:deferred  Bad Data->call:baddata
+	//   Already Handled->call:alreadyhandled  Not Relevant->call:notrelevant
+	//   Manual Only->call:manualonly  Do Not Contact->call:donotcontact
+	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
+
+	callId = 0;
+	if(!isNull(callIdStr) && callIdStr != "") { callId = callIdStr.toLong(); }
+	automation.logAutomationEvent("handleCallOutcome", "Calls", ifnull(callId, "").toString(), "entry", "in_progress", null);
+	if(callId == 0) { return; }
+
+	call = zoho.crm.getRecordById("Calls", callId);
+	if(isNull(call) || isNull(call.get("id"))) { return; }
+
+	if(ifnull(call.get("Sequence_Managed"), "No").toString() != "Yes")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_not_sequence_managed", null);
+		return;
+	}
+	if(ifnull(call.get("Stale"), "No").toString() == "Yes")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_stale", null);
+		return;
+	}
+
+	whatLookup = call.get("What_Id");
+	seModule   = ifnull(call.get("$se_module"), "").toString();
+	if(isNull(whatLookup) || isNull(whatLookup.get("id")) || seModule != "Deals")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_related_deal", {"se_module":seModule});
+		return;
+	}
+	dealId = whatLookup.get("id").toLong();
+
+	whoLookup = call.get("Who_Id");
+	if(isNull(whoLookup) || isNull(whoLookup.get("id")))
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_contact", null);
+		return;
+	}
+	contactId = whoLookup.get("id").toLong();
+
+	outcome = ifnull(call.get("Call_Outcome"), "").toString();
+	if(outcome == "")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_outcome", null);
+		return;
+	}
+
+	callSeqStage   = ifnull(call.get("Sequence_Stage"), "").toString();
+	callSeqAttempt = ifnull(call.get("Sequence_Attempt"), 0).toLong();
+
+	contact = zoho.crm.getRecordById("Contacts", contactId);
+	if(isNull(contact) || isNull(contact.get("id")))
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "contact_not_found", {"contact":contactId.toString()});
+		return;
+	}
+	contactStage    = ifnull(contact.get("Stage"), "").toString();
+	contactSeqStage = ifnull(contact.get("Sequence_Stage"), "").toString();
+	contactStepStr  = ifnull(contact.get("Sequence_Step"), "None").toString();
+
+	// ---- stale: call belongs to a Stage the Contact has left ----
+	if(callSeqStage != "" && callSeqStage != contactStage)
+	{
+		staleUpd = Map();
+		staleUpd.put("Stale", "Yes");
+		zoho.crm.updateRecord("Calls", callId, staleUpd);
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "marked_stale", {"call_stage":callSeqStage, "contact_stage":contactStage});
+		return;
+	}
+	// ---- already processed: contact has moved past this attempt ----
+	if(contactSeqStage == "Call" && contactStepStr != "None" && contactStepStr != "")
+	{
+		if(callSeqAttempt != contactStepStr.toLong())
+		{
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_processed_attempt", {"call_attempt":callSeqAttempt, "contact_step":contactStepStr});
+			return;
+		}
+	}
+
+	// ---- outcome -> trigger ----
+	trigMap = Map();
+	trigMap.put("Positive", "call:positive");
+	trigMap.put("Neutral", "call:neutral");
+	trigMap.put("No Answer", "call:noanswer");
+	trigMap.put("Negative", "call:negative");
+	trigMap.put("Deferred", "call:deferred");
+	trigMap.put("Bad Data", "call:baddata");
+	trigMap.put("Already Handled", "call:alreadyhandled");
+	trigMap.put("Not Relevant", "call:notrelevant");
+	trigMap.put("Manual Only", "call:manualonly");
+	trigMap.put("Do Not Contact", "call:donotcontact");
+	trig = ifnull(trigMap.get(outcome), "").toString();
+	if(trig == "")
+	{
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "unknown_outcome", outcome, {"deal":dealId.toString()});
+		return;
+	}
+
+	// ---- Deferred: reschedule this attempt to the explicit follow-up date ----
+	if(trig == "call:deferred")
+	{
+		nextFu = call.get("Next_Follow_Up_Date");
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), trig);
+		if(!isNull(nextFu))
+		{
+			newCall = Map();
+			newCall.put("Subject", contactStage + " Call " + callSeqAttempt);
+			newCall.put("What_Id", dealId);
+			newCall.put("$se_module", "Deals");
+			newCall.put("Who_Id", contactId);
+			newCall.put("Sequence_Managed", "Yes");
+			newCall.put("Sequence_Stage", contactStage);
+			newCall.put("Sequence_Attempt", callSeqAttempt);
+			newCall.put("Call_Type", "Outbound");
+			newCall.put("Call_Start_Time", nextFu);
+			newCall.put("Stale", "No");
+			zoho.crm.createRecord("Calls", newCall);
+		}
+		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_deferred", "rescheduled", {"deal":dealId.toString(), "until":ifnull(nextFu, "").toString()});
+		return;
+	}
+
+	// ---- transition (single router owner) ----
+	automation.routeContactSequence(contactId.toString(), dealId.toString(), trig);
+
+	// ---- outcome-specific side effects ----
+	if(trig == "call:baddata")
+	{
+		automation.createAuxTask(contactId.toString(), dealId.toString(), "Data Repair", "Bad Data on Call " + callId);
+	}
+	else if(trig == "call:notrelevant")
+	{
+		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Not Relevant call outcome on Call " + callId);
+	}
+	else if(trig == "call:negative" || trig == "call:donotcontact")
+	{
+		if(ifnull(contact.get("Lost_Reasons"), "").toString() == "")
+		{
+			reasonVal = "No Response";
+			if(trig == "call:negative") { reasonVal = "No Fit"; }
+			lostUpd = Map();
+			lostUpd.put("Lost_Reasons", reasonVal);
+			noTrigger = Map();
+			noTrigger.put("trigger", List());
+			zoho.crm.updateRecord("Contacts", contactId, lostUpd, noTrigger);
+		}
+	}
+
+	automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "routed", trig, {"deal":dealId.toString(), "contact":contactId.toString()});
+}

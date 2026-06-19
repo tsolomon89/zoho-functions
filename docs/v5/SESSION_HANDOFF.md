@@ -3,6 +3,26 @@
 Single source of truth for resuming the V5 email/function/workflow cutover in a fresh
 Claude Code session. Read this first, then the linked docs.
 
+## ⚠️ Session 2 update (2026-06-16 PM) — read `docs/v5/SESSION2_ASBUILT_AND_DEFECTS.md`
+The E2E is **GREEN** (instant Lead→Onboarding funnel, Gmail-verified; demo path re-run after a
+refactor). Key corrections to the text below:
+- **Activation is Task-gated, NOT `Sequence_Type`-driven.** The old "set `Sequence_Type=Email` to
+  activate" wording (in §E and the runsheet) is wrong. Real flow: `processContact` creates a
+  "Sequence Activation" Task → complete it with `Task_Outcome="Activate Email First"` (WF008 →
+  `handleTaskCompletion` → `activate:email`) → opener `marketing-consent:1:initial` + Call 1.
+- **Meeting/Event is the source of truth for the demo lifecycle** (`Meeting_Status` + `Meeting_Outcome`).
+  `handleMeetingEvent` + `sendDemoReminder` were refactored; **no** `Deal.Demo_Status`/`Demo_Meeting_ID`.
+  WF010c **stays on Deals** (date workflows can't bind to Meetings/Tasks).
+- **Tasks use Task-specific fields:** `Task_Sequence_Managed` (existing), `Task_Sequence_Stage` +
+  `Blocks_Sequence` (created this session). Activities fields are **not** shared across Calls/Events/Tasks.
+- **Done 2026-06-17:** deleted retired rules WF002/WF003/WF010a/WF010b + the `sequenceRouter`
+  automation-function record (Contact-centric model confirmed; they were unused). **Remaining UI-only**
+  (no delete-field MCP): drop 5 orphaned Deal fields (`Sequence_Status`, `Next_Action_Due_Date`,
+  `Sequence_Paused_Until`, `Deal_Primary_Contact`, `Commercial_Outcome`) and remove the leftover
+  `WF Placeholder Marker Deals` field-update action from WF005. See §6 of SESSION2_ASBUILT_AND_DEFECTS.md.
+- Use `tlcsolomon+e2eN@gmail.com` for test recipients, never bare `tlcsolomon@gmail.com` (matches an
+  existing Contact). All Session-2 test records were deleted.
+
 ## Where we are
 - **Email templates: MIGRATED & LIVE.** 8 canonical folders + **31 canonical templates**
   created and verified in Zoho. Registry (canonical key → template ID) in

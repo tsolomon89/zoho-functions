@@ -63,7 +63,18 @@ Org has **no custom fields on these modules today**. Module API names:
 
 2. **`Boolean` (Checkbox) field type is disallowed on Activities modules.** All originally-planned booleans (`Sequence_Managed`, `Blocks_Email_Until_Completed`, `Stale`, `Follow_Up_Required`, `Blocks_Sequence`) were created as `Picklist` fields with values `Yes` / `No` instead. The Deluge code therefore checks `ifnull(call.get("Sequence_Managed"), "No").toString() == "Yes"` rather than the original `== "true"`, and writes `"Yes"` / `"No"` strings.
 
-3. **Custom fields are shared across all three Activities sub-modules.** A field created on Calls (e.g., `Sequence_Managed`, `Sequence_Stage`, `Sequence_Attempt`, `Next_Follow_Up_Date`) is automatically visible on Events and Tasks too, so attempting to create them again on those modules returns `DUPLICATE_DATA`. Plan accordingly when adding more shared fields.
+3. **Custom fields are NOT reliably shared across the Activities sub-modules (CORRECTED 2026-06-16).**
+   The earlier assumption — that a field created on Calls (`Sequence_Managed`, `Sequence_Stage`,
+   `Sequence_Attempt`, etc.) is automatically visible on Events and Tasks — is **false for this org**,
+   verified via live `getFields`. Those four fields exist ONLY on **Calls**; the **Tasks** module had
+   none of them (only `Task_Sequence_Managed`, `Task_Type`, `Task_Outcome`), and **Events** has none.
+   The deluge had been writing/reading `Sequence_Managed`/`Sequence_Stage`/`Blocks_Sequence` on Task
+   records that didn't exist (silently dropped → broken dedup/supersede/blocking). Resolution
+   (2026-06-16): **Tasks use Task-specific api-names** — `Task_Sequence_Managed` (checkbox, pre-existing),
+   `Task_Sequence_Stage` (text, created this session), `Blocks_Sequence` (picklist Yes/No, created this
+   session). `Sequence_Attempt` is Calls-only and was removed from Task code. Authoritative per-module
+   field lists: `.agents/context/api_field_names/zoho_{tasks,calls,meetings}_api_names.csv` (Tasks CSV
+   corrected this session). See `docs/v5/SESSION2_ASBUILT_AND_DEFECTS.md` §3.
 
 4. **Task Type & Outcome additions (v5)**:
    - `Task_Type` is extended to support `Sequence Activation`.

@@ -1,0 +1,100 @@
+void automation.handleQuoteStageChange(string quoteIdStr)
+{
+	// =========================================================================
+	// handleQuoteStageChange  (v6 Quote lifecycle entry — WF020)
+	//
+	// Fires when Quote.Quote_Stage changes. Maps the native Quote lifecycle to
+	// Deal-side side effects (spec 9.2). Quote_Stage is the lifecycle authority;
+	// this function never creates a custom stage field.
+	//
+	//   Delivered   -> Deal.Commercials_Status = Sent (follow-up eligible)
+	//   Confirmed   -> syncConfirmedQuoteToDeal (validate, price, supersede, sync)
+	//   Closed Lost -> commercial loss ONLY if no other active Quote remains
+	//   Draft / Negotiation / On Hold / Closed Won -> log only
+	//
+	// All Deal writes are suppressed (noTrigger) so WF020 does not loop with
+	// WF004 (Commercials_Status) or the Deal workflow.
+	// =========================================================================
+
+	info "VERSION: v6-quote-stage";
+
+	qId = 0;
+	if(!isNull(quoteIdStr) && quoteIdStr != "") { qId = quoteIdStr.toLong(); }
+	automation.logAutomationEvent("handleQuoteStageChange", "Quotes", ifnull(qId, "").toString(), "entry", "in_progress", null);
+	if(qId == 0) { return; }
+
+	quote = zoho.crm.getRecordById("Quotes", qId);
+	if(isNull(quote) || isNull(quote.get("id"))) { return; }
+
+	qStage = ifnull(quote.get("Quote_Stage"), "").toString();
+
+	dealId = 0;
+	dnLookup = quote.get("Deal_Name");
+	if(!isNull(dnLookup) && !isNull(dnLookup.get("id"))) { dealId = dnLookup.get("id").toLong(); }
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	// Deal-level suppression guard (Quotes has no own suppression flag)
+	if(dealId != 0)
+	{
+		deal = zoho.crm.getRecordById("Deals", dealId);
+		if(!isNull(deal) && ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+		{
+			automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "guard", "skip_suppressed", {"deal":dealId.toString()});
+			return;
+		}
+	}
+
+	if(qStage == "Delivered")
+	{
+		if(dealId != 0)
+		{
+			zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Sent"}, noTrigger);
+			automation.handleCommercialsStatusChange(dealId.toString());
+		}
+		automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "delivered", "commercials_sent", {"deal":ifnull(dealId, "").toString()});
+		return;
+	}
+
+	if(qStage == "Confirmed")
+	{
+		automation.syncConfirmedQuoteToDeal(qId.toString());
+		automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "confirmed", "ledger_synced", {"deal":ifnull(dealId, "").toString()});
+		return;
+	}
+
+	if(qStage == "Closed Lost")
+	{
+		// Treat as commercial loss only if no other active Quote remains for the Deal.
+		hasOtherActive = false;
+		if(dealId != 0)
+		{
+			rq = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+			if(!isNull(rq) && rq.size() > 0 && !rq.toString().startsWith("{\"code\""))
+			{
+				activeSet = {"Draft", "Negotiation", "Delivered", "On Hold", "Confirmed"};
+				for each oq in rq
+				{
+					oqId = "";
+					if(!isNull(oq.get("id"))) { oqId = oq.get("id").toString(); }
+					if(oqId != qId.toString() && activeSet.contains(ifnull(oq.get("Quote_Stage"), "").toString())) { hasOtherActive = true; }
+				}
+			}
+		}
+		if(!hasOtherActive && dealId != 0)
+		{
+			zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Rejected"}, noTrigger);
+			automation.handleCommercialsStatusChange(dealId.toString());
+			automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "closed_lost", "commercial_rejected", {"deal":dealId.toString()});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "closed_lost", "replacement_possible", {"deal":ifnull(dealId, "").toString()});
+		}
+		return;
+	}
+
+	// Draft / Negotiation / On Hold / Closed Won -> no Deal side effect
+	automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "no_action", qStage, {"deal":ifnull(dealId, "").toString()});
+}

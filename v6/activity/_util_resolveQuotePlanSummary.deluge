@@ -1,0 +1,132 @@
+string automation.resolveQuotePlanSummary(string quoteIdStr)
+{
+	// =========================================================================
+	// _util_resolveQuotePlanSummary  (v6 quote -> contract summary)
+	//
+	// Reads a Quote's Quoted_Items subform, prices each line via
+	// resolveQuoteLinePrice, and aggregates the contract summary the Deal needs.
+	// Pure aggregation (reads only; no writes).
+	//
+	// Returns a JSON string (parse with .toMap()):
+	//   acv            sum of priced line ACVs (0 until pricing gate A2/A9 resolved)
+	//   planType       common Fixed/Flex across lines, or "" when mixed
+	//   planProducts   distinct family list (normalised) for the Deal multiselect
+	//   planBrands     sum of per-line brand-market counts
+	//   lineCount, mixed ("true"/"false"), valid ("true"/"false"), reason
+	//
+	// valid=false propagates the first failing line reason (incl. the pricing
+	// gate), so the caller refuses to sync and raises Manual Review.
+	// =========================================================================
+
+	info "VERSION: v6-quote-summary";
+
+	r = Map();
+	r.put("acv", 0);
+	r.put("planType", "");
+	r.put("planProducts", "");   // comma-delimited family list (safe JSON round-trip)
+	r.put("planBrands", 0);
+	r.put("lineCount", 0);
+	r.put("mixed", "false");
+	r.put("valid", "false");
+	r.put("reason", "init");
+
+	qId = 0;
+	if(!isNull(quoteIdStr) && quoteIdStr != "") { qId = quoteIdStr.toLong(); }
+	if(qId == 0) { r.put("reason", "missing_quote_id"); return r.toString(); }
+
+	quote = zoho.crm.getRecordById("Quotes", qId);
+	if(isNull(quote) || isNull(quote.get("id"))) { r.put("reason", "quote_not_found"); return r.toString(); }
+
+	lines = quote.get("Quoted_Items");
+	if(isNull(lines) || lines.size() == 0) { r.put("reason", "no_quoted_items"); return r.toString(); }
+
+	totalAcv = 0.0;
+	totalBrands = 0;
+	planProducts = List();
+	planProductsLower = List();
+	planTypeSet = List();
+	lineCount = 0;
+	allValid = true;
+	firstFail = "";
+
+	for each ln in lines
+	{
+		lineCount = lineCount + 1;
+
+		prodId = "";
+		prodLookup = ln.get("Product_Name");
+		if(!isNull(prodLookup) && !isNull(prodLookup.get("id"))) { prodId = prodLookup.get("id").toString(); }
+		if(prodId == "")
+		{
+			allValid = false;
+			if(firstFail == "") { firstFail = "line_missing_product"; }
+			continue;
+		}
+
+		brandsStr = ifnull(ln.get("Quoted_Item_Plan_Brands"), "").toString();
+		tier = ifnull(ln.get("Quoted_Item_Pricing_Tier"), "Base").toString();
+		freq = ifnull(ln.get("Quoted_Item_Frequency"), "").toString();
+
+		// resolve the line's Product family + plan type
+		prod = zoho.crm.getRecordById("Products", prodId.toLong());
+		fam = "";
+		pType = "";
+		if(!isNull(prod) && !isNull(prod.get("id")))
+		{
+			fam = ifnull(prod.get("Product_Plan_Products"), "").toString().trim();
+			if(fam == "Jurnii Cortext") { fam = "Jurnii Cortex"; }
+			pType = ifnull(prod.get("Product_Plan_Type"), "").toString().trim();
+			if(pType == "Flexible") { pType = "Flex"; }
+		}
+
+		// price the line
+		priceResp = automation.resolveQuoteLinePrice(prodId, pType, brandsStr, tier, freq).toMap();
+		if(ifnull(priceResp.get("valid"), "false").toString() != "true")
+		{
+			allValid = false;
+			if(firstFail == "") { firstFail = ifnull(priceResp.get("reason"), "line_invalid").toString(); }
+		}
+		else
+		{
+			totalAcv = totalAcv + ifnull(priceResp.get("line_acv"), 0).toDecimal();
+		}
+
+		// aggregate plan summary regardless of pricing validity
+		if(fam != "" && !planProductsLower.contains(fam.toLowerCase()))
+		{
+			planProducts.add(fam);
+			planProductsLower.add(fam.toLowerCase());
+		}
+		if(pType != "" && !planTypeSet.contains(pType)) { planTypeSet.add(pType); }
+		if(brandsStr.trim() != "") { totalBrands = totalBrands + brandsStr.trim().toLong(); }
+	}
+
+	mixedFlag = "false";
+	resolvedPlanType = "";
+	if(planTypeSet.size() == 1) { resolvedPlanType = planTypeSet.get(0); }
+	else if(planTypeSet.size() > 1) { mixedFlag = "true"; }
+
+	planProductsStr = "";
+	for each pp in planProducts
+	{
+		planProductsStr = planProductsStr + if(planProductsStr != "", ",", "") + pp;
+	}
+
+	r.put("acv", totalAcv);
+	r.put("planType", resolvedPlanType);
+	r.put("planProducts", planProductsStr);
+	r.put("planBrands", totalBrands);
+	r.put("lineCount", lineCount);
+	r.put("mixed", mixedFlag);
+	if(allValid && lineCount > 0)
+	{
+		r.put("valid", "true");
+		r.put("reason", "ok");
+	}
+	else
+	{
+		r.put("valid", "false");
+		r.put("reason", if(firstFail != "", firstFail, "summary_invalid"));
+	}
+	return r.toString();
+}

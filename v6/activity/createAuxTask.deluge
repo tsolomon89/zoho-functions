@@ -1,0 +1,61 @@
+string automation.createAuxTask(string contactIdStr, string dealIdStr, string taskType, string note)
+{
+	// =========================================================================
+	// createAuxTask  (Contact-centric)
+	//
+	// Creates a blocking manual Task (e.g. "Data Repair", "Manual Review",
+	// "Review Reply") linked to Who_Id=Contact, What_Id=Deal. Reuses existing
+	// Task_Type picklist values only. Deduplicated per Contact/Deal/type on open
+	// status. Returns the Task ID (existing or new) or "".
+	// =========================================================================
+
+	info "VERSION: v5-contact-centric";
+
+	contactId = 0;
+	if(!isNull(contactIdStr) && contactIdStr != "") { contactId = contactIdStr.toLong(); }
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(contactId == 0 || dealId == 0 || isNull(taskType) || taskType == "") { return ""; }
+
+	existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+	if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
+	{
+		existingTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+	}
+	if(!isNull(existingTasks) && existingTasks.size() > 0 && !existingTasks.toString().startsWith("{\"code\""))
+	{
+		for each tk in existingTasks
+		{
+			tWho = "";
+			whoLookup = tk.get("Who_Id");
+			if(!isNull(whoLookup) && !isNull(whoLookup.get("id"))) { tWho = whoLookup.get("id").toString(); }
+			tType = ifnull(tk.get("Task_Type"), "").toString();
+			tStatus = ifnull(tk.get("Status"), "").toString();
+			if(tWho == contactId.toString() && tType == taskType && (tStatus == "Not Started" || tStatus == "In Progress"))
+			{
+				return tk.get("id").toString();
+			}
+		}
+	}
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	tkMap = Map();
+	tkMap.put("Subject", taskType + ": " + ifnull(note, "").toString());
+	tkMap.put("Status", "Not Started");
+	tkMap.put("What_Id", dealId);
+	tkMap.put("$se_module", "Deals");
+	tkMap.put("Who_Id", contactId);
+	tkMap.put("Task_Sequence_Managed", true);
+	tkMap.put("Task_Type", taskType);
+	tkMap.put("Blocks_Sequence", "Yes");
+	tkMap.put("Description", ifnull(note, "").toString());
+	if(!isNull(deal) && !isNull(deal.get("id")))
+	{
+		ownerLookup = deal.get("Owner");
+		if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { tkMap.put("Owner", ownerLookup.get("id").toString()); }
+	}
+	createResp = zoho.crm.createRecord("Tasks", tkMap);
+	newId = "";
+	if(!isNull(createResp) && !isNull(createResp.get("id"))) { newId = createResp.get("id").toString(); }
+	return newId;
+}
