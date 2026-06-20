@@ -235,6 +235,15 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	}
 
 	// ---- success: one audit Task ----
+	// activity mirror fields (automation-owned) for the email audit Task
+	emDeal = zoho.crm.getRecordById("Deals", dealId);
+	emPipeline = "";
+	emOpp = "";
+	if(!isNull(emDeal) && !isNull(emDeal.get("id")))
+	{
+		emPipeline = ifnull(emDeal.get("Pipeline"), "").toString();
+		emOpp = ifnull(emDeal.get("Stage"), "").toString();
+	}
 	auditDesc = "SendKey: " + sendKey + "\nMessage ID: " + sentMessageId;
 	if(auditTaskId != "")
 	{
@@ -250,6 +259,8 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		upd.put("Task_State", "Open");
 		upd.put("Task_Status", "New");
 		if(ifnull(stage, "").toString() != "") { upd.put("Task_Stage", stage); }
+		if(emPipeline != "") { upd.put("Task_Pipeline", emPipeline); }
+		if(emOpp != "") { upd.put("Task_Opportunity", emOpp); }
 		zoho.crm.updateRecord("Tasks", auditTaskId.toLong(), upd);
 	}
 	else
@@ -270,6 +281,8 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		tkMap.put("Task_State", "Open");
 		tkMap.put("Task_Status", "New");
 		if(ifnull(stage, "").toString() != "") { tkMap.put("Task_Stage", stage); }
+		if(emPipeline != "") { tkMap.put("Task_Pipeline", emPipeline); }
+		if(emOpp != "") { tkMap.put("Task_Opportunity", emOpp); }
 		if(ownerId != "") { tkMap.put("Owner", ownerId); }
 		zoho.crm.createRecord("Tasks", tkMap);
 	}

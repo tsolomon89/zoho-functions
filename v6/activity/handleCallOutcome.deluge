@@ -82,6 +82,7 @@ void automation.handleCallOutcome(string callIdStr)
 	contactStage    = ifnull(contact.get("Stage"), "").toString();
 	contactSeqStage = ifnull(contact.get("Sequence_Stage"), "").toString();
 	contactStepStr  = ifnull(contact.get("Sequence_Step"), "None").toString();
+	contactSeqState = ifnull(contact.get("Sequence_State"), "").toString();
 
 	// ---- stale: call belongs to a Stage the Contact has left ----
 	if(callSeqStage != "" && callSeqStage != contactStage)
@@ -163,8 +164,11 @@ void automation.handleCallOutcome(string callIdStr)
 		// ---- LOST: activity-local by default; resolveActivityLoss branches on reason ----
 		if(callTaskState == "Lost")
 		{
-			hasNext = "false";
-			if(callSeqAttempt < 5) { hasNext = "true"; }
+			// hasNextStep = the Contact sequence is still active (NOT exhausted). Do NOT equate
+			// "call attempt 5" with exhaustion — the existing call:neutral cadence escalates attempt 5
+			// into the post-call email; only a Complete sequence escalates No Response to Contact Lost.
+			hasNext = "true";
+			if(contactSeqState == "Complete") { hasNext = "false"; }
 			lossRaw = automation.resolveActivityLoss(callTaskReason, "activity", hasNext, "false", "false");
 			loss = Map();
 			if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }

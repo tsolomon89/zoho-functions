@@ -83,7 +83,7 @@ void automation.handleQuoteStageChange(string quoteIdStr)
 		}
 		if(!hasOtherActive && dealId != 0)
 		{
-			automation.applyCommercialTransition(dealId.toString(), "rejected");
+			automation.applyCommercialTransition(dealId.toString(), "rejected_final");
 			automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "closed_lost", "commercial_rejected", {"deal":dealId.toString()});
 		}
 		else

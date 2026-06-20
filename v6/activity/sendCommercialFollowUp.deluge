@@ -9,7 +9,7 @@ void automation.sendCommercialFollowUp(string dealIdStr)
 	//
 	//   Guard: Automation_Suppressed != true
 	//          Opportunity_Stage = "Commercial Agreement"
-	//          Commercials_Status = "Sent"
+	//          Commercials_Sent_At set AND Signed_At not set (Commercials_Status retired)
 	//          Primary Contact exists and is Open
 	//   -> routeContactSequence(primaryId, dealId, "commercial:followup_due")
 	// =========================================================================

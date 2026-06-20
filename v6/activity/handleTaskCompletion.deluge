@@ -193,6 +193,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 	//   Open -> not yet resolved; no terminal action
 	// When Task_State is blank, fall back to the legacy Task_Outcome layer (unchanged).
 	// =====================================================================
+	// idempotency: a terminal Task_State already processed (Task_Status mirror = Closed) must not
+	// re-route on a later edit (WF008 fires on create_or_edit). Native Status stays for Zoho mechanics.
+	taskStatusMirror = ifnull(task.get("Task_Status"), "").toString().trim();
+	if((taskState == "Won" || taskState == "Lost") && taskStatusMirror == "Closed")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_state_already_processed", {"task_state":taskState});
+		return;
+	}
 	if(taskState == "Open")
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_open", "skip_no_terminal", {"contact":contactId.toString(), "type":tType});
@@ -200,7 +208,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 	}
 	if(taskState == "Lost")
 	{
-		lossRaw = automation.resolveActivityLoss(taskReason, "activity", "false", "false", "false");
+		// hasNextStep reflects ACTUAL Contact-sequence exhaustion, not this single task. Only when the
+		// Contact sequence is Complete does No Response escalate to Contact Lost; otherwise stay local.
+		taskHasNext = "true";
+		if(contactSeqState == "Complete") { taskHasNext = "false"; }
+		lossRaw = automation.resolveActivityLoss(taskReason, "activity", taskHasNext, "false", "false");
 		loss = Map();
 		if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
 		act = ifnull(loss.get("action"), "manual_review").toString();
@@ -229,12 +241,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + taskId + " marked Lost (" + taskReason + ") - review next step (continue, find another contact, or close the Contact). Deal stays Open.");
 		}
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed"}, noTrigger);
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_lost", act, {"contact":contactId.toString(), "type":tType, "reason":taskReason});
 		return;
 	}
 	if(taskState == "Won")
 	{
-		// positive completion -> fall through to the Task_Type success behaviour
+		// positive completion -> mark processed (idempotency) then run the Task_Type success behaviour
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed"}, noTrigger);
 		tOutcome = "Completed";
 	}
 

@@ -21,9 +21,11 @@ void automation.handleMeetingEvent(string eventIdStr)
 	// First-booking detection is by Contact Stage (advance to Demo Confirmation once),
 	// NOT by a Deal mirror id. "No Show" is read from Meeting_Outcome OR Meeting_Status.
 	//
-	// Commercial Discussion / Renewal meetings: a Completed outcome is routed INTO the existing
-	// commercial machinery (Deal.Commercials_Status -> handleCommercialsStatusChange). Meetings set
-	// INTENT only — a signed contract still requires Quote_Stage=Confirmed -> syncConfirmedQuoteToDeal.
+	// Commercial Discussion / Renewal meetings: a Completed result (Meeting_Task_State, legacy
+	// Meeting_Outcome fallback) is routed via automation.applyCommercialTransition (Commercials_Status
+	// retired). Meetings set INTENT only — a signed contract still requires Quote_Stage=Confirmed ->
+	// syncConfirmedQuoteToDeal. A commercial-meeting Lost is reason-branched (only final Terms Rejected /
+	// Churned closes the Deal at the opportunity level).
 	// =========================================================================
 
 	info "VERSION: v6-contact-centric";
@@ -95,27 +97,66 @@ void automation.handleMeetingEvent(string eventIdStr)
 	{
 		if(meetingStatus == "Completed")
 		{
-			// PRIMARY: Meeting_Task_State (Won=>Intent to Sign, Open=>Discussed, Lost=>Rejected);
-			// the Quote owns the signed ledger. Commercials_Status is retired -> route via
-			// applyCommercialTransition directly. Legacy Meeting_Outcome used only when State blank.
-			tr = "";
-			if(meetingTaskState == "Won") { tr = "intent"; }
-			else if(meetingTaskState == "Open") { tr = "discussed"; }
-			else if(meetingTaskState == "Lost") { tr = "rejected"; }
+			// PRIMARY = Meeting_Task_State. Won => Intent to Sign; Open => Discussed; Lost => evaluate
+			// resolveActivityLoss in COMMERCIAL context (only final Terms Rejected / Churned close the
+			// Deal; ambiguous reasons -> Manual Review; No Authority -> Find Decision Maker, Deal Open).
+			// The Quote owns the signed ledger. Legacy Meeting_Outcome used only when State is blank.
+			if(meetingTaskState == "Won")
+			{
+				automation.applyCommercialTransition(dealId.toString(), "intent");
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "intent", {"deal":dealId.toString()});
+			}
+			else if(meetingTaskState == "Open")
+			{
+				automation.applyCommercialTransition(dealId.toString(), "discussed");
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "discussed", {"deal":dealId.toString()});
+			}
+			else if(meetingTaskState == "Lost")
+			{
+				lossRaw = automation.resolveActivityLoss(meetingTaskReason, "activity", "false", "true", "true");
+				loss = Map();
+				if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
+				act = ifnull(loss.get("action"), "manual_review").toString();
+				if(act == "deal_lost")
+				{
+					automation.applyCommercialTransition(dealId.toString(), "rejected_final");
+				}
+				else if(act == "contact_lost" && contactId != "")
+				{
+					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
+					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr);
+				}
+				else if(act == "find_decision_maker" && contactId != "")
+				{
+					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
+				}
+				else if(act == "data_repair" && contactId != "")
+				{
+					automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Commercial meeting " + eventId + ": bad data - repair before continuing.");
+				}
+				else
+				{
+					// manual_review / continue_cadence(re-book) / suppress / fallback -> human decides; Deal stays Open
+					if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " Lost (" + meetingTaskReason + ") - review (re-book, find another contact, or close the opportunity). Deal stays Open unless terms finally rejected."); }
+				}
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting_lost", act, {"deal":dealId.toString(), "reason":meetingTaskReason});
+			}
 			else
 			{
+				// LEGACY back-compat: Meeting_Outcome (only when Meeting_Task_State is blank)
+				tr = "";
 				if(meetingOutcome == "Commercials Discussed") { tr = "discussed"; }
 				else if(meetingOutcome == "Intent to Sign" || meetingOutcome == "Renewal Agreed") { tr = "intent"; }
 				else if(meetingOutcome == "Renewal Declined") { tr = "rejected"; }
-			}
-			if(tr != "")
-			{
-				automation.applyCommercialTransition(dealId.toString(), tr);
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", tr, {"deal":dealId.toString(), "state":meetingTaskState, "outcome":meetingOutcome});
-			}
-			else
-			{
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
+				if(tr != "")
+				{
+					automation.applyCommercialTransition(dealId.toString(), tr);
+					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", tr, {"deal":dealId.toString(), "outcome":meetingOutcome});
+				}
+				else
+				{
+					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
+				}
 			}
 		}
 		else

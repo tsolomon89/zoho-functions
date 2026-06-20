@@ -66,6 +66,35 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		return;
 	}
 
+	// ---- FINAL opportunity-level rejection: close the Deal regardless of Contact viability ----
+	// Used for a genuinely final commercial loss (e.g. Quote Closed Lost with no active replacement
+	// Quote, or a final Terms Rejected / Churned). Unlike "rejected", this does NOT depend on the
+	// Deal-viability rollup (which would keep the Deal Open if another Contact is still open).
+	if(tr == "rejected_final")
+	{
+		dClose = Map();
+		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Lost") { dClose.put("Opportunity_State", "Lost"); }
+		if(ifnull(deal.get("Opportunity_Status"), "").toString() != "Closed") { dClose.put("Opportunity_Status", "Closed"); }
+		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "") { dClose.put("Lost_Reasons", "Terms Rejected"); }
+		if(dClose.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dClose, noTrigger); }
+		// Stop the Primary Contact's sequence + mark it Lost directly (the opportunity decision is final;
+		// no viability rollup needed). Other Contacts are moot once the opportunity is lost.
+		if(primaryId != "")
+		{
+			pUpd = Map();
+			pUpd.put("State", "Lost");
+			pUpd.put("Status", "Closed");
+			pUpd.put("Sequence_State", "Stopped");
+			pUpd.put("Sequence_Stage", "None");
+			pUpd.put("Sequence_Step", "None");
+			primaryRec = zoho.crm.getRecordById("Contacts", primaryId.toLong());
+			if(!isNull(primaryRec) && ifnull(primaryRec.get("Lost_Reasons"), "").toString() == "") { pUpd.put("Lost_Reasons", "Terms Rejected"); }
+			zoho.crm.updateRecord("Contacts", primaryId.toLong(), pUpd, noTrigger);
+		}
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "rejected_final", "deal_closed_opportunity_level", {"contact":primaryId});
+		return;
+	}
+
 	// ---- transitions ----
 	token = "";
 	dUpd = Map();
