@@ -341,6 +341,27 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 		return r.toString();
 	}
 	// =====================================================================
+	// EXPLICIT CONTACT LOSS (scope=contact escalation from an activity handler)
+	// Token form: "contactlost:<Canonical Lost Reason>" e.g. "contactlost:No Response".
+	// Marks the Contact Lost with the given reason and runs Deal viability in the
+	// router (Deal closes ONLY if no other open Contact remains). The reason is parsed
+	// from the ORIGINAL (case-preserving) triggerOutcome, not the lowercased trig.
+	// =====================================================================
+	else if(trig.startsWith("contactlost:"))
+	{
+		clReason = ifnull(triggerOutcome, "").toString().getSuffix(":").trim();
+		r.put("nextSeqState", "Stopped");
+		r.put("nextSeqStage", "None");
+		r.put("nextStep", "None");
+		r.put("supersede", "true");
+		r.put("setContactLost", "true");
+		r.put("contactLostReason", clReason);
+		r.put("dealLostReason", clReason);
+		r.put("terminal", "true");
+		r.put("reason", "contact_lost_explicit");
+		return r.toString();
+	}
+	// =====================================================================
 	// RESUME (router re-entry, no new outcome)
 	// =====================================================================
 	else if(trig == "resume" || trig == "")

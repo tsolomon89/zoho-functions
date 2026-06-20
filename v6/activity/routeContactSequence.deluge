@@ -169,6 +169,11 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		automation.sendSequencedEmail(contactId.toString(), dealId.toString(), stage, sideEmailStep.toLong(), sideEmailKind, "");
 	}
 
+	// Activity mirror fields (automation-owned) derived from the Deal context; the process
+	// Stage mirror = nextStage. Stamped on created Calls/Tasks for reporting parity.
+	mirrorPipeline = ifnull(deal.get("Pipeline"), "").toString();
+	mirrorOppType  = ifnull(deal.get("Stage"), "").toString();
+
 	// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail absorbed) ----
 	// email-entry opener: send the opener, then fall through to the shared create_call block.
 	if(action == "send_opener_then_call")
@@ -236,6 +241,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			callMap.put("Call_Type", "Outbound");
 			callMap.put("Call_Start_Time", callDue);
 			callMap.put("Stale", "No");
+			// activity mirror fields (automation-owned)
+			if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
+			if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
+			if(nextStage != "")      { callMap.put("Call_Task_Stage", nextStage); }
+			callMap.put("Call_Task_Status", "New");
+			callMap.put("Call_Task_State", "Open");
 			callResp = zoho.crm.createRecord("Calls", callMap);
 			automation.logAutomationEvent("routeContactSequence", "Calls", "", "create_call", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "stage":nextStage, "attempt":callStep});
 		}
@@ -327,7 +338,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			stTask.put("Task_Type", stTaskType);
 			stTask.put("Task_Sequence_Stage", nextStage);
 			stTask.put("Blocks_Sequence", "Yes");
-			stTask.put("Description", "Task-First route for " + nextStage + ". Complete with a positive outcome to advance the Contact sequence.");
+			stTask.put("Description", "Task-First route for " + nextStage + ". Complete with Task_State=Won to advance the Contact sequence.");
+			// activity mirror fields (automation-owned)
+			if(mirrorPipeline != "") { stTask.put("Task_Pipeline", mirrorPipeline); }
+			if(mirrorOppType != "")  { stTask.put("Task_Opportunity", mirrorOppType); }
+			if(nextStage != "")      { stTask.put("Task_Stage", nextStage); }
+			stTask.put("Task_Status", "New");
+			stTask.put("Task_State", "Open");
 			if(dealOwnerId != "") { stTask.put("Owner", dealOwnerId); }
 			zoho.crm.createRecord("Tasks", stTask);
 			automation.logAutomationEvent("routeContactSequence", "Tasks", "", "create_task", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "type":stTaskType, "stage":nextStage});

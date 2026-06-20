@@ -1,98 +1,39 @@
 void automation.handleCommercialsStatusChange(string dealIdStr)
 {
 	// =========================================================================
-	// handleCommercialsStatusChange  (thin, token-producing — WF004)
+	// handleCommercialsStatusChange  (LEGACY back-compat wrapper — WF004)
 	//
-	// Fires when Deal.Commercials_Status changes. Updates only Deal-owned commercial
-	// fields, then invokes routeContactSequence once with a commercial:* token for the
-	// transitions that move the Primary Contact (the router owns Stage + boundary email).
-	//
-	//   Sent      -> commercial:sent     (Deal: Commercials_Sent_At)
-	//   Signed    -> commercial:signed   (Deal: Signed_At, State stays Open)
-	//   Rejected  -> commercial:rejected (Contact+Deal loss in router)
-	//   Discussed -> stamp Commercials_Discussed_At; no transition
-	//   Intent to Sign -> Intent_To_Sign=true; no transition
-	//   Deferred  -> no transition (cadence keeps running; no Paused)
+	// Commercials_Status is being RETIRED as a source of truth. Commercial transitions
+	// are now driven DIRECTLY via automation.applyCommercialTransition(dealId, transition)
+	// from the Quote stage change, Send Commercials task, commercial/renewal meeting, and
+	// contract sync. This wrapper simply maps the legacy Commercials_Status field value to a
+	// transition so WF004 keeps working until it is disabled (then DEP-rename the field).
 	// =========================================================================
 
-	info "VERSION: v6-contact-centric";
+	info "VERSION: v6-activity-state";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
-	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", null);
 	if(dealId == 0) { return; }
 
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return; }
-	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
-	{
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
-		return;
-	}
 
 	cStatus = ifnull(deal.get("Commercials_Status"), "").toString();
-	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
-	noTrigger = Map();
-	noTrigger.put("trigger", List());
+	tr = "";
+	if(cStatus == "Sent") { tr = "sent"; }
+	else if(cStatus == "Signed") { tr = "signed"; }
+	else if(cStatus == "Rejected") { tr = "rejected"; }
+	else if(cStatus == "Discussed") { tr = "discussed"; }
+	else if(cStatus == "Intent to Sign") { tr = "intent"; }
+	else if(cStatus == "Deferred") { tr = "deferred"; }
 
-	primaryId = "";
-	cnLookup = deal.get("Contact_Name");
-	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
-
-	// ---- non-transition stamps ----
-	if(cStatus == "Discussed")
+	if(tr != "")
 	{
-		if(isNull(deal.get("Commercials_Discussed_At"))) { zoho.crm.updateRecord("Deals", dealId, {"Commercials_Discussed_At": now}, noTrigger); }
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "discussed", "stamped", null);
-		return;
-	}
-	if(cStatus == "Intent to Sign")
-	{
-		zoho.crm.updateRecord("Deals", dealId, {"Intent_To_Sign": true}, noTrigger);
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "intent_to_sign", "flag_set", null);
-		return;
-	}
-	if(cStatus == "Deferred")
-	{
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "deferred", "cadence_continues", null);
-		return;
-	}
-
-	// ---- transitions ----
-	token = "";
-	dUpd = Map();
-	if(cStatus == "Sent")
-	{
-		token = "commercial:sent";
-		if(isNull(deal.get("Commercials_Sent_At"))) { dUpd.put("Commercials_Sent_At", now); }
-	}
-	else if(cStatus == "Signed")
-	{
-		token = "commercial:signed";
-		if(isNull(deal.get("Signed_At"))) { dUpd.put("Signed_At", now); }
-		// Deals are never "Won": signing advances Opportunity_Stage (Commercial Agreement ->
-		// Onboarding), it does not set a Won state. Keep viability Open through onboarding/renewal.
-		// Deal viability = Opportunity_State (Deals have no bare State field).
-		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open") { dUpd.put("Opportunity_State", "Open"); }
-	}
-	else if(cStatus == "Rejected")
-	{
-		token = "commercial:rejected";
+		automation.applyCommercialTransition(dealId.toString(), tr);
 	}
 	else
 	{
 		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "no_action", cStatus, null);
-		return;
 	}
-
-	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
-
-	if(primaryId == "")
-	{
-		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "no_primary_contact", {"status":cStatus});
-		return;
-	}
-
-	automation.routeContactSequence(primaryId, dealId.toString(), token);
-	automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "routed", token, {"contact":primaryId});
 }

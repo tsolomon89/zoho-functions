@@ -73,6 +73,14 @@ void automation.handleMeetingEvent(string eventIdStr)
 
 	meetingStatus  = ifnull(event.get("Meeting_Status"), "").toString();
 	meetingOutcome = ifnull(event.get("Meeting_Outcome"), "").toString();
+	// PRIMARY demo-result surface = Meeting_Task_State; legacy Meeting_Outcome used only when blank.
+	meetingTaskState = ifnull(event.get("Meeting_Task_State"), "").toString().trim();
+	if(meetingTaskState == "-None-") { meetingTaskState = ""; }
+	meetingTaskReason = ifnull(event.get("Meeting_Task_Lost_Reasons"), "").toString().trim();
+	if(meetingTaskReason == "-None-") { meetingTaskReason = ""; }
+	// Deal context for activity mirror fields.
+	dealPipeline = ifnull(deal.get("Pipeline"), "").toString();
+	dealOppType  = ifnull(deal.get("Stage"), "").toString();
 	startDateTime  = event.get("Start_DateTime");
 
 	noTrigger = Map();
@@ -87,15 +95,23 @@ void automation.handleMeetingEvent(string eventIdStr)
 	{
 		if(meetingStatus == "Completed")
 		{
-			commStatus = "";
-			if(meetingOutcome == "Commercials Discussed") { commStatus = "Discussed"; }
-			else if(meetingOutcome == "Intent to Sign" || meetingOutcome == "Renewal Agreed") { commStatus = "Intent to Sign"; }
-			else if(meetingOutcome == "Renewal Declined") { commStatus = "Rejected"; }
-			if(commStatus != "")
+			// PRIMARY: Meeting_Task_State (Won=>Intent to Sign, Open=>Discussed, Lost=>Rejected);
+			// the Quote owns the signed ledger. Commercials_Status is retired -> route via
+			// applyCommercialTransition directly. Legacy Meeting_Outcome used only when State blank.
+			tr = "";
+			if(meetingTaskState == "Won") { tr = "intent"; }
+			else if(meetingTaskState == "Open") { tr = "discussed"; }
+			else if(meetingTaskState == "Lost") { tr = "rejected"; }
+			else
 			{
-				zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status": commStatus}, noTrigger);
-				automation.handleCommercialsStatusChange(dealId.toString());
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", commStatus, {"deal":dealId.toString(), "outcome":meetingOutcome});
+				if(meetingOutcome == "Commercials Discussed") { tr = "discussed"; }
+				else if(meetingOutcome == "Intent to Sign" || meetingOutcome == "Renewal Agreed") { tr = "intent"; }
+				else if(meetingOutcome == "Renewal Declined") { tr = "rejected"; }
+			}
+			if(tr != "")
+			{
+				automation.applyCommercialTransition(dealId.toString(), tr);
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", tr, {"deal":dealId.toString(), "state":meetingTaskState, "outcome":meetingOutcome});
 			}
 			else
 			{
@@ -122,22 +138,71 @@ void automation.handleMeetingEvent(string eventIdStr)
 	}
 
 	// =====================================================================
-	// COMPLETED -> read Meeting_Outcome and map to a demo:* token. The Event is the sole
-	// source of truth for the demo result; the retired Deal.Demo_Outcome mirror is no
-	// longer written (the demo outcome lives on the Event and resolves into Contact Stage/State).
+	// COMPLETED / NO SHOW -> demo RESULT. PRIMARY = Meeting_Task_State (Won/Lost/Open);
+	// legacy Meeting_Outcome only when Meeting_Task_State is blank. Meeting_Status stays the
+	// SCHEDULING lifecycle (handled above/below) — never collapsed into commercial State.
 	// =====================================================================
-	// A rep may record a no-show as Meeting_Status=No Show OR Meeting_Outcome=No Show — treat both.
-	effectiveOutcome = meetingOutcome;
-	if(meetingStatus == "No Show" && effectiveOutcome == "") { effectiveOutcome = "No Show"; }
 	if(meetingStatus == "Completed" || meetingStatus == "No Show")
 	{
+		// ---- PRIMARY: Meeting_Task_State ----
+		if(meetingTaskState != "" && contactId != "")
+		{
+			if(meetingTaskState == "Won")
+			{
+				automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified");
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_won", "demo:qualified", {"deal":dealId.toString()});
+			}
+			else if(meetingTaskState == "Open")
+			{
+				automation.routeContactSequence(contactId, dealId.toString(), "demo:followup");
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_open", "demo:followup", {"deal":dealId.toString()});
+			}
+			else if(meetingTaskState == "Lost")
+			{
+				lossRaw = automation.resolveActivityLoss(meetingTaskReason, "activity", "false", "false", "true");
+				loss = Map();
+				if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
+				act = ifnull(loss.get("action"), "manual_review").toString();
+				if(act == "continue_cadence")
+				{
+					// No Meeting / Demo -> reschedule: revert to Demo Booking and recover with a call
+					automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow");
+				}
+				else if(act == "contact_lost")
+				{
+					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
+					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr);
+				}
+				else if(act == "find_decision_maker")
+				{
+					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
+				}
+				else if(act == "data_repair")
+				{
+					automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Demo " + eventId + ": bad data - repair before continuing.");
+				}
+				else if(act == "suppress")
+				{
+					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", "suppress", {"deal":dealId.toString()});
+				}
+				else
+				{
+					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + " marked Lost (" + meetingTaskReason + ") - review (reschedule, find another contact, or close the Contact). Deal stays Open.");
+				}
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", act, {"deal":dealId.toString(), "reason":meetingTaskReason});
+			}
+			return;
+		}
+
+		// ---- LEGACY back-compat: Meeting_Outcome demo mapping (when Meeting_Task_State blank) ----
+		effectiveOutcome = meetingOutcome;
+		if(meetingStatus == "No Show" && effectiveOutcome == "") { effectiveOutcome = "No Show"; }
 		outcomeTokens = Map();
 		outcomeTokens.put("Attended - Qualified", "demo:qualified");
 		outcomeTokens.put("Attended - Needs Follow-up", "demo:followup");
 		outcomeTokens.put("Attended - Not Qualified", "demo:not_qualified");
 		outcomeTokens.put("No Show", "demo:noshow");
 		token = ifnull(outcomeTokens.get(effectiveOutcome), "").toString();
-
 		if(token != "" && contactId != "")
 		{
 			automation.routeContactSequence(contactId, dealId.toString(), token);
@@ -168,9 +233,12 @@ void automation.handleMeetingEvent(string eventIdStr)
 		reminderAt = reminderAtStr.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 	}
 
-	// Event is the source of truth: stamp its own Reminder_Send_At.
+	// Event is the source of truth: stamp its own Reminder_Send_At + automation-owned mirror fields.
 	evUpd = Map();
 	if(reminderAt != null) { evUpd.put("Reminder_Send_At", reminderAt); }
+	if(dealPipeline != "") { evUpd.put("Meeting_Task_Pipeline", dealPipeline); }
+	if(dealOppType != "")  { evUpd.put("Meeting_Task_Opportunity", dealOppType); }
+	if(ifnull(event.get("Meeting_Task_Status"), "").toString() == "") { evUpd.put("Meeting_Task_Status", "New"); }
 	if(evUpd.size() > 0) { zoho.crm.updateRecord("Events", eventId, evUpd, noTrigger); }
 
 	// Deal summary mirror (kept while WF010c remains Deal-based). No Demo_Status / Demo_Meeting_ID.
@@ -189,6 +257,11 @@ void automation.handleMeetingEvent(string eventIdStr)
 		contactStage = "";
 		if(!isNull(contact) && !isNull(contact.get("id"))) { contactStage = ifnull(contact.get("Stage"), "").toString(); }
 		contactRank = ifnull(stageRanks.get(contactStage), 0).toLong();
+		// activity mirror: stamp the Event's process Stage from the Contact (automation-owned)
+		if(contactStage != "" && ifnull(event.get("Meeting_Task_Stage"), "").toString() == "")
+		{
+			zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Stage": contactStage}, noTrigger);
+		}
 		demoConfRank = 3;
 		if(contactRank < demoConfRank)
 		{

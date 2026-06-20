@@ -33,9 +33,11 @@ void automation.sendCommercialFollowUp(string dealIdStr)
 		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_not_commercial_agreement", {"opp_stage":ifnull(deal.get("Opportunity_Stage"), "").toString()});
 		return;
 	}
-	if(ifnull(deal.get("Commercials_Status"), "").toString() != "Sent")
+	// Commercials_Status retired -> gate on the canonical signals: commercials sent (timestamp set)
+	// and not yet signed.
+	if(isNull(deal.get("Commercials_Sent_At")) || !isNull(deal.get("Signed_At")))
 	{
-		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_commercials_not_sent", {"comm_status":ifnull(deal.get("Commercials_Status"), "").toString()});
+		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_not_awaiting_signature", {"sent_at":ifnull(deal.get("Commercials_Sent_At"), "").toString(), "signed_at":ifnull(deal.get("Signed_At"), "").toString()});
 		return;
 	}
 

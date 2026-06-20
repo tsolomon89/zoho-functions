@@ -198,10 +198,10 @@ void automation.syncConfirmedQuoteToDeal(string quoteIdStr)
 		automation.logAutomationEvent("syncConfirmedQuoteToDeal", "Quotes", qId.toString(), "confirmed", "superseded", {"deal":dealId.toString(), "acv":acv.toString(), "type":cType});
 	}
 
-	// ---- optional: advance Deal commercial status to Signed (reuses WF004 handler logic) ----
-	if(advanceCommercial && ifnull(deal.get("Commercials_Status"), "").toString() != "Signed")
+	// ---- optional: advance the Deal commercial transition to Signed (Commercials_Status retired;
+	//      idempotent on Signed_At which applyCommercialTransition stamps) ----
+	if(advanceCommercial && isNull(deal.get("Signed_At")))
 	{
-		zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Signed"}, noTrigger);
-		automation.handleCommercialsStatusChange(dealId.toString());
+		automation.applyCommercialTransition(dealId.toString(), "signed");
 	}
 }

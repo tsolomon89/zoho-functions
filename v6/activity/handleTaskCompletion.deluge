@@ -85,12 +85,17 @@ void automation.handleTaskCompletion(string taskIdStr)
 
 	tStatus  = ifnull(task.get("Status"), "").toString();
 	tOutcome = ifnull(task.get("Task_Outcome"), "").toString();
+	// NEW activity-State surface (primary for non-activation tasks); legacy Task_Outcome when blank.
+	taskState = ifnull(task.get("Task_State"), "").toString().trim();
+	if(taskState == "-None-") { taskState = ""; }
+	taskReason = ifnull(task.get("Task_Lost_Reasons"), "").toString().trim();
+	if(taskReason == "-None-") { taskReason = ""; }
 	if(tStatus == "Deferred")
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_deferred", null);
 		return;
 	}
-	if(tStatus != "Completed" && tOutcome == "")
+	if(tStatus != "Completed" && tOutcome == "" && taskState == "")
 	{
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_complete", {"status":tStatus, "outcome":tOutcome});
 		return;
@@ -182,7 +187,59 @@ void automation.handleTaskCompletion(string taskIdStr)
 	}
 
 	// =====================================================================
-	// UNIVERSAL OUTCOME LAYER (non-activation tasks)
+	// NEW ACTIVITY-STATE SURFACE (non-activation): Task_State is primary.
+	//   Won  -> treat as positive completion (runs the Task_Type success behaviour below)
+	//   Lost -> activity-LOCAL via resolveActivityLoss (never closes the Deal from a reason alone)
+	//   Open -> not yet resolved; no terminal action
+	// When Task_State is blank, fall back to the legacy Task_Outcome layer (unchanged).
+	// =====================================================================
+	if(taskState == "Open")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_open", "skip_no_terminal", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+	if(taskState == "Lost")
+	{
+		lossRaw = automation.resolveActivityLoss(taskReason, "activity", "false", "false", "false");
+		loss = Map();
+		if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
+		act = ifnull(loss.get("action"), "manual_review").toString();
+		if(act == "contact_lost")
+		{
+			clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr);
+		}
+		else if(act == "continue_cadence")
+		{
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+		}
+		else if(act == "find_decision_maker")
+		{
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + taskId + ": Find Decision Maker (No Authority) - reassign the buyer/decision maker. Deal stays Open.");
+		}
+		else if(act == "data_repair")
+		{
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Data Repair", tType + " " + taskId + ": bad data - repair before the sequence continues.");
+		}
+		else if(act == "suppress")
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_lost", "suppress", {"contact":contactId.toString(), "type":tType});
+		}
+		else
+		{
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + taskId + " marked Lost (" + taskReason + ") - review next step (continue, find another contact, or close the Contact). Deal stays Open.");
+		}
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_lost", act, {"contact":contactId.toString(), "type":tType, "reason":taskReason});
+		return;
+	}
+	if(taskState == "Won")
+	{
+		// positive completion -> fall through to the Task_Type success behaviour
+		tOutcome = "Completed";
+	}
+
+	// =====================================================================
+	// UNIVERSAL OUTCOME LAYER (non-activation tasks) — LEGACY Task_Outcome
 	// Task_Type = kind of task; Task_Outcome = what happened (the command).
 	// Negative/recovery outcomes override the Task_Type success behaviour below.
 	// =====================================================================
@@ -251,11 +308,8 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
-		dealUpd = Map();
-		dealUpd.put("Commercials_Status", "Sent");
-		zoho.crm.updateRecord("Deals", dealId, dealUpd, noTrigger);
-		automation.handleCommercialsStatusChange(dealId.toString());
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "status_to_sent", {"deal":dealId.toString()});
+		automation.applyCommercialTransition(dealId.toString(), "sent");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "commercial_sent", {"deal":dealId.toString()});
 		return;
 	}
 

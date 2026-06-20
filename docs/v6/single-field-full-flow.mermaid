@@ -53,7 +53,7 @@ flowchart TD
     UMEET["USER: Meeting_Type (Demo/Commercial Discussion/Renewal) + Meeting_Status + Meeting_Outcome (Completed only) + Start_DateTime"]:::user
     HME["FN: handleMeetingEvent (demo SOT; No-Show via Meeting_Outcome OR Meeting_Status)"]:::fn
     MSOT["SOT: Event.Meeting_Status + Meeting_Outcome"]:::sot
-    MEFF["AUTO (LOCK): Event.Reminder_Send_At; MIRROR Deal.Demo_Start_DateTime / Demo_Reminder_Send_At / Demo_Outcome"]:::auto
+    MEFF["AUTO (LOCK): Event.Reminder_Send_At; MIRROR Deal.Demo_Start_DateTime / Demo_Reminder_Send_At (Demo_Outcome retired - not mirrored)"]:::auto
     MTOK["AUTO: meeting:created | demo:qualified|followup|not_qualified|noshow -> routeContactSequence"]:::auto
     MCOMM["AUTO (Commercial/Renewal mtg Completed): Commercials Discussed->Commercials_Status=Discussed | Intent to Sign / Renewal Agreed->Intent to Sign | Renewal Declined->Rejected"]:::auto
     UMEET --> HME --> MSOT

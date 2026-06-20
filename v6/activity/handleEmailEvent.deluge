@@ -56,10 +56,45 @@ void automation.handleEmailEvent(string emailRecordIdStr, string eventType, stri
 		return;
 	}
 
+	noTriggerE = Map();
+	noTriggerE.put("trigger", List());
+
+	// email-as-Task: find the latest "Email Sent" audit Task for this Contact/Deal so a reply /
+	// no-reply resolves THAT email's Task_State locally (Won / Lost+No Response).
+	emailTaskId = "";
+	if(eventType == "replied" || eventType == "not replied")
+	{
+		emailTaskIdLong = 0;
+		etTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", relatedDealId);
+		if(isNull(etTasks) || etTasks.size() == 0 || etTasks.toString().startsWith("{\"code\""))
+		{
+			etTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + relatedDealId + ")");
+		}
+		if(!isNull(etTasks) && etTasks.size() > 0 && !etTasks.toString().startsWith("{\"code\""))
+		{
+			for each et in etTasks
+			{
+				etWho = "";
+				ewl = et.get("Who_Id");
+				if(!isNull(ewl) && !isNull(ewl.get("id"))) { etWho = ewl.get("id").toString(); }
+				if(etWho == contactId && ifnull(et.get("Task_Type"), "").toString() == "Email Sent")
+				{
+					etId = et.get("id").toString();
+					if(etId.toLong() > emailTaskIdLong) { emailTaskIdLong = etId.toLong(); emailTaskId = etId; }
+				}
+			}
+		}
+	}
+
 	if(eventType == "replied")
 	{
+		// the email achieved engagement -> that email Task is Won (local). Rep still decides next step.
+		if(emailTaskId != "")
+		{
+			zoho.crm.updateRecord("Tasks", emailTaskId.toLong(), {"Task_State":"Won", "Task_Status":"Closed"}, noTriggerE);
+		}
 		automation.createAuxTask(contactId, relatedDealId.toString(), "Review Reply", "Email reply received - decide next step.");
-		automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "replied", "review_task", {"deal":relatedDealId.toString()});
+		automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "replied", "review_task", {"deal":relatedDealId.toString(), "email_task":emailTaskId});
 		return;
 	}
 
@@ -75,7 +110,32 @@ void automation.handleEmailEvent(string emailRecordIdStr, string eventType, stri
 		return;
 	}
 
-	if(eventType == "not replied" || eventType == "opened but not replied" || eventType == "clicked")
+	if(eventType == "not replied")
+	{
+		// no reply within the window -> THIS email Task is Lost / No Response (LOCAL — never closes
+		// the Contact or Deal on its own). Cadence continues on its own schedule.
+		if(emailTaskId != "")
+		{
+			zoho.crm.updateRecord("Tasks", emailTaskId.toLong(), {"Task_State":"Lost", "Task_Lost_Reasons":"No Response", "Task_Status":"Closed"}, noTriggerE);
+		}
+		// Exhaustion escalation: only when the cadence has reached its terminal (Sequence_State=Complete)
+		// does a no-reply roll up to Contact Lost / No Response. Deal viability handled by the router.
+		contactSeqState = "";
+		cFull = zoho.crm.getRecordById("Contacts", contactId.toLong());
+		if(!isNull(cFull) && !isNull(cFull.get("id"))) { contactSeqState = ifnull(cFull.get("Sequence_State"), "").toString(); }
+		if(contactSeqState == "Complete")
+		{
+			automation.routeContactSequence(contactId, relatedDealId.toString(), "contactlost:No Response");
+			automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "not_replied", "sequence_exhausted_contact_lost", {"deal":relatedDealId.toString(), "email_task":emailTaskId});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "not_replied", "email_lost_local", {"deal":relatedDealId.toString(), "email_task":emailTaskId, "seq_state":contactSeqState});
+		}
+		return;
+	}
+
+	if(eventType == "opened but not replied" || eventType == "clicked")
 	{
 		automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "passive_event", eventType, null);
 		return;

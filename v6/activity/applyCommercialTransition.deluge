@@ -1,0 +1,104 @@
+void automation.applyCommercialTransition(string dealIdStr, string transition)
+{
+	// =========================================================================
+	// applyCommercialTransition  (commercial executor — replaces Commercials_Status)
+	//
+	// The canonical way to drive a commercial transition. Callers (Quote stage change,
+	// Send Commercials task, commercial/renewal meeting, contract sync) invoke this
+	// DIRECTLY with an explicit transition instead of writing the retired
+	// Deal.Commercials_Status field. Stamps the Deal-owned date/flag and routes the
+	// Primary Contact with the matching commercial:* token (the router owns Stage +
+	// the boundary email). Deals are never "Won": signing advances Opportunity_Stage.
+	//
+	//   transition:
+	//     "sent"      -> Commercials_Sent_At; commercial:sent
+	//     "signed"    -> Signed_At; Opportunity_State stays Open; commercial:signed
+	//     "rejected"  -> commercial:rejected (loss handled by router viability)
+	//     "discussed" -> Commercials_Discussed_At (no transition)
+	//     "intent"    -> Intent_To_Sign = true (no transition)
+	//     "deferred"  -> no transition (cadence keeps running)
+	//
+	// All Deal writes are workflow-suppressed; routeContactSequence is the single
+	// transition executor.
+	// =========================================================================
+
+	info "VERSION: v6-activity-state";
+
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	automation.logAutomationEvent("applyCommercialTransition", "Deals", ifnull(dealId, "").toString(), "entry", "in_progress", {"transition":transition});
+	if(dealId == 0) { return; }
+
+	tr = ifnull(transition, "").toString().trim().toLowerCase();
+
+	deal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(deal) || isNull(deal.get("id"))) { return; }
+	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
+	{
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
+		return;
+	}
+
+	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	primaryId = "";
+	cnLookup = deal.get("Contact_Name");
+	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
+
+	// ---- non-transition stamps ----
+	if(tr == "discussed")
+	{
+		if(isNull(deal.get("Commercials_Discussed_At"))) { zoho.crm.updateRecord("Deals", dealId, {"Commercials_Discussed_At": now}, noTrigger); }
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "discussed", "stamped", null);
+		return;
+	}
+	if(tr == "intent")
+	{
+		zoho.crm.updateRecord("Deals", dealId, {"Intent_To_Sign": true}, noTrigger);
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "intent_to_sign", "flag_set", null);
+		return;
+	}
+	if(tr == "deferred")
+	{
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "deferred", "cadence_continues", null);
+		return;
+	}
+
+	// ---- transitions ----
+	token = "";
+	dUpd = Map();
+	if(tr == "sent")
+	{
+		token = "commercial:sent";
+		if(isNull(deal.get("Commercials_Sent_At"))) { dUpd.put("Commercials_Sent_At", now); }
+	}
+	else if(tr == "signed")
+	{
+		token = "commercial:signed";
+		if(isNull(deal.get("Signed_At"))) { dUpd.put("Signed_At", now); }
+		// Deals are never Won: signing advances Opportunity_Stage; keep viability Open.
+		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open") { dUpd.put("Opportunity_State", "Open"); }
+	}
+	else if(tr == "rejected")
+	{
+		token = "commercial:rejected";
+	}
+	else
+	{
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "no_action", tr, null);
+		return;
+	}
+
+	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
+
+	if(primaryId == "")
+	{
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "guard", "no_primary_contact", {"transition":tr});
+		return;
+	}
+
+	automation.routeContactSequence(primaryId, dealId.toString(), token);
+	automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "routed", token, {"contact":primaryId});
+}

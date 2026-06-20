@@ -61,7 +61,7 @@ layouts) · `exc` = user-editable only for a documented exception. "Owner" = fun
 | `Sequence_Step` | **no** | routeContactSequence | cadence advance | call attempt number |
 | `Contact_Role1` | exc | processLead/processContact/processDeal (from Job_Title) | intake / rollup | Contact_Roles role, primary tiebreak |
 | `Lost_Reasons` | exc | routeContactSequence (loss), handleCallOutcome (negative/DNC) | call:negative / demo:not_qualified / commercial:rejected | Deal viability |
-| `State` / `Status` | exc | processContact default; routeContactSequence on loss | intake / loss | Deal + Account rollup |
+| `State` / `Status` | exc | processContact default; routeContactSequence on loss **and on Running (`Status→Working`)** | intake / activation / loss | Deal + Account rollup (Deal `Opportunity_Status→Working` when any open Contact is Working) |
 | `Contact_Completed_*_At` (8) | **no** | processContact (stamps on normalize) | WF001b | feed Deal completion dates |
 | `Marketing_Consent_Status` | yes (consent capture) | — (read by sendSequencedEmail guard) | manual | suppresses sends if Not Consented/Withdrawn |
 
@@ -102,7 +102,7 @@ layouts) · `exc` = user-editable only for a documented exception. "Owner" = fun
 | Field | Human? | Owner fn | Trigger | Downstream CRUD |
 |---|---|---|---|---|
 | `Commercials_Status` | **yes** (pre-Quote/manual) — see §4 | rep (WF004) **or** handleQuoteStageChange (suppressed mirror) | WF004 / Quote stage | handleCommercialsStatusChange → token → router |
-| `Demo_Outcome` | exc (optional off-layout reporting mirror) | handleMeetingEvent (suppressed; currently drops — off-layout) | — | none (demo path is the Meeting) |
+| `DEP - Demo_Outcome` (retired) | — | none — **no longer written** by handleMeetingEvent | — | none; demo path is the Meeting. DEP-renamed dead field. |
 | `Demo_Start_DateTime` / `Demo_Reminder_Send_At` | **no** | handleMeetingEvent (mirror) | WF007 | WF010c demo-reminder trigger (Deal-based) |
 | `Opportunity_Stage` (current objective) | **no** (never-regress) | processDeal | WF001d / rollup | Stage (type) + completion dates + ensureDealQuote |
 | `Stage` (Opportunity Type MQL/SQL/FTP/RTP) | **no** | processDeal (from Opportunity_Stage) | rollup | — |
@@ -112,7 +112,7 @@ layouts) · `exc` = user-editable only for a documented exception. "Owner" = fun
 | `Commercials_Sent_At` / `Signed_At` / `Intent_To_Sign` / `Commercials_Discussed_At` | **no** | handleCommercialsStatusChange | WF004 | — |
 | `Contract_Initial_*` | **no** | syncConfirmedQuoteToDeal (first Confirmed) | WF020 confirm | ledger |
 | `Contract_Current_*` | **no** | syncConfirmedQuoteToDeal (later Confirmed) | WF020 confirm | ledger |
-| `State` / `Status` | **no** | processDeal (viability) | rollup | Account rollup |
+| `Opportunity_State` (Open/Lost) / `Opportunity_Status` (New/Working/Closed) | **no** | processDeal (viability) | rollup | Account rollup. `Opportunity_Status→Working` when any open Contact is Working, else New. **Deals are never "Won"** (positive motion = `Opportunity_Stage`). Deals have **no bare `State`/`Status`** fields — those are Contact/Account-only. |
 | `Deal_Key` / `Product_Interest_Staging` | **no** | processLead / processDeal | intake / rollup | dedup, product matching |
 | `Automation_Suppressed` | yes (ops override) | manual | — | every handler's skip guard |
 
@@ -190,7 +190,7 @@ syncConfirmedQuoteToDeal.
 | Meeting `Commercials Discussed`/`Intent to Sign` | handleMeetingEvent `*` | Commercials_Status=Discussed / Intent to Sign → WF004 | commercial path | via processDeal | ✅ fixed |
 | Meeting `Renewal Agreed` | handleMeetingEvent `*` | Commercials_Status=Intent to Sign (Signed needs Quote Confirmed) | intent only | — | ✅ fixed |
 | Meeting `Renewal Declined` | handleMeetingEvent `*` | Commercials_Status=Rejected → commercial:rejected | Lost + viability | viability | ✅ fixed |
-| Deal `Demo_Outcome` shortcut | (retired) | — | — | — | ✅ retired (mirror only) |
+| Deal `Demo_Outcome` shortcut | (retired) | — | — | — | ✅ retired (field DEP-renamed; no longer written) |
 | Quote Delivered | handleQuoteStageChange | commercial:sent | Commercial Agreement | advance | ✅ |
 | Quote Confirmed initial | syncConfirmedQuoteToDeal | commercial:signed | Onboarding | advance + Amount | ✅ |
 | Quote Confirmed renewal/upsell (+`Contract_Type`) | syncConfirmedQuoteToDeal | commercial:signed | Onboarding + supersede prior | Current ledger | ✅ |
@@ -224,7 +224,7 @@ Derived fields that must be **read-only on rep layouts / hidden** so users can't
 | Quotes | `Contract_ACV`, `Net_Order_Value`, `Contract_Signed_Date`, `List_Price` | ledger/pricing-owned |
 | Tasks | `Task_Sequence_Stage`, `Blocks_Sequence`, `Task_Type` | engine-owned (rep sets only `Task_Sequence_Type` + `Status` + exception `Task_Outcome`) |
 
-**Leakage already removed:** `Deal.Demo_Outcome` is off-layout (good — it's only a mirror).
+**Leakage already removed:** `Deal.Demo_Outcome` is retired (DEP-renamed, no longer written, off-layout).
 `Contact.Sequence_Type` is **intentionally rep-settable elsewhere**? No — it must be lock; the route is
 chosen on the **Task** (`Task_Sequence_Type`), not on the Contact.
 
@@ -305,7 +305,7 @@ implemented this session to close the two routing gaps (§1).** C-A and C-B requ
 - **Stage label (§7)** — RESOLVED: keep `Marketing Consent` as canonical; no rename, no code-literal
   change (docs-only). Renewal entry remains defined **future** work (date-driven off the contract ledger),
   not an onboarding-completion advance.
-- **`handleMeetingEvent` Demo_Outcome mirror** — currently writes `Deal.Demo_Outcome` (off-layout → drops). Either remove the write (dead) or add `Demo_Outcome` to the Deal layout if reporting is wanted. Low priority; left as optional mirror per prior decision.
+- **`handleMeetingEvent` Demo_Outcome mirror** — RESOLVED: `handleMeetingEvent` **no longer writes** `Deal.Demo_Outcome`; the field is DEP-renamed (`DEP - Demo_Outcome`). The demo path is the Meeting/Event mirrored onto the Contact Stage; `sendDemoReminder` now gates on the Primary Contact's Stage (skip if past Demo Confirmation), not on `Demo_Outcome`.
 
 > Already completed this session (not re-listed as changes): Task field migration to `Task_Sequence_*`;
 > `Task_Sequence_Type` activation route; `Demo_Status` removal from `handleMeetingEvent` +
@@ -319,8 +319,9 @@ implemented this session to close the two routing gaps (§1).** C-A and C-B requ
    anti-leakage step.
 2. **`Task_Sequence_Type`** picklist (Email/Call/Manual) is created + on the Tasks layout (done). Confirm
    it's on the Activation-Task layout the reps use.
-3. **`Demo_Outcome`** stays **off** the Deal layout (it's a mirror; the demo path is the Meeting). If
-   Deal-level demo reporting is wanted, add it read-only.
+3. **`Demo_Outcome`** is **retired** — DEP-renamed (`DEP - Demo_Outcome`), no longer written, off the
+   Deal layout. The demo path is the Meeting (mirrored onto the Contact Stage). Alongside it, the dead
+   Deal fields **`Commercial_Outcome`** and **`Sequence_Status`** are likewise DEP-renamed.
 4. **WF008** (Task Completion Handler) = `Create or Edit`, fires on `Status=Completed` — confirmed
    correct; no change.
 5. **Stage label (§7) — RESOLVED:** keep `Marketing Consent`. **No picklist rename, no backfill, no

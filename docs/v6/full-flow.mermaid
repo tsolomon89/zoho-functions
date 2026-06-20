@@ -64,7 +64,7 @@ flowchart TD
         direction TB
         DR_SEARCH["SEARCH Deals<br/><i>Deal_Key = accountKey::active</i>"]
         DR_FOUND{"Deal<br/>found?"}
-        DR_CREATE["CREATE Deal<br/><i>Deal_Key, Deal_Name,<br/>Account_Name, Contact_Name,<br/>State (Open/Lost), Status,<br/>Lead_Source, Contract_*,<br/>Product_Interest_Staging,<br/>Closing_Date = today+30</i>"]
+        DR_CREATE["CREATE Deal<br/><i>Deal_Key, Deal_Name,<br/>Account_Name, Contact_Name,<br/>Opportunity_State (Open/Lost), Opportunity_Status,<br/>Lead_Source, Contract_*,<br/>Product_Interest_Staging,<br/>Closing_Date = today+30</i>"]
         DR_REUSE["Use existing Deal<br/><i>lowest id = canonical</i>"]
 
         DR_SEARCH --> DR_FOUND
@@ -101,7 +101,7 @@ flowchart TD
         PA_KEY["Ensure Account_Key stamped<br/><i>(derive from Website/Name if blank)</i>"]
         PA_DEAL["Resolve canonical open Deal<br/><i>lowest-id open Deal on Account</i>"]
         PA_DEAL_MISSING{"Has Contacts<br/>but no open Deal?"}
-        PA_CREATE_DEAL["CREATE minimal Deal<br/><i>Deal_Key, State=Open, Status=New</i>"]
+        PA_CREATE_DEAL["CREATE minimal Deal<br/><i>Deal_Key, Opportunity_State=Open, Opportunity_Status=New</i>"]
         PA_DELEGATE["→ processDeal(dealId)"]
 
         PA_READ --> PA_KEY --> PA_DEAL
@@ -116,7 +116,7 @@ flowchart TD
         PD_DUP_CHECK{"Deal name ends<br/>'(Duplicate)' or<br/>Reason_For_Loss =<br/>'Duplicate / Test Record'?"}
         PD_EXIT_DUP(["↩ Skip duplicate Deal"])
         PD_RESOLVE_ACCT["Resolve Account + Account_Key<br/><i>bail if Account_Key blank</i>"]
-        PD_SILENCE["Silence duplicate active Deals<br/><i>All non-canonical open Deals →<br/>State=Lost, Status=Closed,<br/>Reason='Duplicate / Test Record',<br/>clear Deal_Key, append '(Duplicate)'</i>"]
+        PD_SILENCE["Silence duplicate active Deals<br/><i>All non-canonical open Deals →<br/>Opportunity_State=Lost, Opportunity_Status=Closed,<br/>Reason='Duplicate / Test Record',<br/>clear Deal_Key, append '(Duplicate)'</i>"]
         PD_GATHER["Gather Account Contacts<br/><i>Full-read each Contact:<br/>• Stamp Contact_Role1 if blank<br/>• Aggregate Product_Interest_Staging<br/>  + Products_Linked<br/>• Track max open stage rank<br/>• Build contactRoleMap, contactDatesMap</i>"]
         PD_ROLES["Maintain Contact_Roles junction<br/><i>FETCH role IDs via invokeurl<br/>/crm/v2/Contacts/roles<br/>Upsert missing roles on Deal<br/>(never overwrite manual role)</i>"]
         PD_PRODUCTS["Resolve Products<br/><i>getRecords catalog (up to 200)<br/>+ searchRecords fallback<br/>Match by name (case-insensitive)<br/>LINK to Deal Products related list<br/>Sum Unit_Price → totalAmount</i>"]
@@ -124,7 +124,7 @@ flowchart TD
         PD_AMT_PRODUCT["Amount = sum of<br/>Product Unit_Prices"]
         PD_AMT_QUOTE["Amount owned by<br/>syncConfirmedQuoteToDeal"]
         PD_PRIMARY["Pick Primary Contact<br/><i>Furthest open stage rank<br/>Tiebreak: Decision Maker > End User > Influencer<br/>Then: current primary wins ties</i>"]
-        PD_UPDATE["UPDATE Deal (suppressTrigger)<br/><i>Deal_Key, Opportunity_Stage (never regress),<br/>Stage (MQL/SQL/FTP/RTP),<br/>State, Status, Amount,<br/>Contact_Name, Primary_Contact,<br/>Product_Interest_Staging,<br/>Stage completion dates</i>"]
+        PD_UPDATE["UPDATE Deal (suppressTrigger)<br/><i>Deal_Key, Opportunity_Stage (never regress),<br/>Stage (MQL/SQL/FTP/RTP),<br/>Opportunity_State, Opportunity_Status, Amount,<br/>Contact_Name, Primary_Contact,<br/>Product_Interest_Staging,<br/>Stage completion dates</i>"]
         PD_PP_CHECK{"Opportunity_Stage =<br/>Proposal Preparation?"}
         PD_SEED_QUOTE["→ ensureDealQuote(dealId)"]
         PD_ACCT_ROLLUP["Roll up Account State/Status<br/><i>any Deal Open → Account Open<br/>any Deal Working → Account Working<br/>else → Account Lost/Closed</i>"]
@@ -191,7 +191,7 @@ flowchart TD
         RT_DEAL_VIABILITY{"Contact Lost +<br/>is Primary Contact?"}
         RT_CHECK_OTHERS["Check Deal Contact_Roles<br/><i>for other Open Contacts</i>"]
         RT_ANOTHER_OPEN["Another Open exists →<br/><i>CREATE Manual Review Task<br/>'Reassign Primary Contact'</i>"]
-        RT_DEAL_LOST["No other Open →<br/><i>UPDATE Deal: State=Lost,<br/>Status=Closed,<br/>Opportunity_State=Lost</i>"]
+        RT_DEAL_LOST["No other Open →<br/><i>UPDATE Deal: Opportunity_State=Lost,<br/>Opportunity_Status=Closed</i>"]
         RT_LOOKUP_FAIL["Lookup failed (fail-safe) →<br/><i>CREATE Manual Review Task<br/>'Viability unresolved'<br/>DO NOT close Deal</i>"]
         RT_PRIMARY_ROLLUP["Primary Contact (not lost) →<br/><i>→ processDeal(dealId)</i>"]
 
@@ -235,7 +235,7 @@ flowchart TD
         CC_NOT_REL["❓ Not Relevant<br/><i>Resolver: action=none, stay Running<br/>handleCallOutcome side-effect:<br/>CREATE Manual Review Task</i>"]
         CC_ALREADY["✓ Already Handled<br/><i>action=none, reason=call_already_handled<br/>Sequence state unchanged</i>"]
         CC_MANUAL["🤚 Manual Only<br/><i>Seq Type=Manual<br/>Seq State=Stopped<br/>terminal=true</i>"]
-        CC_NEGATIVE["❌ Negative / Do Not Contact<br/><i>Resolver: setContactLost=true<br/>contactLostReason=Disqualified<br/>handleCallOutcome stamps Lost_Reasons:<br/>Negative→No Fit, DNC→No Response<br/>Deal viability check</i>"]
+        CC_NEGATIVE["❌ Negative / Do Not Contact<br/><i>Resolver: setContactLost=true<br/>contactLostReason=No Fit (Neg) / No Response (DNC) — canonical<br/>handleCallOutcome stamps the same canonical Lost_Reasons<br/>Deal viability check</i>"]
 
         CC_CALL --> CC_GUARDS --> CC_OUTCOME
         CC_OUTCOME -->|"Positive"| CC_POSITIVE
@@ -249,7 +249,7 @@ flowchart TD
     end
 
     %% ======================= DEMO LIFECYCLE =======================
-    subgraph DEMO_FLOW["🎥 Demo Lifecycle — handleMeetingEvent + handleDemoOutcome"]
+    subgraph DEMO_FLOW["🎥 Demo Lifecycle — handleMeetingEvent (demo SOT)"]
         direction TB
         DF_BOOKING["Demo Booking cadence<br/><i>(Call 1..5 + cadence emails)</i>"]
         DF_MEETING_CREATE(["⚡ Meeting Created/Scheduled<br/>(Event record)"])
@@ -258,14 +258,14 @@ flowchart TD
         DF_MIRROR["Mirror to Deal (suppressTrigger)<br/><i>Deal.Demo_Start_DateTime<br/>Deal.Demo_Reminder_Send_At<br/>(1 biz day before, 09:00)<br/>Event.Reminder_Send_At = source of truth</i>"]
         DF_REMINDER(["⏰ WF010c fires<br/>Demo_Reminder_Send_At"])
         DF_SEND_REMINDER["SEND demo_reminder email<br/><i>(guard: Outcome blank, start future,<br/>Primary Contact open)</i>"]
-        DF_COMPLETED(["⚡ Meeting Completed<br/>(handleMeetingEvent reads<br/>Meeting_Outcome, mirrors<br/>Deal.Demo_Outcome)"])
+        DF_COMPLETED(["⚡ Meeting Completed<br/>(handleMeetingEvent reads<br/>Event.Meeting_Outcome — sole SOT;<br/>Deal.Demo_Outcome retired/not written)"])
         DF_OUTCOME{"Meeting_Outcome?<br/><i>(NO Demo_Status field<br/>exists in v6)</i>"}
-        DF_QUALIFIED["✅ Attended - Qualified<br/><i>→ demo:qualified<br/>Deal.Commercials_Status=Drafting<br/>(only Deal write by handleDemoOutcome)<br/>SEND demo_post_demo email<br/>→ Proposal Preparation</i>"]
+        DF_QUALIFIED["✅ Attended - Qualified<br/><i>→ demo:qualified<br/>(no Deal write — Event outcome<br/>resolves into Contact Stage)<br/>SEND demo_post_demo email<br/>→ Proposal Preparation</i>"]
         DF_FOLLOWUP["➡️ Needs Follow-up<br/><i>→ demo:followup<br/>(no Deal write)<br/>→ Demo Hosted cadence</i>"]
         DF_NOT_QUAL["❌ Not Qualified<br/><i>→ demo:not_qualified<br/>Contact Lost (No Fit)<br/>Deal viability check</i>"]
         DF_NOSHOW["🚫 No Show<br/><i>→ demo:noshow<br/>(no Deal write — outcome lives<br/>on Event.Meeting_Outcome)<br/>SEND demo_no_show email<br/>→ Revert to Demo Booking</i>"]
         DF_CANCELLED(["Meeting Status=Cancelled<br/>(handleMeetingEvent)"])
-        DF_CANCEL_ACTION["Clear Event + Deal reminders<br/><i>→ meeting:cancelled (direct router call)<br/>→ Revert to Demo Booking<br/>(separate from handleDemoOutcome<br/>demo:cancelled token)</i>"]
+        DF_CANCEL_ACTION["Clear Event + Deal reminders<br/><i>→ meeting:cancelled (direct router call)<br/>→ Revert to Demo Booking<br/>(handleMeetingEvent owns cancel;<br/>distinct from demo:cancelled token)</i>"]
         DF_RESCHEDULED["Rescheduled<br/><i>→ demo:rescheduled<br/>action=none (no Deal write,<br/>no sequence change).<br/>Event.Meeting_Status holds lifecycle.</i>"]
 
         DF_BOOKING --> DF_MEETING_CREATE
@@ -276,9 +276,9 @@ flowchart TD
         DF_MIRROR --> DF_REMINDER --> DF_SEND_REMINDER
         DF_MIRROR --> DF_COMPLETED
         DF_COMPLETED --> DF_OUTCOME
-        DF_OUTCOME -->|"Attended - Qualified<br/>/ Commercials Requested"| DF_QUALIFIED
-        DF_OUTCOME -->|"Needs Follow-up<br/>/ Follow-up Required"| DF_FOLLOWUP
-        DF_OUTCOME -->|"Not Qualified"| DF_NOT_QUAL
+        DF_OUTCOME -->|"Attended - Qualified"| DF_QUALIFIED
+        DF_OUTCOME -->|"Attended - Needs Follow-up"| DF_FOLLOWUP
+        DF_OUTCOME -->|"Attended - Not Qualified"| DF_NOT_QUAL
         DF_OUTCOME -->|"No Show"| DF_NOSHOW
         DF_MEETING_CREATE -->|"Meeting_Status=Cancelled"| DF_CANCELLED --> DF_CANCEL_ACTION
         DF_OUTCOME -->|"Rescheduled"| DF_RESCHEDULED
@@ -312,7 +312,7 @@ flowchart TD
         CA_INTENT["Commercials_Status = Intent to Sign<br/><i>Set Intent_To_Sign = true<br/>No transition</i>"]
         CA_DEFERRED["Commercials_Status = Deferred<br/><i>No transition (cadence keeps running;<br/>no Paused state exists)</i>"]
         CA_SIGNED(["Commercials_Status = Signed"])
-        CA_SIGNED_ACTION["commercial:signed<br/><i>Stamp Signed_At<br/>Deal.State stays Open (not Won)<br/>SEND commercials_signed_confirmation email<br/>→ Onboarding</i>"]
+        CA_SIGNED_ACTION["commercial:signed<br/><i>Stamp Signed_At<br/>Deal.Opportunity_State stays Open (never Won)<br/>SEND commercials_signed_confirmation email<br/>→ Onboarding</i>"]
         CA_REJECTED(["Commercials_Status = Rejected"])
         CA_REJECTED_ACTION["commercial:rejected<br/><i>Contact Lost (Terms Rejected)<br/>Deal viability check</i>"]
 
@@ -434,9 +434,9 @@ flowchart TD
         LP_CONTACT_LOST["Contact Lost<br/><i>State=Lost, Status=Closed<br/>Sequence_State=Stopped<br/>Lost_Reasons stamped</i>"]
         LP_DEAL_VIABILITY["Deal viability check<br/><i>Is Contact the Primary?<br/>Any other Open Contact<br/>in Deal Contact Roles?</i>"]
         LP_DEAL_SURVIVES["Deal survives<br/><i>CREATE Manual Review Task<br/>'Reassign Primary Contact'</i>"]
-        LP_DEAL_LOST["Deal Lost<br/><i>State=Lost, Status=Closed<br/>Opportunity_State=Lost<br/>Opportunity_Status=Closed</i>"]
+        LP_DEAL_LOST["Deal Lost<br/><i>Opportunity_State=Lost<br/>Opportunity_Status=Closed</i>"]
         LP_FAIL_SAFE["Lookup failed (fail-safe)<br/><i>CREATE Manual Review Task<br/>DO NOT close the Deal</i>"]
-        LP_SUPPRESSED["Deal.Automation_Suppressed = true<br/><i>All activity handlers skip:<br/>handleDemoOutcome, handleEmailEvent,<br/>handleCommercialsStatusChange,<br/>ensureDealQuote, syncConfirmedQuoteToDeal,<br/>sendDemoReminder, sendCommercialFollowUp,<br/>handleQuoteStageChange</i>"]
+        LP_SUPPRESSED["Deal.Automation_Suppressed = true<br/><i>All activity handlers skip:<br/>handleMeetingEvent, handleEmailEvent,<br/>handleCommercialsStatusChange,<br/>ensureDealQuote, syncConfirmedQuoteToDeal,<br/>sendDemoReminder, sendCommercialFollowUp,<br/>handleQuoteStageChange</i>"]
 
         LP_CONTACT_LOST --> LP_DEAL_VIABILITY
         LP_DEAL_VIABILITY -->|"Another Open"| LP_DEAL_SURVIVES

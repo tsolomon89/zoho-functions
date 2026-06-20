@@ -50,8 +50,7 @@ void automation.handleQuoteStageChange(string quoteIdStr)
 	{
 		if(dealId != 0)
 		{
-			zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Sent"}, noTrigger);
-			automation.handleCommercialsStatusChange(dealId.toString());
+			automation.applyCommercialTransition(dealId.toString(), "sent");
 		}
 		automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "delivered", "commercials_sent", {"deal":ifnull(dealId, "").toString()});
 		return;
@@ -84,8 +83,7 @@ void automation.handleQuoteStageChange(string quoteIdStr)
 		}
 		if(!hasOtherActive && dealId != 0)
 		{
-			zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status":"Rejected"}, noTrigger);
-			automation.handleCommercialsStatusChange(dealId.toString());
+			automation.applyCommercialTransition(dealId.toString(), "rejected");
 			automation.logAutomationEvent("handleQuoteStageChange", "Quotes", qId.toString(), "closed_lost", "commercial_rejected", {"deal":dealId.toString()});
 		}
 		else

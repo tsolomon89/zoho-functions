@@ -246,6 +246,10 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		upd.put("Blocks_Sequence", "No");
 		upd.put("Subject", "Email Sent: " + canonicalKey);
 		upd.put("Description", auditDesc);
+		// email-as-Task: SEND completed (native Status), result pending reply -> Task_State Open
+		upd.put("Task_State", "Open");
+		upd.put("Task_Status", "New");
+		if(ifnull(stage, "").toString() != "") { upd.put("Task_Stage", stage); }
 		zoho.crm.updateRecord("Tasks", auditTaskId.toLong(), upd);
 	}
 	else
@@ -262,6 +266,10 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		tkMap.put("Task_Sequence_Stage", ifnull(stage, "").toString());
 		tkMap.put("Blocks_Sequence", "No");
 		tkMap.put("Description", auditDesc);
+		// email-as-Task: SEND completed (native Status), result pending reply -> Task_State Open
+		tkMap.put("Task_State", "Open");
+		tkMap.put("Task_Status", "New");
+		if(ifnull(stage, "").toString() != "") { tkMap.put("Task_Stage", stage); }
 		if(ownerId != "") { tkMap.put("Owner", ownerId); }
 		zoho.crm.createRecord("Tasks", tkMap);
 	}

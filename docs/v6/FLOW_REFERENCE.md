@@ -58,7 +58,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | `automation.processDeal` | WF-Deal (Create/Edit) or called by `processContact`/`processAccount` | Deals | Sole reconciliation owner: Contacts, Roles, Products, Primary Contact, Opportunity_Stage/Type rollup, Account State rollup, Quote seeding | `ensureDealQuote` |
 | `automation.handleTaskCompletion` | WF008: Task Completed or Task_Outcome set | Tasks | Maps Task completion/outcome to activation or sequence resume | `routeContactSequence`, `createAuxTask`, `handleCommercialsStatusChange`, `logAutomationEvent` |
 | `automation.handleCallOutcome` | WF006: Call.Call_Outcome set | Calls | Maps Call_Outcome to trigger token, delegates to router | `routeContactSequence`, `createAuxTask`, `logAutomationEvent` |
-| `automation.handleDemoOutcome` | WF005: Deal.Demo_Outcome changed | Deals | Maps Demo_Outcome to trigger token + Deal demo fields, routes Primary Contact | `routeContactSequence`, `logAutomationEvent` |
+| `automation.handleDemoOutcome` | _(RETIRED — no WF005)_ | _(removed)_ | **Deleted in v6.** Demo outcome mapping now lives entirely in `handleMeetingEvent` (the Event is the sole source of truth). `Deal.Demo_Outcome` is retired (DEP-renamed "DEP - Demo Outcome"). | — |
 | `automation.handleMeetingEvent` | WF007: Event Create/Edit | Events | Handles Meeting/Demo lifecycle (Scheduled → Completed/Cancelled), mirrors summary to Deal, first-booking advances Contact | `routeContactSequence`, `calculateBusinessDate`, `logAutomationEvent` |
 | `automation.handleEmailEvent` | Called by email wrappers (WF009a-e) | Emails (virtual) | Routes email reply/bounce/passive events to tasks or logging | `createAuxTask`, `logAutomationEvent` |
 | `automation.handleEmailReplied` | WF009a: Email Replied | Emails | Thin wrapper → `handleEmailEvent("0","replied",...)` | `handleEmailEvent` |
@@ -91,7 +91,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | **Leads** | — | ✅ | ✅ (Contact_Role1 stamp) | — | `processLead` | Read all fields; stamp Contact_Role1 before conversion; then converted (deleted from Leads) |
 | **Contacts** | ✅ (via convertLead) | ✅ | ✅ | — | `processLead`, `processContact`, `processDeal`, `routeContactSequence`, `handleCallOutcome`, `handleEmailEvent`, `sendScheduledEmailFromTask` | Contact_Role1, Stage, State, Status, Sequence_*, Profile_Completion_Status, stage completion dates, AOR/AOO fields |
 | **Accounts** | ✅ | ✅ | ✅ | — | `processLead`, `processContact`, `processAccount`, `processDeal` | Account_Key, Phone, State, Status, AOO/Expansion fields |
-| **Deals** | ✅ | ✅ | ✅ | — | `processLead`, `processContact`, `processAccount`, `processDeal`, `handleDemoOutcome`, `handleCommercialsStatusChange`, `handleMeetingEvent`, `handleTaskCompletion`, `routeContactSequence`, `handleQuoteStageChange`, `syncConfirmedQuoteToDeal` | All Deal fields including Opportunity_Stage, Stage(type), State, Status, Amount, Contract_*, Commercials_*, Demo_* |
+| **Deals** | ✅ | ✅ | ✅ | — | `processLead`, `processContact`, `processAccount`, `processDeal`, `handleCommercialsStatusChange`, `handleMeetingEvent`, `handleTaskCompletion`, `routeContactSequence`, `handleQuoteStageChange`, `syncConfirmedQuoteToDeal` | All Deal fields including Opportunity_Stage, Stage(type), Opportunity_State, Opportunity_Status, Amount, Contract_*, Commercials_*, Demo_Start_DateTime/Demo_Reminder_Send_At (note: Demo_Outcome is DEP-renamed) |
 | **Tasks** | ✅ | ✅ | ✅ | — | `processContact`, `routeContactSequence`, `createAuxTask`, `handleTaskCompletion`, `sendSequencedEmail`, `sendScheduledEmailFromTask` | Sequence Activation, Scheduled Send, Email Sent (audit), Data Repair, Manual Review, Draft Commercials, Onboarding Setup, etc. |
 | **Calls** | ✅ | ✅ | ✅ | — | `routeContactSequence`, `handleCallOutcome` | Outbound calls with Sequence_Stage, Sequence_Attempt, Call_Purpose_Detail |
 | **Events** (Meetings) | — | ✅ | ✅ | — | `handleMeetingEvent` | Meeting_Status, Meeting_Outcome, Reminder_Send_At |
@@ -119,7 +119,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Leads | `Phone` | READ FIELD | processLead | Always | Maps to Account.Phone | Account Phone |
 | Leads | `Stage` | READ FIELD | processLead | Always | Contact.Stage seed (never regress) | Initial commercial stage |
 | Leads | `Lead_Source` | READ FIELD | processLead | Always | Deal.Lead_Source | Activation context |
-| Leads | `Lost_Reasons` | READ FIELD | processLead | Always | Contact/Deal State=Lost if present | Lost path |
+| Leads | `Lost_Reasons` | READ FIELD | processLead | Always | Seeds Contact.State=Lost / Deal.Opportunity_State=Lost if present | Lost path |
 | Leads | `Job_Title` | READ FIELD | processLead | Always | Contact_Role1 resolution | Role assignment |
 | Leads | `Personal_Phone` | READ FIELD | processLead | Always | Contact.Personal_Phone | Contact enrichment |
 | Leads | `Lead_Referrer` | READ FIELD | processLead | Always | Contact.Lead_Referrer | Contact enrichment |
@@ -146,7 +146,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Contacts | `Account_Name` | UPDATE FIELD | processLead, processContact | Account not linked | accountId lookup | Account linkage |
 | Contacts | `Stage` | UPDATE FIELD | processLead, processContact, routeContactSequence, handleTaskCompletion | Never regress (rank comparison) | Stage progression value | Controls sequence + rollup |
 | Contacts | `State` | UPDATE FIELD | processLead, processContact, routeContactSequence | Lead Lost → "Lost"; else "Open" | "Open" / "Lost" | Deal viability |
-| Contacts | `Status` | UPDATE FIELD | processLead, processContact, routeContactSequence | Lead Lost → "Closed"; else "New" | "New" / "Working" / "Closed" | Deal status |
+| Contacts | `Status` | UPDATE FIELD | processLead, processContact, routeContactSequence | Lead Lost → "Closed"; sequence Running → "Working"; else "New" | "New" / "Working" / "Closed" | Deal status |
 | Contacts | `Job_Title` | READ FIELD | processLead, processContact, processDeal | Always | Role resolution input | Contact_Role1 |
 | Contacts | `Contact_Role1` | UPDATE FIELD | processLead, processContact, processDeal | Blank + Job_Title resolves | Decision Maker / End User / Influencer | Deal Contact_Roles |
 | Contacts | `Personal_Phone` | UPDATE FIELD | processLead | Blank on Contact | Lead value | Contact data |
@@ -157,7 +157,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Contacts | `Sequence_Type` | UPDATE FIELD | routeContactSequence | Activation | "Email" / "Call" / "Manual" | Route selection |
 | Contacts | `Sequence_Stage` | UPDATE FIELD | routeContactSequence | Transition | "Call" / "Email" / "Meeting" / "Task" / "None" | Activity type |
 | Contacts | `Sequence_Step` | UPDATE FIELD | routeContactSequence | Transition | Step number or "None" | Activity ordinal |
-| Contacts | `Lost_Reasons` | UPDATE FIELD | processLead, routeContactSequence, handleCallOutcome | Loss event | "Disqualified" / "No Fit" / "No Response" / "Terms Rejected" | Terminal state |
+| Contacts | `Lost_Reasons` | UPDATE FIELD | processLead, routeContactSequence, handleCallOutcome | Loss event | "No Fit" / "No Response" / "Terms Rejected" | Terminal state |
 | Contacts | `Marketing_Consent_Status` | READ FIELD | sendSequencedEmail | Before email send | Guard: skip if "Not Consented" / "Withdrawn" | Email suppression |
 | Contacts | `Profile_Completion_Status` | UPDATE FIELD | handleEmailEvent | Email bounced | "Needs Enrichment" | Data repair |
 | Contacts | `Products_Linked` | READ FIELD | processDeal | Always | Product aggregation from Contact | Deal product list |
@@ -191,8 +191,8 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Deals | `Contact_Name` | CREATE RECORD / UPDATE FIELD | processLead, processContact, processDeal | Creation or primary Contact change | Primary Contact lookup | Primary Contact |
 | Deals | `Primary_Contact` | UPDATE FIELD | processDeal | Furthest Contact not already in list | Multiselect lookup list | Primary Contact list |
 | Deals | `Closing_Date` | CREATE RECORD | processLead, processContact, processAccount | Creation | today + 30 days | Zoho required |
-| Deals | `State` | CREATE RECORD / UPDATE FIELD | processLead, processContact, processDeal, routeContactSequence, handleCommercialsStatusChange | Various loss/open conditions | "Open" / "Lost" | Deal viability |
-| Deals | `Status` | CREATE RECORD / UPDATE FIELD | processLead, processContact, processDeal, routeContactSequence | Various | "New" / "Working" / "Closed" | Deal status |
+| Deals | `Opportunity_State` | CREATE RECORD / UPDATE FIELD | processLead, processContact, processDeal, routeContactSequence, handleCommercialsStatusChange | Various loss/open conditions | "Open" / "Lost" | Deal viability (Deals have NO bare `State` field) |
+| Deals | `Opportunity_Status` | CREATE RECORD / UPDATE FIELD | processLead, processContact, processDeal, routeContactSequence | New on create; "Working" once any open Contact is Working; "Closed" on loss | "New" / "Working" / "Closed" | Deal status (Deals have NO bare `Status` field) |
 | Deals | `Opportunity_Stage` | UPDATE FIELD | processDeal | Never regress (rank comparison) | Best stage from open Contacts | Commercial stage |
 | Deals | `Stage` | UPDATE FIELD | processDeal | Alongside Opportunity_Stage | MQL / SQL / FTP / RTP | Opportunity Type |
 | Deals | `Amount` | UPDATE FIELD | processDeal, syncConfirmedQuoteToDeal | Sum of Product Unit_Prices (pre-Quote) or Quote ACV (post-Quote) | Decimal | Deal value |
@@ -200,8 +200,8 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Deals | `Lead_Source` | CREATE RECORD | processLead | Creation | Lead.Lead_Source | Source tracking |
 | Deals | `Reason_For_Loss__s` | READ FIELD / UPDATE FIELD | processDeal, routeContactSequence | Duplicate/loss marking | "Duplicate / Test Record" or loss reason | Terminal state |
 | Deals | `Lost_Reasons` | READ FIELD / UPDATE FIELD | processLead, processDeal, routeContactSequence | Loss | Loss reason string | Terminal state |
-| Deals | `Demo_Status` | UPDATE FIELD | handleDemoOutcome | Demo outcome set | "Completed" / "No Show" / "Cancelled" / "Rescheduled" | Demo tracking |
-| Deals | `Demo_Outcome` | UPDATE FIELD / READ FIELD | handleDemoOutcome, handleMeetingEvent, sendDemoReminder | Demo completed | Meeting_Outcome mirror | Demo lifecycle |
+| Deals | `Demo_Status` | _(no longer written)_ | _(was handleDemoOutcome — deleted)_ | — | "Completed" / "No Show" / "Cancelled" / "Rescheduled" | No longer maintained; the Event/Meeting is the source of truth |
+| Deals | `Demo_Outcome` (DEP-renamed "DEP - Demo Outcome") | _(retired — not written)_ | — | Retired in v6 | _(deprecated)_ | handleMeetingEvent no longer mirrors it; sendDemoReminder no longer gates on it. The Event is the sole source of truth; demo phase is read from the Primary Contact's Stage |
 | Deals | `Demo_Start_DateTime` | UPDATE FIELD | handleMeetingEvent | Meeting scheduled | Start_DateTime mirror | Reminder computation |
 | Deals | `Demo_Reminder_Send_At` | UPDATE FIELD | handleMeetingEvent | Meeting scheduled/cancelled | Computed reminder time or null | WF010c trigger |
 | Deals | `Commercials_Status` | UPDATE FIELD / READ FIELD | handleTaskCompletion, handleCommercialsStatusChange, handleQuoteStageChange, syncConfirmedQuoteToDeal, sendCommercialFollowUp | Various commercial events | "Drafting" / "Sent" / "Signed" / "Rejected" / "Discussed" / "Deferred" / "Intent to Sign" | Commercial lifecycle |
@@ -209,9 +209,7 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | Deals | `Commercials_Discussed_At` | UPDATE FIELD | handleCommercialsStatusChange | Status = Discussed | ISO timestamp | Audit |
 | Deals | `Signed_At` | UPDATE FIELD | handleCommercialsStatusChange | Status = Signed | ISO timestamp | Audit |
 | Deals | `Intent_To_Sign` | UPDATE FIELD | handleCommercialsStatusChange | Status = Intent to Sign | true | Signal |
-| Deals | `Automation_Suppressed` | READ FIELD | handleDemoOutcome, handleEmailEvent, handleCommercialsStatusChange, ensureDealQuote, syncConfirmedQuoteToDeal, sendDemoReminder, sendCommercialFollowUp, handleQuoteStageChange | Always | Guard: skip if true | Suppress automation |
-| Deals | `Opportunity_State` | UPDATE FIELD | routeContactSequence | Primary Contact lost + Deal closed | "Lost" | Terminal |
-| Deals | `Opportunity_Status` | UPDATE FIELD | routeContactSequence | Primary Contact lost + Deal closed | "Closed" | Terminal |
+| Deals | `Automation_Suppressed` | READ FIELD | handleMeetingEvent, handleEmailEvent, handleCommercialsStatusChange, ensureDealQuote, syncConfirmedQuoteToDeal, sendDemoReminder, sendCommercialFollowUp, handleQuoteStageChange | Always | Guard: skip if true | Suppress automation |
 | Deals | `Contract_Initial_ACV` | UPDATE FIELD | syncConfirmedQuoteToDeal | First confirmed Quote | Quote ACV | Contract ledger |
 | Deals | `Contract_Initial_Date_Start` | UPDATE FIELD | syncConfirmedQuoteToDeal | First confirmed Quote | Quote start date | Contract ledger |
 | Deals | `Contract_Initial_Date_End` | UPDATE FIELD | syncConfirmedQuoteToDeal | First confirmed Quote | Quote end date (or +1 year) | Contract ledger |
@@ -329,9 +327,9 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | `Demo Confirmation` | Meeting_Status=Completed, Meeting_Outcome | meeting:attended | SUPERSEDE; Advance | `Demo Hosted` | SQL | Post-demo follow-up cadence |
 | `Demo Confirmation` | Meeting_Status=Completed, Meeting_Outcome=No Show | meeting:noshow or demo:noshow | Stay Demo Confirmation → recover with Call 1; SEND demo_no_show email | `Demo Booking` (noshow reverts) | SQL | Re-booking cadence |
 | `Demo Confirmation` | Meeting_Status=Cancelled | meeting:cancelled | SUPERSEDE; Revert to Demo Booking cadence entry | `Demo Booking` | SQL | Re-booking cadence |
-| `Demo Hosted` | Demo_Outcome = Attended - Qualified / Commercials Requested | demo:qualified | SUPERSEDE; UPDATE Deal.Demo_Status=Completed, Commercials_Status=Drafting; SEND demo_post_demo email | `Proposal Preparation` | FTP | Draft Commercials Task created; Quote seeded |
-| `Demo Hosted` | Demo_Outcome = Attended - Needs Follow-up | demo:followup | SUPERSEDE; UPDATE Deal.Demo_Status=Completed | `Demo Hosted` (re-enter cadence) | SQL | Follow-up cadence continues |
-| `Demo Hosted` | Demo_Outcome = Attended - Not Qualified | demo:not_qualified | SUPERSEDE; Contact Lost (No Fit); Deal viability check | _(terminal)_ | — | Contact+Deal Lost |
+| `Demo Hosted` | Meeting_Status=Completed, Meeting_Outcome = Attended - Qualified | demo:qualified (via handleMeetingEvent) | SUPERSEDE; UPDATE Deal.Commercials_Status=Drafting; SEND demo_post_demo email | `Proposal Preparation` | FTP | Draft Commercials Task created; Quote seeded |
+| `Demo Hosted` | Meeting_Status=Completed, Meeting_Outcome = Attended - Needs Follow-up | demo:followup (via handleMeetingEvent) | SUPERSEDE | `Demo Hosted` (re-enter cadence) | SQL | Follow-up cadence continues |
+| `Demo Hosted` | Meeting_Status=Completed, Meeting_Outcome = Attended - Not Qualified | demo:not_qualified (via handleMeetingEvent) | SUPERSEDE; Contact Lost (No Fit); Deal viability check | _(terminal)_ | — | Contact+Deal Lost |
 | `Proposal Preparation` | Task_Type=Draft Commercials completed (task:positive) | Blocking task completed | SUPERSEDE; Advance | `Commercial Agreement` | FTP | Commercial cadence begins |
 | `Proposal Preparation` | Deal reaches Proposal Preparation | processDeal finalOppStage check | CREATE Quote (Draft) via ensureDealQuote with Quoted Items | _(stays)_ | FTP | Quote seeded for rep |
 | `Commercial Agreement` | Commercials_Status=Sent (via handleTaskCompletion "Send Commercials" or handleQuoteStageChange "Delivered") | commercial:sent | SUPERSEDE; SEND commercials_terms email; UPDATE Deal.Commercials_Sent_At | `Commercial Agreement` (stays, cadence) | FTP | Follow-up cadence for signature |
@@ -357,16 +355,11 @@ The **v6 automation system** is a **Contact-centric** CRM pipeline that converts
 | handleCallOutcome | Call_Outcome | Not Relevant | Wrong contact | routeContactSequence("call:notrelevant") → stay Running; CREATE Manual Review Task | Same stage, blocked |
 | handleCallOutcome | Call_Outcome | Manual Only | Manual control | routeContactSequence("call:manualonly") → Sequence Stopped, Type=Manual | Terminal: Stopped |
 | handleCallOutcome | Call_Outcome | Do Not Contact | Suppression request | routeContactSequence("call:donotcontact") → Contact Lost, Deal viability | Terminal: Lost (No Response) |
-| handleDemoOutcome | Demo_Outcome | Attended - Qualified | Qualified prospect | routeContactSequence("demo:qualified"); Deal.Demo_Status=Completed, Commercials_Status=Drafting | Proposal Preparation |
-| handleDemoOutcome | Demo_Outcome | Commercials Requested | Same as qualified | Same as Attended - Qualified | Proposal Preparation |
-| handleDemoOutcome | Demo_Outcome | Attended - Needs Follow-up | Needs more contact | routeContactSequence("demo:followup"); Deal.Demo_Status=Completed | Demo Hosted (re-engage) |
-| handleDemoOutcome | Demo_Outcome | Follow-up Required | Same as above | Same as Attended - Needs Follow-up | Demo Hosted (re-engage) |
-| handleDemoOutcome | Demo_Outcome | Attended - Not Qualified | Disqualified | routeContactSequence("demo:not_qualified"); Deal.Demo_Status=Completed | Terminal: Lost (No Fit) |
-| handleDemoOutcome | Demo_Outcome | No Show | Didn't attend | routeContactSequence("demo:noshow"); Deal.Demo_Status=No Show | Demo Booking (re-book) |
-| handleDemoOutcome | Demo_Outcome | Cancelled | Demo cancelled | routeContactSequence("demo:cancelled"); Deal.Demo_Status=Cancelled | Demo Booking (re-book) |
-| handleDemoOutcome | Demo_Outcome | Rescheduled | Demo moved | Deal.Demo_Status=Rescheduled; no sequence change | Same stage |
-| handleMeetingEvent | Meeting_Status | Scheduled/Confirmed/Rescheduled | Demo booked | Mirror to Deal; advance Contact to Demo Confirmation if first booking | Demo Confirmation |
-| handleMeetingEvent | Meeting_Status | Completed + Meeting_Outcome | Demo happened | Map to demo:* token; mirror Demo_Outcome to Deal | Per outcome above |
+| handleMeetingEvent | Meeting_Outcome | Attended - Qualified | Qualified prospect | routeContactSequence("demo:qualified"); Commercials_Status=Drafting (Demo_Outcome retired — not written) | Proposal Preparation |
+| handleMeetingEvent | Meeting_Outcome | Attended - Needs Follow-up | Needs more contact | routeContactSequence("demo:followup") | Demo Hosted (re-engage) |
+| handleMeetingEvent | Meeting_Outcome | Attended - Not Qualified | Not Qualified | routeContactSequence("demo:not_qualified") | Terminal: Lost (No Fit) |
+| handleMeetingEvent | Meeting_Outcome / Meeting_Status | No Show | Didn't attend | routeContactSequence("demo:noshow") | Demo Booking (re-book) |
+| handleMeetingEvent | Meeting_Status | Scheduled/Confirmed/Rescheduled | Demo booked | Mirror Demo_Start_DateTime/Demo_Reminder_Send_At to Deal; advance Contact to Demo Confirmation if first booking | Demo Confirmation |
 | handleMeetingEvent | Meeting_Status | Cancelled | Demo cancelled | Clear reminders; routeContactSequence("meeting:cancelled") | Demo Booking |
 | handleEmailEvent | eventType | replied | Reply received | CREATE Review Reply Task (blocking) | Same stage, blocked |
 | handleEmailEvent | eventType | bounced | Email bounced | CREATE Data Repair Task; UPDATE Contact.Profile_Completion_Status=Needs Enrichment | Same stage, blocked |
@@ -441,7 +434,7 @@ flowchart TD
     subgraph DEAL_RESOLUTION["Deal Resolution (processLead)"]
         DR_SEARCH["SEARCH Deals<br/>(Deal_Key=accountKey::active)"]
         DR_FOUND{Deal found?}
-        DR_CREATE["CREATE Deal<br/>(Deal_Key, Deal_Name,<br/>Account, Contact,<br/>State, Status,<br/>Lead_Source, Contract_*,<br/>Product_Interest_Staging,<br/>Closing_Date=+30d)"]
+        DR_CREATE["CREATE Deal<br/>(Deal_Key, Deal_Name,<br/>Account, Contact,<br/>Opportunity_State, Opportunity_Status,<br/>Lead_Source, Contract_*,<br/>Product_Interest_Staging,<br/>Closing_Date=+30d)"]
         DR_EXISTING["Use existing Deal<br/>(lowest id = canonical)"]
 
         LC_ENRICH --> DR_SEARCH
@@ -482,7 +475,7 @@ flowchart TD
         PD_PRODUCTS["Resolve Products by name<br/>(getRecords catalog +<br/>searchRecords fallback);<br/>LINK to Deal Products;<br/>Sum Unit_Price → Amount"]
         PD_ROLES["Maintain Contact_Roles:<br/>FETCH role IDs (invokeurl);<br/>READ existing roles on Deal;<br/>UPSERT missing roles"]
         PD_PRIMARY["Pick Primary Contact<br/>(furthest stage,<br/>Decision Maker tiebreak,<br/>current-primary tiebreak)"]
-        PD_STAGE["UPDATE Deal:<br/>Opportunity_Stage (never regress),<br/>Stage (Opp Type: MQL/SQL/FTP/RTP),<br/>State, Status, Amount,<br/>Deal_Key, Primary_Contact,<br/>Product_Interest_Staging,<br/>Stage completion dates"]
+        PD_STAGE["UPDATE Deal:<br/>Opportunity_Stage (never regress),<br/>Stage (Opp Type: MQL/SQL/FTP/RTP),<br/>Opportunity_State, Opportunity_Status<br/>(Working once any open Contact is Working),<br/>Amount, Deal_Key, Primary_Contact,<br/>Product_Interest_Staging,<br/>Stage completion dates"]
         PD_QUOTE_CHECK{"Opportunity_Stage =<br/>Proposal Preparation?"}
         PD_QUOTE["→ ensureDealQuote(dealId)"]
         PD_QUOTE_AMOUNT{"Has Confirmed Quote?"}

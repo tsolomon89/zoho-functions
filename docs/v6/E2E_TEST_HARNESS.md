@@ -16,7 +16,7 @@ Lead (Product_Interest = "Jurnii UX - Fixed", Title decision-maker)
       → handleTaskCompletion → routeContactSequence("activate:<type>"): opener email + Call 1; Contact.Sequence_Type set, Sequence_State = Running
   → [sequence advances Contact via Call / Meeting / Email outcomes]
   → demo completed — Meeting (Events) Meeting_Status = Completed + Meeting_Outcome = "Attended - Qualified"  (WF007 handleMeetingEvent — the source of truth)
-      → routeContactSequence("demo:qualified"); Commercials_Status = Drafting (Deal.Demo_Outcome is an optional off-layout mirror only)
+      → routeContactSequence("demo:qualified"); Commercials_Status = Drafting (the demo result lives on the Event as Meeting_Outcome — Deal.Demo_Outcome is retired and never written)
       → Contact.Stage = Proposal Preparation; "Draft Commercials" task created; processDeal runs
       → Deal.Opportunity_Stage = Proposal Preparation, Stage = FTP
       → ensureDealQuote (inline in processDeal): seeds a Draft Quote with a "Jurnii UX - Fixed" line
@@ -67,7 +67,7 @@ Product_Interest = "Jurnii UX - Fixed"
 Wait ≥60s.
 
 **Assert** (the foundation the rest depends on):
-- A **Contact** exists (Email match), `Account_Name` populated; an **Account** with non-empty `Account_Key`; a canonical **Deal** (`Account_Name`, `Contact_Name` set, `State` = Open, `Deal_Key` ends `::active`).
+- A **Contact** exists (Email match), `Account_Name` populated; an **Account** with non-empty `Account_Key`; a canonical **Deal** (`Account_Name`, `Contact_Name` set, `Opportunity_State` = Open + `Opportunity_Status` = New — Deals have **no** bare `State`/`Status`; those live on Contacts/Accounts only, `Deal_Key` ends `::active`).
 - Deal `Opportunity_Stage` = `Marketing Consent`, and `Contact_Roles` contains the Contact as **Decision Maker**.
 - The Deal has the **`Jurnii UX - Fixed` Product linked** (related Products list) — this is what `ensureDealQuote` will seed from in Phase 2.
 - A **Sequence Activation Task** was created: `Task_Type = Sequence Activation`, `Task_Sequence_Stage = Marketing Consent`, **`Task_Sequence_Type` blank**, `Blocks_Sequence = Yes`. **Activation is Task-gated** — the sequence does NOT auto-start; the rep chooses the route in Phase 1b. (A known dup-activation race can create two identical tasks; completing one is enough — the other idempotency-skips/defers.)
@@ -90,7 +90,7 @@ for any inbox checks (never bare `tlcsolomon@gmail.com` — it matches an existi
 
 | # | Set on Activation Task | Expect |
 |---|---|---|
-| A1 | `Task_Sequence_Type = Email`, Completed (Task_Outcome blank) | `activate:email` → opener `marketing-consent:1:initial` audit Task + `Marketing Consent Call 1`; Contact `Sequence_Type = Email`, `Sequence_State = Running`, `Sequence_Stage = Call`, `Sequence_Step = 1` |
+| A1 | `Task_Sequence_Type = Email`, Completed (Task_Outcome blank) | `activate:email` → opener `marketing-consent:1:initial` audit Task + `Marketing Consent Call 1`; Contact `Sequence_Type = Email`, `Sequence_State = Running`, `Sequence_Stage = Call`, `Sequence_Step = 1`, **`Status = Working`** (Running ⇒ Working; `State` stays Open). The Deal rolls to `Opportunity_Status = Working` (`Opportunity_State` stays Open). |
 | A2 | `Task_Sequence_Type = Call`, Completed | `activate:call` → `Marketing Consent Call 1`, **no** opener email; `Sequence_Type = Call`, `Running` |
 | A3 | `Task_Sequence_Type = Manual`, Completed | `activate:manual` → `Sequence_Type = Manual`, `Sequence_State = Stopped`; no Call, no email |
 | A4 | `Task_Sequence_Type = Email` **and** `Task_Outcome = Suppress`, Completed | **Exception wins**: `activate:stop` (Stopped); no opener, no Call |
@@ -111,14 +111,14 @@ for any inbox checks (never bare `tlcsolomon@gmail.com` — it matches an existi
 **GP2.** Drive the Deal to the proposal boundary via the **Meeting — the sole demo path**: create an Event with `What_Id` = Deal (`$se_module = Deals`), `Who_Id` = primary Contact, `Meeting_Type = Demo`, then `Meeting_Status = Completed` + `Meeting_Outcome = "Attended - Qualified"` → WF007 `handleMeetingEvent` → `demo:qualified`. *(The old Deal-direct `Demo_Outcome` → WF005 path is **retired** — `Demo_Outcome` is off-layout/unsettable and WF005 + `handleDemoOutcome` were deleted.)* Wait ≥45s.
 
 **Assert:**
-- Deal `Commercials_Status` = `Drafting`. *(No `Demo_Status` field on Deals — the demo lifecycle is canonical on the Meeting via `Meeting_Status`/`Meeting_Outcome`; the Deal keeps only the `Demo_Outcome` mirror. The dead `Demo_Status` writes were removed from both `handleMeetingEvent` and `handleDemoOutcome`.)*
+- Deal `Commercials_Status` = `Drafting`. *(No `Demo_Status` field on Deals, and `Demo_Outcome` is **retired** — `handleMeetingEvent` never writes it. The demo result lives on the Event (`Meeting_Outcome`) and resolves into the primary Contact's Stage/State. The Deal keeps only the summary mirrors `Demo_Start_DateTime`/`Demo_Reminder_Send_At` (written with suppressTrigger).)*
 - Deal `Opportunity_Stage` = `Proposal Preparation`, `Stage` = `FTP`.
 - A `Draft Commercials` Task exists (Who = primary Contact, What = Deal).
 - **A Draft Quote now exists for the Deal** (`getRelatedRecords("Quotes","Deals",dealId)`): `Quote_Stage` = `Draft`, `Account_Name`/`Deal_Name`/`Contact_Name` set, and `Quoted_Items` contains **one line** referencing `Jurnii UX - Fixed` with `Quantity` = 1. (The line is typically **unpriced** here — `Quoted_Item_Plan_Brands` is blank until the rep sets it.)
 
 **Branch GP2b (insufficient product data → no empty Quote):** repeat the journey with a Lead that has **no** quote-ready Product Interest (or only an unmatched value). Assert that at Proposal Preparation `ensureDealQuote` raises a **Manual Review** Task instead of creating an empty/invalid Quote.
 
-**On failure:** `ensureDealQuote` (seeding/guards), `processDeal` (the `finalOppStage == "Proposal Preparation"` hook + Product linking), `handleDemoOutcome` / `routeContactSequence` (stage propagation).
+**On failure:** `ensureDealQuote` (seeding/guards), `processDeal` (the `finalOppStage == "Proposal Preparation"` hook + Product linking), `handleMeetingEvent` / `routeContactSequence` (stage propagation).
 
 ---
 
@@ -129,6 +129,7 @@ for any inbox checks (never bare `tlcsolomon@gmail.com` — it matches an existi
 **Assert:**
 - Quote: `Contract_ACV` = 18480.00, `Contract_Type` = `Initial`, `Contract_Signed_Date` set, `Contract_Date_End` = today + 1 year.
 - Deal: `Contract_Initial_ACV` = 18480, Initial dates set, `Contract_Initial_Plan_Type` = `Fixed`, `Contract_Initial_Plan_Products` = `Jurnii UX`, `Contract_Initial_Plan_Brands` = 10, `Amount` = 18480, `Contract_Current_ACV` empty, `Commercials_Status` = `Signed`.
+- **Deal is never "Won":** `Opportunity_State` stays `Open` (a signed deal advances `Opportunity_Stage` through Onboarding/Renewal — it does not flip to a Won state). The `Closed Won` value below applies to the **Quote** (`Quote_Stage`), never the Deal.
 - Exactly **one** Confirmed Quote on the Deal.
 
 **GP4 — Renewal supersedes.** Create a second Quote on the same Deal: one `Jurnii UX - Fixed` line, brands 12, Base; `Contract_Date_Start` = today; **set `Contract_Type` = `Renewed`**; `Quote_Stage = Confirmed`. Wait 30s.
