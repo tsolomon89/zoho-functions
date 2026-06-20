@@ -14,7 +14,7 @@ void automation.sendCommercialFollowUp(string dealIdStr)
 	//   -> routeContactSequence(primaryId, dealId, "commercial:followup_due")
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }

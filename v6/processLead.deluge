@@ -25,7 +25,7 @@ void automation.processLead(string lead_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	if(lead_id == null || lead_id == "") { return; }
 	cleanId = lead_id.replaceAll("zcrm_", "").trim();
@@ -491,14 +491,16 @@ void automation.processLead(string lead_id)
 		dealMap.put("Deal_Key", dealKey);
 		if(leadLostReasons != "")
 		{
-			dealMap.put("State", "Lost");
-			dealMap.put("Status", "Closed");
+			// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status
+			// fields; those are Contact/Account-only). Deals are never "Won".
+			dealMap.put("Opportunity_State", "Lost");
+			dealMap.put("Opportunity_Status", "Closed");
 			dealMap.put("Lost_Reasons", leadLostReasons);
 		}
 		else
 		{
-			dealMap.put("State", "Open");
-			dealMap.put("Status", "New");
+			dealMap.put("Opportunity_State", "Open");
+			dealMap.put("Opportunity_Status", "New");
 		}
 
 		// Opportunity_Stage / Stage (type) and Primary_Contact are set by processDeal

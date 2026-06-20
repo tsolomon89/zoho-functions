@@ -13,15 +13,20 @@ void automation.handleMeetingEvent(string eventIdStr)
 	//   - Reminder_Send_At: the Event's own reminder time (source of truth for WF010c)
 	//   - Start_DateTime / End_DateTime / Who_Id / What_Id
 	//
-	// IMPORTANT: Deal.Demo_Status and Deal.Demo_Meeting_ID DO NOT EXIST and are not
-	// used. The Deal keeps summary mirrors only (Demo_Start_DateTime, Demo_Reminder_Send_At,
-	// Demo_Outcome) — written with suppressTrigger and kept while WF010c is Deal-based.
+	// IMPORTANT: Deal.Demo_Status, Deal.Demo_Meeting_ID and Deal.Demo_Outcome are NOT written.
+	// The Deal keeps summary mirrors only (Demo_Start_DateTime, Demo_Reminder_Send_At) — written
+	// with suppressTrigger and kept while WF010c is Deal-based. Demo_Outcome is retired (the Event
+	// is the demo source of truth; the result resolves into Contact Stage/State).
 	//
 	// First-booking detection is by Contact Stage (advance to Demo Confirmation once),
-	// NOT by a Deal mirror id. "No Show" is read from Meeting_Outcome, never Meeting_Status.
+	// NOT by a Deal mirror id. "No Show" is read from Meeting_Outcome OR Meeting_Status.
+	//
+	// Commercial Discussion / Renewal meetings: a Completed outcome is routed INTO the existing
+	// commercial machinery (Deal.Commercials_Status -> handleCommercialsStatusChange). Meetings set
+	// INTENT only — a signed contract still requires Quote_Stage=Confirmed -> syncConfirmedQuoteToDeal.
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	eventId = 0;
 	if(!isNull(eventIdStr) && eventIdStr != "") { eventId = eventIdStr.toLong(); }
@@ -31,11 +36,16 @@ void automation.handleMeetingEvent(string eventIdStr)
 	event = zoho.crm.getRecordById("Events", eventId);
 	if(isNull(event) || isNull(event.get("id"))) { return; }
 
-	// Demo meetings only (empty Meeting_Type tolerated as Demo for back-compat).
+	// Demo meetings own the demo lifecycle (empty Meeting_Type tolerated as Demo for back-compat).
+	// Commercial Discussion / Renewal meetings route their Completed outcome INTO the existing
+	// Deal/Quote commercial machinery (they never own stage directly). Other types are not handled.
 	meetingType = ifnull(event.get("Meeting_Type"), "").toString();
-	if(meetingType != "Demo" && meetingType != "")
+	isDemo = (meetingType == "Demo" || meetingType == "");
+	isCommercial = (meetingType == "Commercial Discussion");
+	isRenewal = (meetingType == "Renewal");
+	if(!isDemo && !isCommercial && !isRenewal)
 	{
-		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_not_demo", {"meeting_type":meetingType});
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_unhandled_type", {"meeting_type":meetingType});
 		return;
 	}
 
@@ -69,6 +79,37 @@ void automation.handleMeetingEvent(string eventIdStr)
 	noTrigger.put("trigger", List());
 
 	// =====================================================================
+	// COMMERCIAL DISCUSSION / RENEWAL meetings -> route the Completed outcome into the existing
+	// commercial machinery. Sets INTENT only; the Quote owns the signed ledger
+	// (Quote_Stage=Confirmed -> syncConfirmedQuoteToDeal). No demo writes here.
+	// =====================================================================
+	if(isCommercial || isRenewal)
+	{
+		if(meetingStatus == "Completed")
+		{
+			commStatus = "";
+			if(meetingOutcome == "Commercials Discussed") { commStatus = "Discussed"; }
+			else if(meetingOutcome == "Intent to Sign" || meetingOutcome == "Renewal Agreed") { commStatus = "Intent to Sign"; }
+			else if(meetingOutcome == "Renewal Declined") { commStatus = "Rejected"; }
+			if(commStatus != "")
+			{
+				zoho.crm.updateRecord("Deals", dealId, {"Commercials_Status": commStatus}, noTrigger);
+				automation.handleCommercialsStatusChange(dealId.toString());
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", commStatus, {"deal":dealId.toString(), "outcome":meetingOutcome});
+			}
+			else
+			{
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
+			}
+		}
+		else
+		{
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_action", {"deal":dealId.toString(), "status":meetingStatus});
+		}
+		return;
+	}
+
+	// =====================================================================
 	// CANCELLED -> clear reminders, route meeting:cancelled once. Never infer No Show.
 	// =====================================================================
 	if(meetingStatus == "Cancelled")
@@ -81,31 +122,30 @@ void automation.handleMeetingEvent(string eventIdStr)
 	}
 
 	// =====================================================================
-	// COMPLETED -> read Meeting_Outcome and map to a demo:* token.
-	// Mirror Deal.Demo_Outcome (suppressed) for any Deal-level workflow still using it,
-	// but route the transition here so WF005 is not double-fired.
+	// COMPLETED -> read Meeting_Outcome and map to a demo:* token. The Event is the sole
+	// source of truth for the demo result; the retired Deal.Demo_Outcome mirror is no
+	// longer written (the demo outcome lives on the Event and resolves into Contact Stage/State).
 	// =====================================================================
-	if(meetingStatus == "Completed")
+	// A rep may record a no-show as Meeting_Status=No Show OR Meeting_Outcome=No Show — treat both.
+	effectiveOutcome = meetingOutcome;
+	if(meetingStatus == "No Show" && effectiveOutcome == "") { effectiveOutcome = "No Show"; }
+	if(meetingStatus == "Completed" || meetingStatus == "No Show")
 	{
 		outcomeTokens = Map();
 		outcomeTokens.put("Attended - Qualified", "demo:qualified");
 		outcomeTokens.put("Attended - Needs Follow-up", "demo:followup");
 		outcomeTokens.put("Attended - Not Qualified", "demo:not_qualified");
 		outcomeTokens.put("No Show", "demo:noshow");
-		token = ifnull(outcomeTokens.get(meetingOutcome), "").toString();
+		token = ifnull(outcomeTokens.get(effectiveOutcome), "").toString();
 
-		if(meetingOutcome != "")
-		{
-			zoho.crm.updateRecord("Deals", dealId, {"Demo_Outcome": meetingOutcome}, noTrigger);
-		}
 		if(token != "" && contactId != "")
 		{
 			automation.routeContactSequence(contactId, dealId.toString(), token);
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", token, {"deal":dealId.toString(), "outcome":meetingOutcome});
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", token, {"deal":dealId.toString(), "outcome":effectiveOutcome});
 		}
 		else
 		{
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":effectiveOutcome});
 		}
 		return;
 	}

@@ -1,0 +1,13 @@
+Modules,Tasks;Calls;Meetings;Deals,Tasks;Calls;Meetings;Deals,Tasks;Calls;Meetings;Deals;Contacts,Tasks;Calls;Meetings;Deals;Contacts,Tasks;Calls;Meetings;Deals;Contacts,Tasks;Calls;Meetings;Deals;Contacts,Tasks;Calls;Meetings,Tasks;Contacts,Tasks;Contacts,Tasks;Contacts,Tasks;Contacts,Contacts,Quotes
+Field Name,Pipeline,Opportunity (Type),Stage,Status,State,Lost Reasons,Task Type,Sequence Type,Sequence Stage,Sequence State,Sequence Step,Lead Source,Quote Stage
+Value 1,B2B,MQL,Marketing Consent,New,Open,N/A,Activation,Email,Email,Not Activated,None,Import,Draft
+Value 2,Partnership,SQL,Demo Booking,Working,Lost,Invalid / Bad Data,Email,Call,Call,Running,1,Employee Referral,Negotiation
+Value 3,,FTP,Demo Confirmation,Closed,Won,No Fit,,Manual,Meeting,Stopped,2,External Referral,Delivered
+Value 4,,RTP,Demo Hosted,,,No Response,,,Task,Complete,3,Trade Show / Event,On Hold
+Value 5,,,Proposal Preparation,,,No Meeting / Demo,,,,,4,Facebook,Confirmed
+Value 6,,,Commercial Agreement,,,No Commercial Interest,,,,,5,X (Twitter),Closed Won
+Value 7,,,Onboarding,,,No Budget,,,,,6,Linkedin,Closed Lost
+Value 8,,,Renewal,,,No Authority,,,,,7,Apollo,
+Value 9,,,,,,Terms Rejected,,,,,8,Clay,
+Value 10,,,,,,Churned / Did Not Renew,,,,,9,,
+Value 11,,,,,,Duplicate / Test Record,,,,,10,,

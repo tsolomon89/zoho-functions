@@ -10,7 +10,7 @@ void automation.sendScheduledEmailFromTask(string taskIdStr)
 	// On a successful post-call follow-up send, marks the Contact sequence Complete.
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	taskId = 0;
 	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }

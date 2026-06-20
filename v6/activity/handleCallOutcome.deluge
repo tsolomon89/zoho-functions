@@ -21,7 +21,7 @@ void automation.handleCallOutcome(string callIdStr)
 	//   Manual Only->call:manualonly  Do Not Contact->call:donotcontact
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	callId = 0;
 	if(!isNull(callIdStr) && callIdStr != "") { callId = callIdStr.toLong(); }

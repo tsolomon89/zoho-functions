@@ -1,0 +1,141 @@
+%% v6 Single-Field Automation — full flow (Lead → Renewal)
+%% Legend:
+%%   USER  = human command/outcome field (the one field a rep sets)
+%%   FN    = function that fires
+%%   AUTO  = automation-owned writes (records/fields created or updated)
+%%   SOT   = source of truth | MIRROR = derived copy
+%%   LOCK  = write is suppressed with {"trigger": List()}
+flowchart TD
+  classDef user fill:#fde68a,stroke:#b45309,color:#000;
+  classDef fn fill:#bfdbfe,stroke:#1e40af,color:#000;
+  classDef auto fill:#bbf7d0,stroke:#166534,color:#000;
+  classDef sot fill:#fbcfe8,stroke:#9d174b,color:#000;
+  classDef loss fill:#fecaca,stroke:#991b1b,color:#000;
+
+  subgraph INTAKE["Intake / conversion"]
+    L["USER: create Lead (Lead fields)"]:::user
+    PL["FN: WF001a processLead"]:::fn
+    CONV["AUTO: convertLead -> Contact + Account + canonical Deal | LOCK enrich Contact, seed Deal Lead-data, Account_Key, Contact_Role1"]:::auto
+    L --> PL --> CONV
+  end
+
+  subgraph SEQENG["Contact sequence engine"]
+    PC["FN: WF001b processContact (idempotent)"]:::fn
+    ACTTASK["AUTO: Sequence Activation Task | Task_Sequence_Stage=Stage, Task_Sequence_Type=blank, Blocks_Sequence=Yes"]:::auto
+    RCS["FN: routeContactSequence (ONLY Contact transition executor)"]:::fn
+    RESOLVE["FN: _util_resolveContactAction (PURE state machine)"]:::fn
+    CSEQ["AUTO (LOCK): Contact.Sequence_Type/State/Stage/Step + Stage adoption"]:::auto
+    PC --> ACTTASK
+    RCS --> RESOLVE --> CSEQ
+  end
+  CONV --> PC
+
+  subgraph TASKOUT["Task outcome handling (WF008 handleTaskCompletion)"]
+    UACT["USER (Activation Task): Task_Sequence_Type = Email|Call|Manual + Status=Completed (exc Task_Outcome=Suppress/Already Handled/Stage Incorrect)"]:::user
+    HTC["FN: handleTaskCompletion (activation: outcome-exception > route > idempotency > stage-adopt > route once)"]:::fn
+    ATok["AUTO: activate:email|call|manual|stop -> routeContactSequence"]:::auto
+    UTOUT["USER (any other Task): Task_Outcome = Completed|Blocked|Failed|Needs Follow-Up|Not Relevant"]:::user
+    TOUTL["AUTO: Completed->task:positive or Type success | Blocked/Failed->Manual Review+hold | Needs Follow-Up->resume | Not Relevant->Manual Review | Draft Commercials->surface Send Commercials"]:::auto
+    UACT --> HTC --> ATok --> RCS
+    UTOUT --> HTC --> TOUTL --> RCS
+  end
+  ACTTASK -.rep picks route.-> UACT
+
+  subgraph CALLOUT["Call outcome handling (WF006 handleCallOutcome)"]
+    UCALL["USER: Call_Outcome (+ Next_Follow_Up_Date only if Deferred)"]:::user
+    HCO["FN: handleCallOutcome -> token"]:::fn
+    CSIDE["AUTO: next Call / postcall scheduled email / Stale mark / Data Repair / Manual Review / LOCK Lost_Reasons"]:::auto
+    UCALL --> HCO --> CSIDE
+    HCO --> RCS
+  end
+
+  subgraph MEET["Meeting / Event demo handling (WF007 handleMeetingEvent = demo SOT)"]
+    UMEET["USER: Meeting_Type (Demo/Commercial Discussion/Renewal) + Meeting_Status + Meeting_Outcome (Completed only) + Start_DateTime"]:::user
+    HME["FN: handleMeetingEvent (demo SOT; No-Show via Meeting_Outcome OR Meeting_Status)"]:::fn
+    MSOT["SOT: Event.Meeting_Status + Meeting_Outcome"]:::sot
+    MEFF["AUTO (LOCK): Event.Reminder_Send_At; MIRROR Deal.Demo_Start_DateTime / Demo_Reminder_Send_At / Demo_Outcome"]:::auto
+    MTOK["AUTO: meeting:created | demo:qualified|followup|not_qualified|noshow -> routeContactSequence"]:::auto
+    MCOMM["AUTO (Commercial/Renewal mtg Completed): Commercials Discussed->Commercials_Status=Discussed | Intent to Sign / Renewal Agreed->Intent to Sign | Renewal Declined->Rejected"]:::auto
+    UMEET --> HME --> MSOT
+    HME --> MEFF
+    HME --> MTOK --> RCS
+    HME --> MCOMM --> HCS
+  end
+
+  subgraph DEALROLL["Deal rollup (processDeal = SOLE reconciliation owner)"]
+    PD["FN: WF001d processDeal (LOCK all writes)"]:::fn
+    PDW["AUTO: Opportunity_Stage (never-regress) + Stage(type MQL/SQL/FTP/RTP) + Contact_Name primary + completion dates + Account rollup"]:::auto
+    PDAMT["AUTO: Amount = Sum(Unit_Price) UNTIL a Confirmed Quote exists, then Quote ACV owns Amount"]:::auto
+    PD --> PDW --> PDAMT
+  end
+  CSEQ --> PD
+  RCS -. primary contact .-> PD
+
+  subgraph QUOTE["Quote / product / contract ledger (Quote = commercial-document authority)"]
+    EDQ["FN: ensureDealQuote (called by processDeal at Proposal Preparation)"]:::fn
+    DRAFT["AUTO: Draft Quote + Quoted_Items seeded from quote-ready Deal Products | links Account/Deal/Contact | else Manual Review"]:::auto
+    UPRICE["USER: line Product + Quoted_Item_Plan_Brands + Pricing_Tier (+ Frequency for 360)"]:::user
+    UDELIV["USER: Quote_Stage = Delivered"]:::user
+    UCONF["USER: Quote_Stage = Confirmed (+ Contract_Type for later quotes)"]:::user
+    WF020["FN: WF020 handleQuoteStageChange"]:::fn
+    PRICE["FN: _util_resolveQuoteLinePrice + _util_resolveQuotePlanSummary (PURE: band + ppb x brands, 2dp)"]:::fn
+    SENT["AUTO (LOCK): Deal.Commercials_Status=Sent -> handleCommercialsStatusChange"]:::auto
+    SYNC["FN: syncConfirmedQuoteToDeal (SOLE contract-ledger writer, LOCK)"]:::auto
+    PDAMT --> EDQ --> DRAFT
+    DRAFT --> UPRICE
+    UPRICE --> UDELIV --> WF020
+    UDELIV --> SENT
+    UCONF --> WF020 --> SYNC
+    SYNC --> PRICE
+  end
+  PDW -. Opportunity_Stage = Proposal Preparation .-> EDQ
+
+  subgraph LEDGER["Contract ledger + renewal/upsell supersession"]
+    INIT["AUTO (LOCK): first Confirmed -> Deal.Contract_Initial_* + Amount + Quote.Contract_Type=Initial"]:::auto
+    CURR["AUTO (LOCK): later Confirmed -> Deal.Contract_Current_* + Amount; prior Confirmed -> Closed Won; <=1 Confirmed"]:::auto
+    SIGNED["AUTO (LOCK): Deal.Commercials_Status=Signed -> handleCommercialsStatusChange -> commercial:signed"]:::auto
+    SYNC --> INIT
+    SYNC --> CURR
+    INIT --> SIGNED
+    CURR --> SIGNED
+  end
+
+  subgraph COMMSTAGE["Commercial stage (WF004 handleCommercialsStatusChange)"]
+    UCOMM["USER (pre-Quote/manual only): Commercials_Status; post-Proposal driven by Quote_Stage"]:::user
+    HCS["FN: handleCommercialsStatusChange -> commercial:sent|signed|rejected"]:::fn
+    HCSW["AUTO (LOCK): Commercials_Sent_At / Signed_At / Intent_To_Sign"]:::auto
+    UCOMM --> HCS --> HCSW
+    HCS --> RCS
+  end
+  SENT --> HCS
+  SIGNED --> HCS
+
+  subgraph STAGES["Stage progression (Contact.Stage; Opportunity_Stage = current objective)"]
+    direction LR
+    S1["Marketing Consent -> MQL (canonical value; the Marketing Qualification concept)"]:::sot
+    S2["Demo Booking -> SQL"]:::sot
+    S3["Demo Confirmation -> SQL"]:::sot
+    S4["Demo Hosted -> SQL"]:::sot
+    S5["Proposal Preparation -> FTP"]:::sot
+    S6["Commercial Agreement -> FTP"]:::sot
+    S7["Onboarding -> RTP"]:::sot
+    S8["Renewal -> RTP"]:::sot
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
+  end
+  CSEQ -. rolls up .-> PDW
+  SIGNED -. onboarding .-> S7
+  S7 -. Onboarding Setup task complete .-> S8
+
+  subgraph LOSSP["Lost / disqualified paths"]
+    LNEG["call:negative / call:donotcontact -> Lost_Reasons + Contact Lost"]:::loss
+    LDQ["demo:not_qualified -> Contact Lost (No Fit)"]:::loss
+    LREJ["commercial:rejected / Quote Closed Lost (no other active Quote) -> Contact Lost"]:::loss
+    VIAB["AUTO: Deal viability in router/processDeal — Deal closes Lost ONLY if NO other open Contact remains (else Manual Review)"]:::auto
+    LNEG --> VIAB
+    LDQ --> VIAB
+    LREJ --> VIAB
+  end
+  HCO -. negative/DNC .-> LNEG
+  MTOK -. not_qualified .-> LDQ
+  HCS -. rejected .-> LREJ
+  WF020 -. Closed Lost .-> LREJ

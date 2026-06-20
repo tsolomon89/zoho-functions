@@ -21,7 +21,7 @@ void automation.processDeal(string deal_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v5-round16-3644727";
+	info "VERSION: v6-contact-centric";
 
 	if(deal_id == null || deal_id == "") { return; }
 	cleanId = deal_id.replaceAll("zcrm_", "").trim();
@@ -79,7 +79,9 @@ void automation.processDeal(string deal_id)
 
 	for each d in relDeals
 	{
-		if(ifnull(d.get("State"), "Open") == "Open")
+		// Deal viability = Opportunity_State (Deals have no bare State field). getRelatedRecords may
+		// omit custom fields; default to "Open" so a missing value keeps the Deal in the active set.
+		if(ifnull(d.get("Opportunity_State"), "Open") == "Open")
 		{
 			dIdLong = d.get("id").toLong();
 			activeDeals.add(d.get("id"));
@@ -99,8 +101,9 @@ void automation.processDeal(string deal_id)
 		{
 			origDeal = zoho.crm.getRecordById("Deals", adStr.toLong());
 			dupUpdate = Map();
-			if(ifnull(origDeal.get("State"), "") != "Lost") { dupUpdate.put("State", "Lost"); }
-			if(ifnull(origDeal.get("Status"), "") != "Closed") { dupUpdate.put("Status", "Closed"); }
+			// Deal viability = Opportunity_State/Opportunity_Status (Deals have no bare State/Status).
+			if(ifnull(origDeal.get("Opportunity_State"), "") != "Lost") { dupUpdate.put("Opportunity_State", "Lost"); }
+			if(ifnull(origDeal.get("Opportunity_Status"), "") != "Closed") { dupUpdate.put("Opportunity_Status", "Closed"); }
 			if(ifnull(origDeal.get("Reason_For_Loss__s"), "") != "Duplicate / Test Record") { dupUpdate.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
 			if(ifnull(origDeal.get("Deal_Key"), "") != "") { dupUpdate.put("Deal_Key", ""); }
 			origName = ifnull(origDeal.get("Deal_Name"), "");
@@ -122,6 +125,7 @@ void automation.processDeal(string deal_id)
 	bestStage = "Marketing Consent";
 	bestOpp = "MQL";
 	anyContactOpen = false;
+	anyContactWorking = false;
 	openContactIdsAtMax = List();
 	processedContactIds = List();
 	contactJobTitleMap = Map();
@@ -142,6 +146,7 @@ void automation.processDeal(string deal_id)
 			if(fullC != null && fullC.get("id") != null)
 			{
 				cState = ifnull(fullC.get("State"), "Open").toString();
+				cStatusLoop = ifnull(fullC.get("Status"), "").toString();
 				cStage = ifnull(fullC.get("Stage"), "Marketing Consent").toString();
 				cJobTitleLoop = ifnull(fullC.get("Job_Title"), "").toString().trim();
 				contactJobTitleMap.put(cId, cJobTitleLoop);
@@ -223,6 +228,7 @@ void automation.processDeal(string deal_id)
 				if(cState == "Open")
 				{
 					anyContactOpen = true;
+					if(cStatusLoop == "Working") { anyContactWorking = true; }
 					rank = ifnull(stageRanks.get(cStage), 1);
 					info "Contact " + cId + " Stage=" + cStage + " rank=" + rank;
 					if(rank > maxRank)
@@ -590,13 +596,19 @@ void automation.processDeal(string deal_id)
 	hasContacts = relContacts != null && relContacts.size() > 0;
 	if(hasLossReason || (hasContacts && !anyContactOpen))
 	{
-		if(ifnull(targetDeal.get("State"), "") != "Lost") { dUpd.put("State", "Lost"); }
-		if(ifnull(targetDeal.get("Status"), "") != "Closed") { dUpd.put("Status", "Closed"); }
+		// Deal viability = Opportunity_State (Open/Lost) + Opportunity_Status (New/Working/Closed).
+		// Deals are never "Won". Deals have NO bare State/Status fields (Contact/Account-only).
+		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Lost") { dUpd.put("Opportunity_State", "Lost"); }
+		if(ifnull(targetDeal.get("Opportunity_Status"), "") != "Closed") { dUpd.put("Opportunity_Status", "Closed"); }
 	}
 	else if(hasContacts)
 	{
-		if(ifnull(targetDeal.get("State"), "") != "Open") { dUpd.put("State", "Open"); }
-		// Never-regress Opportunity_Stage: handleCommercialsStatusChange/handleDemoOutcome/
+		// Open + Working/New derivation: Working once any open Contact has Status=Working
+		// (Contact enters Running), else New. (Canonical "Open implies New or Working".)
+		targetOppStatus = if(anyContactWorking, "Working", "New");
+		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Open") { dUpd.put("Opportunity_State", "Open"); }
+		if(ifnull(targetDeal.get("Opportunity_Status"), "") != targetOppStatus) { dUpd.put("Opportunity_Status", targetOppStatus); }
+		// Never-regress Opportunity_Stage: handleCommercialsStatusChange / handleMeetingEvent
 		// etc. may have advanced Opportunity_Stage past the bestStage derived from Contact
 		// stages. Only ADVANCE Opportunity_Stage, never roll backward.
 		currentOppStage = ifnull(targetDeal.get("Opportunity_Stage"), "").toString();
@@ -668,19 +680,35 @@ void automation.processDeal(string deal_id)
 
 	// processDeal maintains commercial/contract data and the Primary Contact rollup
 	// only. It does NOT own individual sequence progression: no Deal sequence
-	// bootstrap, no sequenceRouter call. The Contact owns its sequence; Deal
+	// bootstrap, no intermediate router call. The Contact owns its sequence; Deal
 	// Opportunity_* fields roll up from the Primary Contact via routeContactSequence.
 
 	// ---- 8. Roll up Account State / Status ----
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
 	anyDealOpen = false;
 	anyDealWorking = false;
-	for each fd in finalDeals
+	if(!isNull(finalDeals) && finalDeals.size() > 0 && !finalDeals.toString().startsWith("{\"code\""))
 	{
-		if(ifnull(fd.get("State"), "") == "Open")
+		for each fd in finalDeals
 		{
-			anyDealOpen = true;
-			if(ifnull(fd.get("Status"), "") == "Working") { anyDealWorking = true; }
+			fdId = "";
+			if(!isNull(fd.get("id"))) { fdId = fd.get("id").toString(); }
+			if(fdId != "")
+			{
+				// getRelatedRecords omits custom fields; fetch the full Deal to read the canonical
+				// viability fields (Opportunity_State/Opportunity_Status). Deals have no bare State/Status.
+				fdFull = zoho.crm.getRecordById("Deals", fdId.toLong());
+				if(!isNull(fdFull) && !isNull(fdFull.get("id")))
+				{
+					fdState  = ifnull(fdFull.get("Opportunity_State"), "").toString();
+					fdStatus = ifnull(fdFull.get("Opportunity_Status"), "").toString();
+					if(fdState == "Open")
+					{
+						anyDealOpen = true;
+						if(fdStatus == "Working") { anyDealWorking = true; }
+					}
+				}
+			}
 		}
 	}
 

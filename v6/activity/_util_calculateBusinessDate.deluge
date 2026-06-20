@@ -4,7 +4,7 @@ string automation.calculateBusinessDate(date startDate, int offset, string calcM
 	// _util_calculateBusinessDate
 	//
 	// Compute a future or past datetime offset by N days, skipping weekends when
-	// in business-day mode. Used by sequenceRouter / createStageCall / handle*
+	// in business-day mode. Used by routeContactSequence / handle* / send*
 	// to schedule next actions, demo reminders, and commercial follow-ups.
 	//
 	// mode values:
@@ -15,7 +15,7 @@ string automation.calculateBusinessDate(date startDate, int offset, string calcM
 	// offset may be negative (e.g., -1 for "one business day before").
 	// =========================================================================
 
-	info "VERSION: v5-round16-3644727";
+	info "VERSION: v6-shared-utility";
 
 	if(isNull(startDate))
 	{

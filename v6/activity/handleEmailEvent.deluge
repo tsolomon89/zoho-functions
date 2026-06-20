@@ -19,7 +19,7 @@ void automation.handleEmailEvent(string emailRecordIdStr, string eventType, stri
 	// explicit Call/Demo/Commercials outcome.
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	relatedDealId = 0;
 	if(!isNull(relatedDealIdStr) && relatedDealIdStr != "") { relatedDealId = relatedDealIdStr.toLong(); }

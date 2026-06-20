@@ -15,7 +15,7 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	//   Deferred  -> no transition (cadence keeps running; no Paused)
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
@@ -70,8 +70,10 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	{
 		token = "commercial:signed";
 		if(isNull(deal.get("Signed_At"))) { dUpd.put("Signed_At", now); }
-		// "Won" is a transition, not a durable State: the Deal stays Open for onboarding/renewal.
-		if(ifnull(deal.get("State"), "").toString() != "Open") { dUpd.put("State", "Open"); }
+		// Deals are never "Won": signing advances Opportunity_Stage (Commercial Agreement ->
+		// Onboarding), it does not set a Won state. Keep viability Open through onboarding/renewal.
+		// Deal viability = Opportunity_State (Deals have no bare State field).
+		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open") { dUpd.put("Opportunity_State", "Open"); }
 	}
 	else if(cStatus == "Rejected")
 	{

@@ -17,7 +17,7 @@ void automation.processAccount(string account_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	if(account_id == null || account_id == "") { return; }
 	cleanId = account_id.replaceAll("zcrm_", "").trim();
@@ -58,7 +58,9 @@ void automation.processAccount(string account_id)
 	{
 		for each d in relDeals
 		{
-			if(ifnull(d.get("State"), "Open") == "Open")
+			// Deal viability = Opportunity_State (Deals have no bare State field); default Open so a
+			// missing custom value (getRelatedRecords may omit it) keeps the Deal in the active set.
+			if(ifnull(d.get("Opportunity_State"), "Open") == "Open")
 			{
 				dIdLong = d.get("id").toLong();
 				if(dIdLong < minId)
@@ -81,8 +83,9 @@ void automation.processAccount(string account_id)
 			dealMap.put("Deal_Name", dealName);
 			dealMap.put("Account_Name", cleanId);
 			dealMap.put("Deal_Key", dealKey);
-			dealMap.put("State", "Open");
-			dealMap.put("Status", "New");
+			// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status).
+			dealMap.put("Opportunity_State", "Open");
+			dealMap.put("Opportunity_Status", "New");
 			dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 			dRes = zoho.crm.createRecord("Deals", dealMap);
 			if(!isNull(dRes) && dRes.get("id") != null) { canonicalDealId = dRes.get("id").toString(); }

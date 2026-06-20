@@ -16,7 +16,7 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	// Returns the Zoho message_id on success, else "".
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	contactId = 0;
 	if(!isNull(contactIdStr) && contactIdStr != "") { contactId = contactIdStr.toLong(); }

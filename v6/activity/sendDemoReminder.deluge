@@ -6,21 +6,22 @@ void automation.sendDemoReminder(string dealIdStr)
 	// Date-based workflows cannot be bound to the Meetings/Tasks modules, so WF010c
 	// stays on Deals and fires on the Deal's Demo_Reminder_Send_At. The Meeting/Event
 	// remains the UPSTREAM source of truth: handleMeetingEvent writes the demo summary
-	// mirrors (Demo_Start_DateTime, Demo_Reminder_Send_At, Demo_Outcome) onto the Deal
-	// from the Event, and clears Demo_Reminder_Send_At when the meeting is Cancelled.
-	// This function gates on those mirrors — no Demo_Status / Demo_Meeting_ID.
+	// mirrors (Demo_Start_DateTime, Demo_Reminder_Send_At) onto the Deal from the Event,
+	// and clears Demo_Reminder_Send_At when the meeting is Cancelled.
+	// This function gates on those mirrors + the Primary Contact's Stage — no
+	// Demo_Outcome / Demo_Status / Demo_Meeting_ID.
 	//
 	// Binding: Module = Deals, date field = Demo_Reminder_Send_At,
 	//   function = sendDemoReminder, arg dealIdStr <- ${Deals.id}.  (unchanged)
 	//
 	// Guards:
 	//   Automation_Suppressed != true
-	//   Demo_Outcome blank or "Scheduled"      (a real outcome means the demo already happened)
 	//   Demo_Start_DateTime still in the future (an upcoming demo exists)
-	//   Deal Primary Contact exists and State = Open
+	//   Deal Primary Contact exists, State = Open, and Stage not past Demo Confirmation
+	//     (a contact past Demo Confirmation means the demo already happened)
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
@@ -32,14 +33,6 @@ void automation.sendDemoReminder(string dealIdStr)
 	if(ifnull(deal.get("Automation_Suppressed"), false).toString() == "true")
 	{
 		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_suppressed", null);
-		return;
-	}
-
-	// Demo already concluded? (mirror of Meeting_Outcome)
-	demoOutcome = ifnull(deal.get("Demo_Outcome"), "").toString();
-	if(demoOutcome != "" && demoOutcome != "Scheduled")
-	{
-		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_outcome_present", {"demo_outcome":demoOutcome});
 		return;
 	}
 
@@ -69,6 +62,16 @@ void automation.sendDemoReminder(string dealIdStr)
 	if(isNull(primary) || ifnull(primary.get("State"), "").toString() != "Open")
 	{
 		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "primary_not_open", {"contact":primaryId});
+		return;
+	}
+
+	// Demo already concluded? A Contact past Demo Confirmation means the demo happened (replaces the
+	// retired Deal.Demo_Outcome gate; the Event is the source of truth, mirrored onto the Contact Stage).
+	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+	primaryStage = ifnull(primary.get("Stage"), "").toString();
+	if(ifnull(stageRanks.get(primaryStage), 0).toLong() > 3)
+	{
+		automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "guard", "skip_demo_phase_passed", {"contact":primaryId, "stage":primaryStage});
 		return;
 	}
 

@@ -23,12 +23,16 @@ string automation.resolveQuoteLinePrice(string productId, string planType, strin
 	//   Jurnii 360    -> frequency 4x/2x/1x per day; bands 5,10,20,50
 	//   Jurnii Cortex -> NOT in the matrix -> cannot auto-price (A3 -> Manual Review)
 	//
-	// !!! HARD GATE A2 (price basis) + A9 (currency rounding) NOT YET RESOLVED !!!
-	// Band/tier/sku resolution and the matrix lookup ARE implemented (A1 default).
-	// The final line_acv computation is intentionally NOT committed: until the
-	// business confirms (A2) whether a line is priced as PPB x brand-markets or as
-	// the band Sub total, and (A9) the rounding rule, this util returns valid=false
-	// so syncConfirmedQuoteToDeal refuses to auto-price and raises Manual Review.
+	// Pricing gates A2 (price basis) + A9 (rounding) are RESOLVED:
+	//   A2 -> a line is priced as PPB x brand-markets (the band picks the
+	//         volume-discounted per-brand rate; the actual market count is the
+	//         multiplier). NOT the band Sub total.
+	//   A9 -> line_acv is rounded to 2 decimal places (currency).
+	// Band/tier/sku resolution + matrix lookup are implemented (A1 default).
+	// This util therefore returns valid=true with line_acv computed (see below);
+	// it only returns valid=false on missing/unresolvable inputs (missing brand
+	// count, family not in matrix, Cortex A3, etc.), where syncConfirmedQuoteToDeal
+	// refuses to auto-price and raises Manual Review.
 	// =========================================================================
 
 	info "VERSION: v6-quote-pricing";

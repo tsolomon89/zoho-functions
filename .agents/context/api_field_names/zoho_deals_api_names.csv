@@ -4,12 +4,8 @@ Amount,Amount,Currency,,,
 Automation Suppressed,Automation_Suppressed,Boolean,Yes,,"Actions - Field update
 WF Placeholder Marker Deals
 Workflow Rules - Condition
-WF010b Date Router Sequence Paused Until
 WF010d Date Router Comm Follow-Up
-WF010a Date Router Next Action Due
-WF010c Date Router Demo Reminder
-WF003 Deal Stage Change Router
-WF002 Deal Sequence Router"
+WF010c Date Router Demo Reminder"
 Campaign Source,Campaign_Source,Lookup,,,
 Closing Date,Closing_Date,Date,,,
 Commercial Outcome,Commercial_Outcome,Pick List,Yes,,Want to Remove Maybe

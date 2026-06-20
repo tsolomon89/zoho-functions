@@ -160,8 +160,11 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 			r.put("nextStep", "None");
 			r.put("supersede", "true");
 			r.put("setContactLost", "true");
-			r.put("contactLostReason", "Disqualified");
-			r.put("dealLostReason", "Contact Disqualified");
+			// Canonical Lost_Reasons values only: Negative -> No Fit, Do Not Contact -> No Response.
+			callLostReason = "No Fit";
+			if(trig == "call:donotcontact") { callLostReason = "No Response"; }
+			r.put("contactLostReason", callLostReason);
+			r.put("dealLostReason", callLostReason);
 			r.put("terminal", "true");
 			r.put("reason", "call_stop_lost");
 			return r.toString();
@@ -219,7 +222,7 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 			r.put("supersede", "true");
 			r.put("setContactLost", "true");
 			r.put("contactLostReason", "No Fit");
-			r.put("dealLostReason", "Demo Disqualified");
+			r.put("dealLostReason", "No Fit");
 			r.put("terminal", "true");
 			r.put("reason", "demo_not_qualified");
 			return r.toString();
@@ -268,7 +271,7 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 			r.put("supersede", "true");
 			r.put("setContactLost", "true");
 			r.put("contactLostReason", "Terms Rejected");
-			r.put("dealLostReason", "Commercial Rejected");
+			r.put("dealLostReason", "Terms Rejected");
 			r.put("terminal", "true");
 			r.put("reason", "commercial_rejected");
 			return r.toString();

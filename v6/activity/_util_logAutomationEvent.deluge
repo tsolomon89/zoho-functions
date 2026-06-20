@@ -1,7 +1,9 @@
 void automation.logAutomationEvent(string functionName, string moduleName, string recordId, string action, string outcome, map payload)
 {
 	// =========================================================================
-	// _util_logAutomationEvent
+	// _util_logAutomationEvent   (VERSION: v6-shared-utility)
+	// (No `info "VERSION..."` banner here on purpose — this logger runs on a hot
+	//  path and would otherwise spam the log on every parent call.)
 	//
 	// Single emit point for structured automation logs. Every activity-layer
 	// function should call this on entry, exit, and at any decision branch the

@@ -24,7 +24,7 @@ void automation.processContact(string contact_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	if(contact_id == null || contact_id == "") { return; }
 	cleanId = contact_id.replaceAll("zcrm_", "").trim();
@@ -231,8 +231,9 @@ void automation.processContact(string contact_id)
 		dealMap.put("Deal_Name", dealName);
 		dealMap.put("Account_Name", accountId);
 		dealMap.put("Deal_Key", dealKey);
-		dealMap.put("State", "Open");
-		dealMap.put("Status", "New");
+		// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status).
+		dealMap.put("Opportunity_State", "Open");
+		dealMap.put("Opportunity_Status", "New");
 		// Opportunity_Stage / Stage (type) are set by processDeal (sole rollup owner).
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", cleanId);
@@ -318,6 +319,48 @@ void automation.processContact(string contact_id)
 			if(ownerId != "") { actTask.put("Owner", ownerId); }
 			actResp = zoho.crm.createRecord("Tasks", actTask);
 			info "processContact: created Sequence Activation Task resp=" + actResp;
+		}
+
+		// ---- 6b. Self-heal: collapse duplicate open Sequence Activation Tasks created by a
+		//          CONCURRENT processContact run. On lead-convert, processLead's inline
+		//          processContact() call and the WF001b2 Contacts-create trigger can both pass the
+		//          dedup check above before either commits createRecord -> two identical tasks.
+		//          Deterministic: keep the lowest-id open task; Defer the rest. A Deferred task is
+		//          skipped by handleTaskCompletion (Status=Deferred -> return), so a deferred
+		//          duplicate never activates; the write is suppressed so WF008 does not re-fire.
+		dupeOpen = List();
+		dupeKeep = 999999999999999999;
+		sweepTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId.toLong());
+		if(isNull(sweepTasks) || sweepTasks.size() == 0 || sweepTasks.toString().startsWith("{\"code\""))
+		{
+			sweepTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+		}
+		if(!isNull(sweepTasks) && sweepTasks.size() > 0 && !sweepTasks.toString().startsWith("{\"code\""))
+		{
+			for each stk in sweepTasks
+			{
+				stWho = "";
+				stWhoL = stk.get("Who_Id");
+				if(!isNull(stWhoL) && !isNull(stWhoL.get("id"))) { stWho = stWhoL.get("id").toString(); }
+				stStatus = ifnull(stk.get("Status"), "").toString();
+				if(stWho == cleanId && ifnull(stk.get("Task_Type"), "").toString() == "Sequence Activation" && ifnull(stk.get("Task_Sequence_Stage"), "").toString() == contactStage && (stStatus == "Not Started" || stStatus == "In Progress"))
+				{
+					sIdL = stk.get("id").toString().toLong();
+					if(sIdL < dupeKeep) { dupeKeep = sIdL; }
+					dupeOpen.add(stk.get("id").toString());
+				}
+			}
+		}
+		if(dupeOpen.size() > 1)
+		{
+			for each dOpen in dupeOpen
+			{
+				if(dOpen.toLong() != dupeKeep)
+				{
+					zoho.crm.updateRecord("Tasks", dOpen.toLong(), {"Status":"Deferred", "Blocks_Sequence":"No"}, {"trigger": List()});
+					automation.logAutomationEvent("processContact", "Tasks", dOpen, "activation_dedupe", "deferred_duplicate", {"contact":cleanId, "kept":dupeKeep.toString()});
+				}
+			}
 		}
 	}
 }

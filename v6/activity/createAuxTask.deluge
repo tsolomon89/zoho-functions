@@ -9,7 +9,7 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	// status. Returns the Task ID (existing or new) or "".
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	contactId = 0;
 	if(!isNull(contactIdStr) && contactIdStr != "") { contactId = contactIdStr.toLong(); }

@@ -16,8 +16,7 @@ Lead (Product_Interest = "Jurnii UX - Fixed", Title decision-maker)
       → handleTaskCompletion → routeContactSequence("activate:<type>"): opener email + Call 1; Contact.Sequence_Type set, Sequence_State = Running
   → [sequence advances Contact via Call / Meeting / Email outcomes]
   → demo completed — Meeting (Events) Meeting_Status = Completed + Meeting_Outcome = "Attended - Qualified"  (WF007 handleMeetingEvent — the source of truth)
-      → routeContactSequence("demo:qualified"); Deal.Demo_Outcome mirrored; Commercials_Status = Drafting
-      (equivalent direct path: set Deal.Demo_Outcome → WF005 handleDemoOutcome)
+      → routeContactSequence("demo:qualified"); Commercials_Status = Drafting (Deal.Demo_Outcome is an optional off-layout mirror only)
       → Contact.Stage = Proposal Preparation; "Draft Commercials" task created; processDeal runs
       → Deal.Opportunity_Stage = Proposal Preparation, Stage = FTP
       → ensureDealQuote (inline in processDeal): seeds a Draft Quote with a "Jurnii UX - Fixed" line
@@ -32,7 +31,7 @@ Lead (Product_Interest = "Jurnii UX - Fixed", Title decision-maker)
 ## How to operate
 - **Pacing:** workflow rules aren't instant. After any mutation that should trigger a workflow, **wait ≥30s** before reading back; retry once after another 30s before declaring FAIL. Lead conversion is heavier — wait ≥60s.
 - MCP **cannot** read the Zoho Function Execution Log; assert only on observable record state.
-- Record results in `docs/v6/MCP_TEST_RUN_LOG_E2E.md` (create if missing), one section per round, per the format in `docs/MCP_TEST_HARNESS_PROMPT.md` §"Where to record findings".
+- Record results in `docs/v6/MCP_TEST_RUN_LOG_E2E.md` (create if missing), one section per round, per the format in `docs/archive/MCP_TEST_HARNESS_PROMPT.md` §"Where to record findings".
 - **One fix per round.** On FAIL: propose a surgical fix, write it to disk, STOP, and give a copy-pasteable republish instruction; resume from the failed step after the user replies `continue`.
 
 ## MCP tools (this environment)
@@ -41,7 +40,7 @@ Record CRUD (module-parameterized — Leads/Contacts/Deals/Tasks/Calls/Events/Qu
 
 ## §0 — Setup (once per session)
 1. Confirm the org is safe to create/delete in.
-2. Confirm active workflows. **The model is fully Contact-centric — `WF002`/`WF003`/`WF010a`/`WF010b` and the `sequenceRouter` function were retired & deleted; do NOT expect them.** Active set: WF001a-d (processLead/Contact/Account/Deal), WF004 (Deals `Commercials_Status` → handleCommercialsStatusChange), WF005 (Deals `Demo_Outcome` → handleDemoOutcome), WF006 (Calls → handleCallOutcome), WF007 (Events → handleMeetingEvent), WF008 (Tasks **create_or_edit** → handleTaskCompletion), WF009a-e (Email events), WF010c (Deals `Demo_Reminder_Send_At` → sendDemoReminder), WF010d (Deals `Next_Comm_Follow_Up_Date` → sendCommercialFollowUp), WFC-SchedEmail (Tasks `Due_Date` → sendScheduledEmailFromTask), **WF020** (Quotes `Quote_Stage` → handleQuoteStageChange, arg `quoteIdStr ← ${Quotes.id}`). Confirm functions published, incl. the edited `processContact`, `handleTaskCompletion`, `handleMeetingEvent`, `sendDemoReminder`, `processDeal` and the Quote set (`handleQuoteStageChange`, `syncConfirmedQuoteToDeal`, `resolveQuotePlanSummary`, `resolveQuoteLinePrice`, `ensureDealQuote`). Confirm the **`Task_Sequence_Type`** picklist (Email/Call/Manual) exists on Tasks and is on the layout.
+2. Confirm active workflows. **The model is fully Contact-centric, and the Meeting is the sole demo path — `WF002`/`WF003`/`WF005`/`WF010a`/`WF010b` and the `sequenceRouter` + `handleDemoOutcome` functions were retired & deleted; do NOT expect them.** Active set: WF001a-d (processLead/Contact/Account/Deal), WF004 (Deals `Commercials_Status` → handleCommercialsStatusChange), WF006 (Calls → handleCallOutcome), WF007 (Events → handleMeetingEvent), WF008 (Tasks **create_or_edit** → handleTaskCompletion), WF009a-e (Email events), WF010c (Deals `Demo_Reminder_Send_At` → sendDemoReminder), WF010d (Deals `Next_Comm_Follow_Up_Date` → sendCommercialFollowUp), WFC-SchedEmail (Tasks `Due_Date` → sendScheduledEmailFromTask), **WF020** (Quotes `Quote_Stage` → handleQuoteStageChange, arg `quoteIdStr ← ${Quotes.id}`). Confirm functions published, incl. the edited `processContact`, `handleTaskCompletion`, `handleMeetingEvent`, `sendDemoReminder`, `processDeal` and the Quote set (`handleQuoteStageChange`, `syncConfirmedQuoteToDeal`, `resolveQuotePlanSummary`, `resolveQuoteLinePrice`, `ensureDealQuote`). Confirm the **`Task_Sequence_Type`** picklist (Email/Call/Manual) exists on Tasks and is on the layout.
 3. Session prefix `E2E_<YYYYMMDD_HHMM>` in every record name/Subject.
 4. Confirm the catalogue: 6 quote-ready Products (`Jurnii UX/360/Cortex - Fixed/Flex`). Read their IDs via `getRecords` on Products.
 
@@ -73,7 +72,7 @@ Wait ≥60s.
 - The Deal has the **`Jurnii UX - Fixed` Product linked** (related Products list) — this is what `ensureDealQuote` will seed from in Phase 2.
 - A **Sequence Activation Task** was created: `Task_Type = Sequence Activation`, `Task_Sequence_Stage = Marketing Consent`, **`Task_Sequence_Type` blank**, `Blocks_Sequence = Yes`. **Activation is Task-gated** — the sequence does NOT auto-start; the rep chooses the route in Phase 1b. (A known dup-activation race can create two identical tasks; completing one is enough — the other idempotency-skips/defers.)
 
-> For full per-function graph/sequence assertions (idempotency, role precedence, duplicate silencing, Amount sum, Account rollup), defer to the detailed cases **T1–T10** in `docs/MCP_TEST_HARNESS_PROMPT.md`. This harness asserts only what the Quote continuation depends on, then drives forward.
+> For full per-function graph/sequence assertions (idempotency, role precedence, duplicate silencing, Amount sum, Account rollup), defer to the detailed cases **T1–T10** in `docs/archive/MCP_TEST_HARNESS_PROMPT.md`. This harness asserts only what the Quote continuation depends on, then drives forward.
 
 ---
 
@@ -109,7 +108,7 @@ for any inbox checks (never bare `tlcsolomon@gmail.com` — it matches an existi
 
 ## Phase 2 — Progress to Proposal Preparation → seeded Quote (the integration)
 
-**GP2.** Drive the Deal to the proposal boundary. **Preferred (source of truth):** create a **Demo Meeting** — an Event with `What_Id` = Deal (`$se_module = Deals`), `Who_Id` = primary Contact, `Meeting_Type = Demo`, then `Meeting_Status = Completed` + `Meeting_Outcome = "Attended - Qualified"` → WF007 `handleMeetingEvent` → `demo:qualified` (it mirrors `Deal.Demo_Outcome`). **Equivalent shortcut** (used here for brevity): set the **Deal** `Demo_Outcome = "Attended - Qualified"` → WF005 `handleDemoOutcome`. Wait ≥45s.
+**GP2.** Drive the Deal to the proposal boundary via the **Meeting — the sole demo path**: create an Event with `What_Id` = Deal (`$se_module = Deals`), `Who_Id` = primary Contact, `Meeting_Type = Demo`, then `Meeting_Status = Completed` + `Meeting_Outcome = "Attended - Qualified"` → WF007 `handleMeetingEvent` → `demo:qualified`. *(The old Deal-direct `Demo_Outcome` → WF005 path is **retired** — `Demo_Outcome` is off-layout/unsettable and WF005 + `handleDemoOutcome` were deleted.)* Wait ≥45s.
 
 **Assert:**
 - Deal `Commercials_Status` = `Drafting`. *(No `Demo_Status` field on Deals — the demo lifecycle is canonical on the Meeting via `Meeting_Status`/`Meeting_Outcome`; the Deal keeps only the `Demo_Outcome` mirror. The dead `Demo_Status` writes were removed from both `handleMeetingEvent` and `handleDemoOutcome`.)*
@@ -163,7 +162,7 @@ Read all records whose name/Subject starts with the session prefix; delete in or
 ## Extension points (for the next agent)
 
 Add new coverage here without disturbing the Phase 1→4 golden path. Known areas that other changes may touch — slot tests in following the same SETUP → mutate → wait → assert pattern:
-- **Call / Meeting outcomes** driving `Opportunity_Stage` (`handleCallOutcome` WF006, `handleMeetingEvent` WF007) — see T16/T25 in `docs/MCP_TEST_HARNESS_PROMPT.md`.
+- **Call / Meeting outcomes** driving `Opportunity_Stage` (`handleCallOutcome` WF006, `handleMeetingEvent` WF007) — see T16/T25 in `docs/archive/MCP_TEST_HARNESS_PROMPT.md`.
 - **Task outcomes** (`handleTaskCompletion` WF008): activation routing via `Task_Sequence_Type` is now covered in **Phase 1b**; also the Send Commercials → Quote `Delivered` extension added in v6.
 - **Email-event / date-router workflows** (WF009/WF010) — out of scope for MCP (need real emails / wall-clock); note as manual.
 - **`Product_Interest` ↔ catalogue alignment** — the Lead picklist currently only half-matches the 6 `Product_Name` values (3 `- Fixed` match; 3 `- Flex` unselectable; 3 bare names match no Product). A test that a Flex-interest Lead seeds a Flex Quote line will fail until the picklist/aliases are aligned.

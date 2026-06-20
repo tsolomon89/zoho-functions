@@ -14,7 +14,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// Contact and call this directly (advancePrimaryContactStage is absorbed).
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	contactId = 0;
 	if(!isNull(contactIdStr) && contactIdStr != "") { contactId = contactIdStr.toLong(); }
@@ -348,6 +348,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		cUpd.put("Status", "Closed");
 		if(ifnull(contact.get("Lost_Reasons"), "").toString() == "" && contactLostReason != "") { cUpd.put("Lost_Reasons", contactLostReason); }
 	}
+	else if(nextSeqState == "Running" && ifnull(contact.get("Status"), "").toString() != "Working")
+	{
+		// Status derives from activity: a running sequence means Working (canonical
+		// "Open implies New or Working"). State stays Open; Lost/Closed handled above.
+		cUpd.put("Status", "Working");
+	}
 	zoho.crm.updateRecord("Contacts", contactId, cUpd, noTrigger);
 
 	// ---- 5. Deal handling ----
@@ -407,8 +413,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			else
 			{
 				dLost = Map();
-				dLost.put("State", "Lost");
-				dLost.put("Status", "Closed");
+				// Deal viability = Opportunity_State/Opportunity_Status (Deals have no bare State/Status).
 				dLost.put("Opportunity_State", "Lost");
 				dLost.put("Opportunity_Status", "Closed");
 				if(ifnull(deal.get("Lost_Reasons"), "").toString() == "" && dealLostReason != "") { dLost.put("Lost_Reasons", dealLostReason); }

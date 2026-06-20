@@ -17,14 +17,22 @@ void automation.handleTaskCompletion(string taskIdStr)
 	//   "Manual Only"          -> activate:manual
 	//   "Suppress"/"Already Handled" -> activate:stop
 	//   "Stage Incorrect"      -> Manual Review Task + activate:stop
-	// Other Task_Types:
-	//   "Onboarding Setup"  -> Contact Sequence_State = Complete (terminal)
+	// Non-activation tasks: Task_Type = the KIND of task; Task_Outcome = what HAPPENED (the command).
+	// Universal outcome layer (overrides the Task_Type success behaviour):
+	//   "Blocked"/"Failed" -> Manual Review Task + hold (no advance, no Type side-effect)
+	//   "Not Relevant"     -> Manual Review Task (skip/loss decision) + hold
+	//   "Needs Follow-Up"  -> resume (recover at current stage, no advance)
+	//   "Already Handled"  -> idempotent no-op
+	// Positive ("Completed") or blank -> Task_Type success behaviour:
+	//   "Onboarding Setup"  -> Contact Sequence_State = Complete (terminal; Renewal is date-driven)
 	//   "Send Commercials"  -> Deal Commercials_Status = Sent + handleCommercialsStatusChange
 	//   "Data Repair"/"Review Reply"/"Enrichment" -> resume the Contact sequence
-	//   "Draft Commercials"/"Manual Review"/"Suppression Review" -> no auto action
+	//   "Draft Commercials" -> create/surface "Send Commercials" task; stay at Proposal Preparation
+	//   "Manual Review"/"Suppression Review" -> Completed: resume; else no auto action
+	//   generic sequence-managed type + Completed -> task:positive (advance) where completion IS the gate
 	// =========================================================================
 
-	info "VERSION: v5-contact-centric";
+	info "VERSION: v6-contact-centric";
 
 	taskId = 0;
 	if(!isNull(taskIdStr) && taskIdStr != "") { taskId = taskIdStr.toLong(); }
@@ -174,7 +182,36 @@ void automation.handleTaskCompletion(string taskIdStr)
 	}
 
 	// =====================================================================
-	// OTHER TASK TYPES
+	// UNIVERSAL OUTCOME LAYER (non-activation tasks)
+	// Task_Type = kind of task; Task_Outcome = what happened (the command).
+	// Negative/recovery outcomes override the Task_Type success behaviour below.
+	// =====================================================================
+	if(tOutcome == "Blocked" || tOutcome == "Failed")
+	{
+		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + tOutcome + " - review and resolve before the sequence continues.");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_hold", tOutcome, {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+	if(tOutcome == "Not Relevant")
+	{
+		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " marked Not Relevant - skip or route loss (manual decision).");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_not_relevant", "manual_review", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+	if(tOutcome == "Needs Follow-Up")
+	{
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_needs_followup", "resume_no_advance", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+	if(tOutcome == "Already Handled")
+	{
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_already_handled", "idempotent_noop", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
+
+	// =====================================================================
+	// OTHER TASK TYPES — positive ("Completed") or blank outcome runs the Type success behaviour
 	// =====================================================================
 	if(tType == "Onboarding Setup")
 	{
@@ -229,11 +266,38 @@ void automation.handleTaskCompletion(string taskIdStr)
 		return;
 	}
 
-	if(tType == "Draft Commercials" || tType == "Manual Review" || tType == "Suppression Review")
+	if(tType == "Draft Commercials")
 	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "no_auto_action", tType, {"contact":contactId.toString()});
+		// Draft = internal draft ready, NOT customer-facing -> do not advance. Surface the
+		// Send Commercials task and stay at Proposal Preparation. The advance to Commercial
+		// Agreement happens only at the customer-facing boundary (Send Commercials completion /
+		// Quote_Stage=Delivered -> commercial:sent). createAuxTask dedups on the open task.
+		newSendId = automation.createAuxTask(contactId.toString(), dealId.toString(), "Send Commercials", "Commercials drafted - send to the customer to advance to Commercial Agreement.");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "send_commercials_surfaced", {"contact":contactId.toString(), "send_task":newSendId});
+		return;
+	}
+	if(tType == "Manual Review" || tType == "Suppression Review")
+	{
+		// A Completed review means resolved -> resume the sequence; otherwise await the human decision.
+		if(tOutcome == "Completed")
+		{
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "review_resolved", "resumed", {"contact":contactId.toString(), "type":tType});
+		}
+		else
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "no_auto_action", tType, {"contact":contactId.toString()});
+		}
 		return;
 	}
 
+	// Generic sequence-managed stage task: a positive Completed outcome advances the stage, where
+	// task completion genuinely IS the stage gate (routeContactSequence/processDeal own the writes).
+	if(tOutcome == "Completed")
+	{
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType});
+		return;
+	}
 	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"contact":contactId.toString()});
 }
