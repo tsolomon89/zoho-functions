@@ -72,6 +72,33 @@ void automation.processAccount(string account_id)
 		}
 	}
 
+	// ---- 2b. Silence duplicate active Deals (keep only the canonical). Moved here from
+	//          processDeal, which now reconciles exactly the Deal it is handed. ----
+	if(canonicalDealId != "" && !isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
+	{
+		for each d in relDeals
+		{
+			dId = "";
+			if(!isNull(d.get("id"))) { dId = d.get("id").toString(); }
+			if(dId != "" && dId != canonicalDealId)
+			{
+				dupFull = zoho.crm.getRecordById("Deals", dId.toLong());
+				if(!isNull(dupFull) && !isNull(dupFull.get("id")) && ifnull(dupFull.get("Opportunity_State"), "Open").toString() == "Open")
+				{
+					dupUpd = Map();
+					dupUpd.put("Opportunity_State", "Lost");
+					dupUpd.put("Opportunity_Status", "Closed");
+					if(ifnull(dupFull.get("Reason_For_Loss__s"), "").toString() != "Duplicate / Test Record") { dupUpd.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
+					if(ifnull(dupFull.get("Deal_Key"), "").toString() != "") { dupUpd.put("Deal_Key", ""); }
+					dupName = ifnull(dupFull.get("Deal_Name"), "").toString();
+					if(!dupName.endsWith("(Duplicate)")) { dupUpd.put("Deal_Name", dupName + " (Duplicate)"); }
+					zoho.crm.updateRecord("Deals", dId.toLong(), dupUpd, noTrigger);
+					automation.logAutomationEvent("processAccount", "Deals", dId.toString(), "duplicate_silenced", "kept_canonical", {"canonical":canonicalDealId});
+				}
+			}
+		}
+	}
+
 	// ---- 3. Create a minimal canonical Deal if the Account has Contacts but none open ----
 	if(canonicalDealId == "")
 	{
@@ -96,6 +123,6 @@ void automation.processAccount(string account_id)
 	// ---- 4. Delegate all reconciliation + rollup to processDeal ----
 	if(canonicalDealId != "")
 	{
-		automation.processDeal(canonicalDealId, "{}");
+		pdRes = automation.processDeal(canonicalDealId, "{}");
 	}
 }

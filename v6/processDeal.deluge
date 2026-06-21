@@ -798,6 +798,62 @@ string automation.processDeal(string deal_id, string contextJson)
 	}
 
 	// ===================================================================
+	// 9. Confirmed prerequisites + Contract_ACV / Contract_Signed_Date establishment
+	//    For each Confirmed Quote: require BOTH dates; else demote to On Hold + Manual Review.
+	//    On first valid Confirmed: stamp Contract_ACV (pre-existing positive preserved) + Contract_Signed_Date.
+	//    MUST run BEFORE the Amount recompute (§6) and the term ledger (§7): an undated-Confirmed
+	//    Quote is demoted to On Hold here, so the DB re-reads in §6/§7 exclude it from the
+	//    Confirmed-term ledger and count it at its On-Hold total in Amount.
+	// ===================================================================
+	confirmedQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
+	if(confirmedQuotes != null && confirmedQuotes.size() > 0 && !confirmedQuotes.toString().startsWith("{\"code\""))
+	{
+		for each dq in confirmedQuotes
+		{
+			dqId = "";
+			if(!isNull(dq.get("id"))) { dqId = dq.get("id").toString(); }
+			if(dqId == "") { continue; }
+			fullQ = zoho.crm.getRecordById("Quotes", dqId.toLong());
+			if(isNull(fullQ) || isNull(fullQ.get("id"))) { continue; }
+			if(ifnull(fullQ.get("Quote_Stage"), "").toString() != "Confirmed") { continue; }
+
+			cStart = ifnull(fullQ.get("Contract_Date_Start"), "").toString();
+			cEnd = ifnull(fullQ.get("Contract_Date_End"), "").toString();
+			if(cStart == "" || cEnd == "")
+			{
+				// Confirmed requires BOTH dates -> move to On Hold + Manual Review; no ACV/Signed/ledger.
+				zoho.crm.updateRecord("Quotes", dqId.toLong(), {"Quote_Stage":"On Hold"}, noTrigger);
+				result.put("reviewRequired", true);
+				if(!reviewReasons.contains("confirmed_missing_dates")) { reviewReasons.add("confirmed_missing_dates"); }
+				automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Quote " + dqId + " confirmed without both contract dates; moved to On Hold. Add Contract Date Start + End to confirm.");
+				automation.logAutomationEvent("processDeal", "Deals", targetDealId, "confirmed_missing_dates", dqId, null);
+			}
+			else
+			{
+				qUpd2 = Map();
+				existingAcv = ifnull(fullQ.get("Contract_ACV"), "").toString();
+				if(existingAcv == "" || ifnull(fullQ.get("Contract_ACV"), "0").toDecimal() <= 0)
+				{
+					g = ifnull(fullQ.get("Grand_Total"), "0").toDecimal();
+					s = ifnull(fullQ.get("Sub_Total"), "0").toDecimal();
+					stampAcv = 0.0;
+					if(g > 0) { stampAcv = g; } else { stampAcv = s; }
+					if(stampAcv > 0) { qUpd2.put("Contract_ACV", stampAcv); }
+				}
+				if(ifnull(fullQ.get("Contract_Signed_Date"), "").toString() == "")
+				{
+					qUpd2.put("Contract_Signed_Date", zoho.currentdate.toString("yyyy-MM-dd"));
+				}
+				if(qUpd2.size() > 0)
+				{
+					zoho.crm.updateRecord("Quotes", dqId.toLong(), qUpd2, noTrigger);
+					automation.logAutomationEvent("processDeal", "Deals", targetDealId, "confirmed_stamped", dqId, qUpd2);
+				}
+			}
+		}
+	}
+
+	// ===================================================================
 	// 6. Recalculate Deal.Amount = SUM of non-Closed-Lost quote totals (stage-sensitive)
 	//    Re-read Quotes (after Quoted_Items writes) so calculated totals are current.
 	// ===================================================================
@@ -1162,14 +1218,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			dUpd.put("Contract_Initial_ACV", iAcv);
 			if(initialStartExisting == "") { dUpd.put("Contract_Initial_Date_Start", ifnull(iagg.get("start"), "").toString()); }
 			if(initialEndExisting == "") { dUpd.put("Contract_Initial_Date_End", ifnull(iagg.get("end"), "").toString()); }
-			// Plan Products (live single Pick List) -> only when exactly one distinct family
+			// Plan Products (live MULTI-select Pick List) -> write the full distinct family list
 			iPP = iagg.get("planProductsList");
-			if(iPP.size() == 1) { dUpd.put("Contract_Initial_Plan_Products", iPP.get(0)); }
-			else if(iPP.size() > 1)
-			{
-				result.put("reviewRequired", true);
-				if(!reviewReasons.contains("ledger_multiple_plan_products")) { reviewReasons.add("ledger_multiple_plan_products"); }
-			}
+			if(iPP.size() > 0) { dUpd.put("Contract_Initial_Plan_Products", iPP); }
 			iPT = iagg.get("planTypeSet");
 			if(iPT.size() == 1) { dUpd.put("Contract_Initial_Plan_Type", iPT.get(0)); }
 			// Plan Brands: common nonblank -> write; single -> write; conflicting -> review (do not write)
@@ -1192,12 +1243,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			dUpd.put("Contract_Current_Date_Start", ifnull(cagg.get("start"), "").toString());
 			dUpd.put("Contract_Current_Date_End", ifnull(cagg.get("end"), "").toString());
 			cPP = cagg.get("planProductsList");
-			if(cPP.size() == 1) { dUpd.put("Contract_Current_Plan_Products", cPP.get(0)); }
-			else if(cPP.size() > 1)
-			{
-				result.put("reviewRequired", true);
-				if(!reviewReasons.contains("ledger_multiple_plan_products")) { reviewReasons.add("ledger_multiple_plan_products"); }
-			}
+			if(cPP.size() > 0) { dUpd.put("Contract_Current_Plan_Products", cPP); }
 			cPT = cagg.get("planTypeSet");
 			if(cPT.size() == 1) { dUpd.put("Contract_Current_Plan_Type", cPT.get(0)); }
 			cBrands = cagg.get("brandsList");
@@ -1231,58 +1277,6 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			dUpd.put("Contract_Current_Plan_Products", "");
 			dUpd.put("Contract_Current_Plan_Type", "");
 			dUpd.put("Contract_Current_Plan_Brands", "");
-		}
-	}
-
-	// ===================================================================
-	// 9. Confirmed prerequisites + Contract_ACV / Contract_Signed_Date establishment
-	//    For each Confirmed Quote: require BOTH dates; else demote to On Hold + Manual Review.
-	//    On first valid Confirmed: stamp Contract_ACV (pre-existing positive preserved) + Contract_Signed_Date.
-    // ===================================================================
-	if(allDealQuotes != null && allDealQuotes.size() > 0 && !allDealQuotes.toString().startsWith("{\"code\""))
-	{
-		for each dq in allDealQuotes
-		{
-			dqId = "";
-			if(!isNull(dq.get("id"))) { dqId = dq.get("id").toString(); }
-			if(dqId == "") { continue; }
-			fullQ = zoho.crm.getRecordById("Quotes", dqId.toLong());
-			if(isNull(fullQ) || isNull(fullQ.get("id"))) { continue; }
-			if(ifnull(fullQ.get("Quote_Stage"), "").toString() != "Confirmed") { continue; }
-
-			cStart = ifnull(fullQ.get("Contract_Date_Start"), "").toString();
-			cEnd = ifnull(fullQ.get("Contract_Date_End"), "").toString();
-			if(cStart == "" || cEnd == "")
-			{
-				// Confirmed requires BOTH dates -> move to On Hold + Manual Review; no ACV/Signed/ledger.
-				zoho.crm.updateRecord("Quotes", dqId.toLong(), {"Quote_Stage":"On Hold"}, noTrigger);
-				result.put("reviewRequired", true);
-				if(!reviewReasons.contains("confirmed_missing_dates")) { reviewReasons.add("confirmed_missing_dates"); }
-				automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Quote " + dqId + " confirmed without both contract dates; moved to On Hold. Add Contract Date Start + End to confirm.");
-				automation.logAutomationEvent("processDeal", "Deals", targetDealId, "confirmed_missing_dates", dqId, null);
-			}
-			else
-			{
-				qUpd2 = Map();
-				existingAcv = ifnull(fullQ.get("Contract_ACV"), "").toString();
-				if(existingAcv == "" || ifnull(fullQ.get("Contract_ACV"), "0").toDecimal() <= 0)
-				{
-					g = ifnull(fullQ.get("Grand_Total"), "0").toDecimal();
-					s = ifnull(fullQ.get("Sub_Total"), "0").toDecimal();
-					stampAcv = 0.0;
-					if(g > 0) { stampAcv = g; } else { stampAcv = s; }
-					if(stampAcv > 0) { qUpd2.put("Contract_ACV", stampAcv); }
-				}
-				if(ifnull(fullQ.get("Contract_Signed_Date"), "").toString() == "")
-				{
-					qUpd2.put("Contract_Signed_Date", zoho.currentdate.toString("yyyy-MM-dd"));
-				}
-				if(qUpd2.size() > 0)
-				{
-					zoho.crm.updateRecord("Quotes", dqId.toLong(), qUpd2, noTrigger);
-					automation.logAutomationEvent("processDeal", "Deals", targetDealId, "confirmed_stamped", dqId, qUpd2);
-				}
-			}
 		}
 	}
 
@@ -1452,7 +1446,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		if(termComplete && primaryStageNow == "Commercial Agreement" && dealOppStageNow == "Commercial Agreement")
 		{
 			routedTransition = "commercial:signed";
-			automation.routeContactSequence(primaryContactId, targetDealId, "commercial:signed");
+			automation.routeContactSequence(primaryContactId, targetDealId, "commercial:signed", "{}");
 			// verify: Stage at Onboarding/Renewal AND Deal at/above RTP floor
 			pcV = zoho.crm.getRecordById("Contacts", primaryContactId.toLong());
 			dealV = zoho.crm.getRecordById("Deals", targetDealId.toLong());
@@ -1483,7 +1477,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		else if(relDeliveredCount >= 1 && relDraftOrHold == 0 && relNonDeliveredNonNeg == 0 && primaryStageNow == "Proposal Preparation" && dealOppStageNow == "Proposal Preparation")
 		{
 			routedTransition = "commercial:sent";
-			automation.routeContactSequence(primaryContactId, targetDealId, "commercial:sent");
+			automation.routeContactSequence(primaryContactId, targetDealId, "commercial:sent", "{}");
 			// verify: both at Commercial Agreement
 			pcV = zoho.crm.getRecordById("Contacts", primaryContactId.toLong());
 			dealV = zoho.crm.getRecordById("Deals", targetDealId.toLong());

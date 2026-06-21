@@ -3,32 +3,27 @@ void automation.handleMeetingEvent(string eventIdStr)
 	// =========================================================================
 	// handleMeetingEvent  (Meeting/Event = source of truth — WF007)
 	//
-	// The Meeting (Events) record owns the demo lifecycle + result. This function
-	// reads the Event's OWN fields and never relies on Deal mirror flags:
-	//   - Meeting_Status  : scheduling lifecycle
-	//                       Scheduled | Confirmed | Rescheduled | Cancelled | Completed
-	//   - Meeting_Outcome : result, read ONLY when Completed
-	//                       Attended - Qualified | Attended - Needs Follow-up
-	//                       | Attended - Not Qualified | No Show
-	//   - Reminder_Send_At: the Event's own reminder time (source of truth for WF010c)
-	//   - Start_DateTime / End_DateTime / Who_Id / What_Id
+	// Driven by the Event's OWN live fields (Meeting_Status / Meeting_Type /
+	// Meeting_Outcome do NOT exist on Events and are NOT read):
+	//   - Meeting_Task_State  : Open / Won / Lost  (result + lifecycle surface)
+	//   - Meeting_Task_Stage  : 8-stage; infers meeting TYPE (demo/commercial/renewal)
+	//   - Meeting_Task_Lost_Reasons : scoped loss
+	//   - Meeting_Task_Contract_Products|Brands|Date_Start|Date_End : commercial evidence
+	//   - Start_DateTime / Reminder_Send_At
 	//
-	// IMPORTANT: Deal.Demo_Status, Deal.Demo_Meeting_ID and Deal.Demo_Outcome are NOT written.
-	// The Deal keeps summary mirrors only (Demo_Start_DateTime, Demo_Reminder_Send_At) — written
-	// with suppressTrigger and kept while WF010c is Deal-based. Demo_Outcome is retired (the Event
-	// is the demo source of truth; the result resolves into Contact Stage/State).
+	// TYPE inference from Meeting_Task_Stage (Meeting_Type retired): rank <= Demo Hosted
+	// -> demo; Proposal Preparation/Commercial Agreement -> commercial; Onboarding/Renewal
+	// -> renewal. Blank stage falls back to the Contact's Stage, else demo.
 	//
-	// First-booking detection is by Contact Stage (advance to Demo Confirmation once),
-	// NOT by a Deal mirror id. "No Show" is read from Meeting_Outcome OR Meeting_Status.
-	//
-	// Commercial Discussion / Renewal meetings: a Completed result (Meeting_Task_State, legacy
-	// Meeting_Outcome fallback) is routed via automation.applyCommercialTransition (Commercials_Status
-	// retired). Meetings set INTENT only — a signed contract still requires Quote_Stage=Confirmed ->
-	// syncConfirmedQuoteToDeal. A commercial-meeting Lost is reason-branched (only final Terms Rejected /
-	// Churned closes the Deal at the opportunity level).
+	// STATE:
+	//   Open / blank -> UPCOMING: (re)compute reminder + first-booking advance (demo only).
+	//   Won  -> demo: route demo:qualified (carries Product contextJson); commercial/renewal:
+	//           promote evidence straight to processDeal (Quote upsert + term gate own signing).
+	//   Lost -> resolveActivityLoss (module-relative; only final Terms Rejected/Churned closes
+	//           the Deal, via commercial:rejected). Never closes the Deal from a reason alone.
 	// =========================================================================
 
-	info "VERSION: v6-contact-centric";
+	info "VERSION: v6-meeting-state";
 
 	eventId = 0;
 	if(!isNull(eventIdStr) && eventIdStr != "") { eventId = eventIdStr.toLong(); }
@@ -37,19 +32,6 @@ void automation.handleMeetingEvent(string eventIdStr)
 
 	event = zoho.crm.getRecordById("Events", eventId);
 	if(isNull(event) || isNull(event.get("id"))) { return; }
-
-	// Demo meetings own the demo lifecycle (empty Meeting_Type tolerated as Demo for back-compat).
-	// Commercial Discussion / Renewal meetings route their Completed outcome INTO the existing
-	// Deal/Quote commercial machinery (they never own stage directly). Other types are not handled.
-	meetingType = ifnull(event.get("Meeting_Type"), "").toString();
-	isDemo = (meetingType == "Demo" || meetingType == "");
-	isCommercial = (meetingType == "Commercial Discussion");
-	isRenewal = (meetingType == "Renewal");
-	if(!isDemo && !isCommercial && !isRenewal)
-	{
-		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_unhandled_type", {"meeting_type":meetingType});
-		return;
-	}
 
 	whatLookup = event.get("What_Id");
 	seModule   = ifnull(event.get("$se_module"), "").toString();
@@ -63,7 +45,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return; }
 
-	// Contact: prefer the Meeting's Who_Id; fall back to Deal.Contact_Name only when necessary.
+	// Contact: prefer the Meeting's Who_Id; fall back to Deal.Contact_Name.
 	contactId = "";
 	whoLookup = event.get("Who_Id");
 	if(!isNull(whoLookup) && !isNull(whoLookup.get("id"))) { contactId = whoLookup.get("id").toString(); }
@@ -73,200 +55,165 @@ void automation.handleMeetingEvent(string eventIdStr)
 		if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { contactId = cnLookup.get("id").toString(); }
 	}
 
-	meetingStatus  = ifnull(event.get("Meeting_Status"), "").toString();
-	meetingOutcome = ifnull(event.get("Meeting_Outcome"), "").toString();
-	// PRIMARY demo-result surface = Meeting_Task_State; legacy Meeting_Outcome used only when blank.
-	meetingTaskState = ifnull(event.get("Meeting_Task_State"), "").toString().trim();
-	if(meetingTaskState == "-None-") { meetingTaskState = ""; }
-	meetingTaskReason = ifnull(event.get("Meeting_Task_Lost_Reasons"), "").toString().trim();
-	if(meetingTaskReason == "-None-") { meetingTaskReason = ""; }
-	// Deal context for activity mirror fields.
-	dealPipeline = ifnull(deal.get("Pipeline"), "").toString();
-	dealOppType  = ifnull(deal.get("Stage"), "").toString();
-	startDateTime  = event.get("Start_DateTime");
-
 	noTrigger = Map();
 	noTrigger.put("trigger", List());
 
+	mState = ifnull(event.get("Meeting_Task_State"), "").toString().trim();
+	if(mState == "-None-") { mState = ""; }
+	mReason = ifnull(event.get("Meeting_Task_Lost_Reasons"), "").toString().trim();
+	if(mReason == "-None-") { mReason = ""; }
+	mStage = ifnull(event.get("Meeting_Task_Stage"), "").toString().trim();
+
+	dealPipeline = ifnull(deal.get("Pipeline"), "").toString();
+	dealOppType  = ifnull(deal.get("Stage"), "").toString();
+
+	// ---- TYPE inference from Meeting_Task_Stage (fallback to Contact Stage, else demo) ----
+	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
+	contactStage = "";
+	if(contactId != "")
+	{
+		cFull = zoho.crm.getRecordById("Contacts", contactId.toLong());
+		if(!isNull(cFull) && !isNull(cFull.get("id"))) { contactStage = ifnull(cFull.get("Stage"), "").toString(); }
+	}
+	if(mStage == "") { mStage = contactStage; }
+	mRank = ifnull(stageRanks.get(mStage), 0).toLong();
+	isCommercial = (mRank == 5 || mRank == 6);
+	isRenewal = (mRank >= 7);
+	isDemo = (!isCommercial && !isRenewal);   // ranks 1-4 and blank/unknown -> demo
+
+	// ---- build the activity contextJson once for a Won meeting (commercial evidence) ----
+	ctxStr = "{}";
+	if(mState == "Won")
+	{
+		actx = Map();
+		actx.put("source", "activity");
+		actx.put("sourceModule", "Events");
+		actx.put("sourceActivityId", eventId.toString());
+		actx.put("contactId", contactId);
+		actx.put("activityState", "Won");
+		prodList = List();
+		rawProds = event.get("Meeting_Task_Contract_Products");
+		if(!isNull(rawProds))
+		{
+			for each pv in rawProds
+			{
+				pvs = ifnull(pv, "").toString().trim();
+				if(pvs != "" && pvs != "-None-") { prodList.add(pvs); }
+			}
+		}
+		actx.put("products", prodList);
+		mBrands = ifnull(event.get("Meeting_Task_Contract_Brands"), "").toString().trim();
+		if(mBrands != "" && mBrands.matches("[0-9]+")) { actx.put("numberOfBrands", mBrands.toLong()); }
+		mStart = ifnull(event.get("Meeting_Task_Contract_Date_Start"), "").toString().trim();
+		if(mStart != "") { actx.put("contractDateStart", mStart); }
+		mEnd = ifnull(event.get("Meeting_Task_Contract_Date_End"), "").toString().trim();
+		if(mEnd != "") { actx.put("contractDateEnd", mEnd); }
+		ctxStr = actx.toString();
+	}
+
 	// =====================================================================
-	// COMMERCIAL DISCUSSION / RENEWAL meetings -> route the Completed outcome into the existing
-	// commercial machinery. Sets INTENT only; the Quote owns the signed ledger
-	// (Quote_Stage=Confirmed -> syncConfirmedQuoteToDeal). No demo writes here.
+	// COMMERCIAL / RENEWAL meeting
 	// =====================================================================
 	if(isCommercial || isRenewal)
 	{
-		if(meetingStatus == "Completed")
+		if(mState == "Won")
 		{
-			// PRIMARY = Meeting_Task_State. Won => Intent to Sign; Open => Discussed; Lost => evaluate
-			// resolveActivityLoss in COMMERCIAL context (only final Terms Rejected / Churned close the
-			// Deal; ambiguous reasons -> Manual Review; No Authority -> Find Decision Maker, Deal Open).
-			// The Quote owns the signed ledger. Legacy Meeting_Outcome used only when State is blank.
-			if(meetingTaskState == "Won")
+			// Promote the commercial evidence straight to processDeal: it links Products,
+			// upserts the per-Product Quote, recomputes Amount/ledger, and the term-complete
+			// gate owns any commercial:signed advance (a meeting expresses intent; the Quote
+			// owns the signed ledger). Intent_To_Sign is phantom -> nothing else to stamp.
+			pdRes = automation.processDeal(dealId.toString(), ctxStr);
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "won_evidence_promoted", {"deal":dealId.toString(), "products":prodList.size().toString(), "pd":ifnull(pdRes, "").toString()});
+		}
+		else if(mState == "Lost")
+		{
+			// finalCommercial="false": a single Lost commercial meeting does NOT auto-close the Deal
+			// (loss never auto-cascades). Terms Rejected/Churned -> manual_review; the actual Deal
+			// closure is owned by Quote Closed Lost (no other active Quote) or an explicit human close.
+			lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "true");
+			loss = Map();
+			if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
+			act = ifnull(loss.get("action"), "manual_review").toString();
+			if(act == "deal_lost" && contactId != "")
 			{
-				automation.applyCommercialTransition(dealId.toString(), "intent");
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "intent", {"deal":dealId.toString()});
+				// only final Terms Rejected / Churned -> opportunity-level loss via the router
+				automation.routeContactSequence(contactId, dealId.toString(), "commercial:rejected", "{}");
 			}
-			else if(meetingTaskState == "Open")
+			else if(act == "contact_lost" && contactId != "")
 			{
-				automation.applyCommercialTransition(dealId.toString(), "discussed");
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "discussed", {"deal":dealId.toString()});
+				clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
+				automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
 			}
-			else if(meetingTaskState == "Lost")
+			else if(act == "find_decision_maker" && contactId != "")
 			{
-				lossRaw = automation.resolveActivityLoss(meetingTaskReason, "activity", "false", "true", "true");
-				loss = Map();
-				if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
-				act = ifnull(loss.get("action"), "manual_review").toString();
-				if(act == "deal_lost")
-				{
-					automation.applyCommercialTransition(dealId.toString(), "rejected_final");
-				}
-				else if(act == "contact_lost" && contactId != "")
-				{
-					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
-				}
-				else if(act == "find_decision_maker" && contactId != "")
-				{
-					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
-				}
-				else if(act == "data_repair" && contactId != "")
-				{
-					automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Commercial meeting " + eventId + ": bad data - repair before continuing.");
-				}
-				else
-				{
-					// manual_review / continue_cadence(re-book) / suppress / fallback -> human decides; Deal stays Open
-					if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " Lost (" + meetingTaskReason + ") - review (re-book, find another contact, or close the opportunity). Deal stays Open unless terms finally rejected."); }
-				}
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting_lost", act, {"deal":dealId.toString(), "reason":meetingTaskReason});
+				automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "[no_authority] Commercial meeting " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
+			}
+			else if(act == "data_repair" && contactId != "")
+			{
+				automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Commercial meeting " + eventId + ": bad data - repair before continuing.");
 			}
 			else
 			{
-				// LEGACY back-compat: Meeting_Outcome (only when Meeting_Task_State is blank)
-				tr = "";
-				if(meetingOutcome == "Commercials Discussed") { tr = "discussed"; }
-				else if(meetingOutcome == "Intent to Sign" || meetingOutcome == "Renewal Agreed") { tr = "intent"; }
-				else if(meetingOutcome == "Renewal Declined") { tr = "rejected"; }
-				if(tr != "")
-				{
-					automation.applyCommercialTransition(dealId.toString(), tr);
-					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", tr, {"deal":dealId.toString(), "outcome":meetingOutcome});
-				}
-				else
-				{
-					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":meetingOutcome});
-				}
+				if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " Lost (" + mReason + ") - review (re-book, find another contact, or close the opportunity). Deal stays Open unless terms finally rejected."); }
 			}
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting_lost", act, {"deal":dealId.toString(), "reason":mReason});
 		}
 		else
 		{
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "no_action", {"deal":dealId.toString(), "status":meetingStatus});
+			// Open / blank -> discussed but not concluded; no live action (Quote owns the ledger).
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "open_no_terminal", {"deal":dealId.toString(), "state":mState});
 		}
 		return;
 	}
 
 	// =====================================================================
-	// CANCELLED -> clear reminders, route meeting:cancelled once. Never infer No Show.
+	// DEMO meeting — RESULT (Won/Lost) or UPCOMING (Open/blank)
 	// =====================================================================
-	if(meetingStatus == "Cancelled")
+	if(mState == "Won" && contactId != "")
 	{
-		zoho.crm.updateRecord("Events", eventId, {"Reminder_Send_At": null}, noTrigger);
-		zoho.crm.updateRecord("Deals", dealId, {"Demo_Reminder_Send_At": null}, noTrigger);
-		if(contactId != "") { automation.routeContactSequence(contactId, dealId.toString(), "meeting:cancelled", "{}"); }
-		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "routed", {"deal":dealId.toString()});
+		// demo qualified -> advance; carry any Product evidence to processDeal (via the router)
+		automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified", ctxStr);
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_won", "demo:qualified", {"deal":dealId.toString(), "products":prodList.size().toString()});
 		return;
 	}
-
-	// =====================================================================
-	// COMPLETED / NO SHOW -> demo RESULT. PRIMARY = Meeting_Task_State (Won/Lost/Open);
-	// legacy Meeting_Outcome only when Meeting_Task_State is blank. Meeting_Status stays the
-	// SCHEDULING lifecycle (handled above/below) — never collapsed into commercial State.
-	// =====================================================================
-	if(meetingStatus == "Completed" || meetingStatus == "No Show")
+	if(mState == "Lost" && contactId != "")
 	{
-		// ---- PRIMARY: Meeting_Task_State ----
-		if(meetingTaskState != "" && contactId != "")
+		lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "true");
+		loss = Map();
+		if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
+		act = ifnull(loss.get("action"), "manual_review").toString();
+		if(act == "continue_cadence")
 		{
-			if(meetingTaskState == "Won")
-			{
-				automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified", "{}");
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_won", "demo:qualified", {"deal":dealId.toString()});
-			}
-			else if(meetingTaskState == "Open")
-			{
-				automation.routeContactSequence(contactId, dealId.toString(), "demo:followup", "{}");
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_open", "demo:followup", {"deal":dealId.toString()});
-			}
-			else if(meetingTaskState == "Lost")
-			{
-				lossRaw = automation.resolveActivityLoss(meetingTaskReason, "activity", "false", "false", "true");
-				loss = Map();
-				if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
-				act = ifnull(loss.get("action"), "manual_review").toString();
-				if(act == "continue_cadence")
-				{
-					// No Meeting / Demo -> reschedule: revert to Demo Booking and recover with a call
-					automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow", "{}");
-				}
-				else if(act == "contact_lost")
-				{
-					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
-				}
-				else if(act == "find_decision_maker")
-				{
-					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
-				}
-				else if(act == "data_repair")
-				{
-					automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Demo " + eventId + ": bad data - repair before continuing.");
-				}
-				else if(act == "suppress")
-				{
-					automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", "suppress", {"deal":dealId.toString()});
-				}
-				else
-				{
-					automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + " marked Lost (" + meetingTaskReason + ") - review (reschedule, find another contact, or close the Contact). Deal stays Open.");
-				}
-				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", act, {"deal":dealId.toString(), "reason":meetingTaskReason});
-			}
-			return;
+			// No Meeting / Demo -> reschedule: revert to Demo Booking and recover with a call
+			automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow", "{}");
 		}
-
-		// ---- LEGACY back-compat: Meeting_Outcome demo mapping (when Meeting_Task_State blank) ----
-		effectiveOutcome = meetingOutcome;
-		if(meetingStatus == "No Show" && effectiveOutcome == "") { effectiveOutcome = "No Show"; }
-		outcomeTokens = Map();
-		outcomeTokens.put("Attended - Qualified", "demo:qualified");
-		outcomeTokens.put("Attended - Needs Follow-up", "demo:followup");
-		outcomeTokens.put("Attended - Not Qualified", "demo:not_qualified");
-		outcomeTokens.put("No Show", "demo:noshow");
-		token = ifnull(outcomeTokens.get(effectiveOutcome), "").toString();
-		if(token != "" && contactId != "")
+		else if(act == "contact_lost")
 		{
-			automation.routeContactSequence(contactId, dealId.toString(), token, "{}");
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", token, {"deal":dealId.toString(), "outcome":effectiveOutcome});
+			clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
+			automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
+		}
+		else if(act == "find_decision_maker")
+		{
+			automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "[no_authority] Demo " + eventId + ": Find Decision Maker (No Authority). Deal stays Open.");
+		}
+		else if(act == "data_repair")
+		{
+			automation.createAuxTask(contactId, dealId.toString(), "Data Repair", "Demo " + eventId + ": bad data - repair before continuing.");
+		}
+		else if(act == "suppress")
+		{
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", "suppress", {"deal":dealId.toString()});
 		}
 		else
 		{
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", "no_actionable_outcome", {"deal":dealId.toString(), "outcome":effectiveOutcome});
+			automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + " marked Lost (" + mReason + ") - review (reschedule, find another contact, or close the Contact). Deal stays Open.");
 		}
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", act, {"deal":dealId.toString(), "reason":mReason});
 		return;
 	}
 
-	// =====================================================================
-	// SCHEDULED / CONFIRMED / RESCHEDULED -> (re)compute reminder + mirror summary.
-	// =====================================================================
-	upcoming = {"Scheduled", "Confirmed", "Rescheduled"};
-	if(!upcoming.contains(meetingStatus))
-	{
-		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "no_action", meetingStatus, {"deal":dealId.toString()});
-		return;
-	}
-
-	// Reminder = 1 business day (AM) before the demo start.
+	// ---- UPCOMING (Open / blank): (re)compute reminder + mirror + first-booking advance ----
+	startDateTime = event.get("Start_DateTime");
 	reminderAt = null;
 	if(!isNull(startDateTime))
 	{
@@ -274,44 +221,34 @@ void automation.handleMeetingEvent(string eventIdStr)
 		reminderAt = reminderAtStr.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 	}
 
-	// Event is the source of truth: stamp its own Reminder_Send_At + automation-owned mirror fields.
 	evUpd = Map();
 	if(reminderAt != null) { evUpd.put("Reminder_Send_At", reminderAt); }
 	if(dealPipeline != "") { evUpd.put("Meeting_Task_Pipeline", dealPipeline); }
 	if(dealOppType != "")  { evUpd.put("Meeting_Task_Opportunity", dealOppType); }
+	if(mStage != "" && ifnull(event.get("Meeting_Task_Stage"), "").toString() == "") { evUpd.put("Meeting_Task_Stage", mStage); }
 	if(ifnull(event.get("Meeting_Task_Status"), "").toString() == "") { evUpd.put("Meeting_Task_Status", "New"); }
 	if(evUpd.size() > 0) { zoho.crm.updateRecord("Events", eventId, evUpd, noTrigger); }
 
-	// Deal summary mirror (kept while WF010c remains Deal-based). No Demo_Status / Demo_Meeting_ID.
+	// Deal summary mirror (kept while WF010c remains Deal-based on Demo_Reminder_Send_At).
 	dUpd = Map();
 	if(!isNull(startDateTime)) { dUpd.put("Demo_Start_DateTime", startDateTime); }
 	if(reminderAt != null)     { dUpd.put("Demo_Reminder_Send_At", reminderAt); }
 	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
 
-	// First booking only -> advance the Contact to Demo Confirmation + send the Confirmation
-	// email (the router owns both). Idempotent: only when the Contact has not yet reached
-	// Demo Confirmation. Re-edits at Demo Confirmation or farther mirror fields only.
+	// First booking only -> advance the Contact to Demo Confirmation (router owns it + the
+	// Confirmation email). Idempotent: only when the Contact has not yet reached Demo Confirmation.
 	if(contactId != "")
 	{
-		stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
-		contact = zoho.crm.getRecordById("Contacts", contactId.toLong());
-		contactStage = "";
-		if(!isNull(contact) && !isNull(contact.get("id"))) { contactStage = ifnull(contact.get("Stage"), "").toString(); }
 		contactRank = ifnull(stageRanks.get(contactStage), 0).toLong();
-		// activity mirror: stamp the Event's process Stage from the Contact (automation-owned)
-		if(contactStage != "" && ifnull(event.get("Meeting_Task_Stage"), "").toString() == "")
-		{
-			zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Stage": contactStage}, noTrigger);
-		}
 		demoConfRank = 3;
 		if(contactRank < demoConfRank)
 		{
 			automation.routeContactSequence(contactId, dealId.toString(), "meeting:created", "{}");
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "first_booking", "meeting_created", {"deal":dealId.toString(), "status":meetingStatus, "contact_stage":contactStage});
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "first_booking", "meeting_created", {"deal":dealId.toString(), "contact_stage":contactStage});
 		}
 		else
 		{
-			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "mirrored", meetingStatus, {"deal":dealId.toString(), "contact_stage":contactStage});
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "upcoming_mirrored", mState, {"deal":dealId.toString(), "contact_stage":contactStage});
 		}
 	}
 }

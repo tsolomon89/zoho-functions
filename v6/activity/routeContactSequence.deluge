@@ -742,6 +742,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// loss still perform their structural writes; only the auto next-action dispatch
 	// is suppressed. A manually-controlled Stopped Contact may reach Onboarding with
 	// no onboarding Call/Task/email.
+	// suppressOuter is the post-reconciliation gate (computed AFTER processDeal for
+	// activity Won contexts). It defaults to false so non-activity calls dispatch under
+	// the normal rules. The next-action dispatch (side email + create_call/task/email)
+	// is DEFERRED until after processDeal + this gate, and runs only when
+	// (!dispatchSuppressed && !suppressOuter) -- see section 7 below.
+	suppressOuter = false;
 
 	// ---- 1. Supersede this Contact's stale activities (absorbs supersedeOldSequence) ----
 	if(doSupersede == "true")
@@ -794,202 +800,17 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 	}
 
-	// ---- 2. Side cadence email (accompanies the primary action) — DISPATCH ----
-	if(sideEmailKind != "" && !dispatchSuppressed)
-	{
-		automation.sendSequencedEmail(contactId.toString(), dealId.toString(), stage, sideEmailStep.toLong(), sideEmailKind, "");
-	}
-
 	// Activity mirror fields (automation-owned) derived from the Deal context; the
 	// process Stage mirror = nextStage. Stamped on created Calls/Tasks for reporting parity.
 	mirrorPipeline = ifnull(deal.get("Pipeline"), "").toString();
 	mirrorOppType  = ifnull(deal.get("Stage"), "").toString();
 
-	// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail
-	//         absorbed) — DISPATCH; suppressed when Sequence_State == "Stopped" ----
-	if(!dispatchSuppressed)
-	{
-		// email-entry opener: send the opener, then fall through to the shared create_call block.
-		if(action == "send_opener_then_call")
-		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, 1, "opener", "");
-			action = "create_call";
-			nextStep = "1";
-			dueOffsetDays = 0;
-		}
-
-		if(action == "create_call")
-		{
-			callStep = 1;
-			if(nextStep != "None" && nextStep != "") { callStep = nextStep.toLong(); }
-
-			dupCall = false;
-			exCalls = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
-			if(isNull(exCalls) || exCalls.size() == 0 || exCalls.toString().startsWith("{\"code\""))
-			{
-				exCalls = zoho.crm.searchRecords("Calls", "(What_Id:equals:" + dealId + ")");
-			}
-			if(!isNull(exCalls) && exCalls.size() > 0 && !exCalls.toString().startsWith("{\"code\""))
-			{
-				for each ec in exCalls
-				{
-					ecWho = "";
-					ewl = ec.get("Who_Id");
-					if(!isNull(ewl) && !isNull(ewl.get("id"))) { ecWho = ewl.get("id").toString(); }
-					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Outcome"), "").toString() == "" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
-					{
-						dupCall = true;
-					}
-				}
-			}
-			if(!dupCall)
-			{
-				purposeMap = Map();
-				purposeMap.put("Marketing Consent", "Data Completion");
-				purposeMap.put("Demo Booking", "Book Demo");
-				purposeMap.put("Demo Confirmation", "Confirm Attendance");
-				purposeMap.put("Demo Hosted", "Post-Demo Follow-Up");
-				purposeMap.put("Proposal Preparation", "Commercial Discussion");
-				purposeMap.put("Commercial Agreement", "Commercial Discussion");
-				purposeMap.put("Onboarding", "Onboarding");
-				purposeMap.put("Renewal", "Renewal");
-				if(dueOffsetDays > 0)
-				{
-					dueBase = automation.calculateBusinessDate(zoho.currenttime, dueOffsetDays, "business_days");
-					callDue = dueBase.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
-				}
-				else
-				{
-					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
-				}
-				callMap = Map();
-				callMap.put("Subject", nextStage + " Call " + callStep);
-				callMap.put("What_Id", dealId);
-				callMap.put("$se_module", "Deals");
-				callMap.put("Who_Id", contactId);
-				callMap.put("Sequence_Managed", "Yes");
-				callMap.put("Sequence_Stage", nextStage);
-				callMap.put("Sequence_Attempt", callStep);
-				callMap.put("Block_Email_Until_Done", "Yes");
-				callMap.put("Call_Purpose_Detail", ifnull(purposeMap.get(nextStage), "Data Completion").toString());
-				callMap.put("Call_Type", "Outbound");
-				callMap.put("Call_Start_Time", callDue);
-				callMap.put("Stale", "No");
-				// activity mirror fields (automation-owned)
-				if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
-				if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
-				if(nextStage != "")      { callMap.put("Call_Task_Stage", nextStage); }
-				callMap.put("Call_Task_Status", "New");
-				callMap.put("Call_Task_State", "Open");
-				callResp = zoho.crm.createRecord("Calls", callMap);
-				automation.logAutomationEvent("routeContactSequence", "Calls", "", "create_call", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "stage":nextStage, "attempt":callStep});
-			}
-		}
-		else if(action == "send_email_now")
-		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, emailStep.toLong(), emailKind, "");
-		}
-		else if(action == "schedule_email")
-		{
-			// Template resolution happens at send time (sendSequencedEmail owns it). Here we
-			// only need the deterministic payload + a generic subject for the wake-up Task.
-			if(emailKind != "")
-			{
-				schedPayload = "ScheduledSend|stage=" + nextStage + "|step=" + emailStep + "|kind=" + emailKind;
-				schedDue = zoho.currenttime.toString("yyyy-MM-dd");
-				if(dueOffsetDays > 0)
-				{
-					schedBase = automation.calculateBusinessDate(zoho.currenttime, dueOffsetDays, "business_days");
-					schedDue = schedBase.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd");
-				}
-				schedDup = false;
-				exSched = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
-				if(isNull(exSched) || exSched.size() == 0 || exSched.toString().startsWith("{\"code\""))
-				{
-					exSched = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
-				}
-				if(!isNull(exSched) && exSched.size() > 0 && !exSched.toString().startsWith("{\"code\""))
-				{
-					for each xt in exSched
-					{
-						xtWho = "";
-						xwl = xt.get("Who_Id");
-						if(!isNull(xwl) && !isNull(xwl.get("id"))) { xtWho = xwl.get("id").toString(); }
-						if(xtWho == contactId.toString() && ifnull(xt.get("Status"), "").toString() != "Completed" && ifnull(xt.get("Status"), "").toString() != "Cancelled" && ifnull(xt.get("Description"), "").toString().contains(schedPayload)) { schedDup = true; }
-					}
-				}
-				if(!schedDup)
-				{
-					schedTask = Map();
-					schedTask.put("Subject", "Scheduled Email: " + nextStage + " " + emailKind + " " + emailStep);
-					schedTask.put("Status", "Not Started");
-					schedTask.put("What_Id", dealId);
-					schedTask.put("$se_module", "Deals");
-					schedTask.put("Who_Id", contactId);
-					schedTask.put("Task_Sequence_Managed", true);
-					schedTask.put("Task_Type", "Scheduled Send");
-					schedTask.put("Task_Sequence_Stage", nextStage);
-					schedTask.put("Blocks_Sequence", "No");
-					schedTask.put("Due_Date", schedDue);
-					schedTask.put("Description", schedPayload + "\n(Awaiting Due_Date " + schedDue + " to send.)");
-					if(dealOwnerId != "") { schedTask.put("Owner", dealOwnerId); }
-					zoho.crm.createRecord("Tasks", schedTask);
-					automation.logAutomationEvent("routeContactSequence", "Tasks", "", "schedule_email", "scheduled", {"contact":contactId.toString(), "deal":dealId.toString(), "payload":schedPayload, "due":schedDue});
-				}
-			}
-		}
-		else if(action == "create_task")
-		{
-			stTaskType = "Manual Review";
-			if(nextStage == "Proposal Preparation") { stTaskType = "Draft Commercials"; }
-			else if(nextStage == "Onboarding") { stTaskType = "Onboarding Setup"; }
-
-			taskDup = false;
-			exTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
-			if(isNull(exTasks) || exTasks.size() == 0 || exTasks.toString().startsWith("{\"code\""))
-			{
-				exTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
-			}
-			if(!isNull(exTasks) && exTasks.size() > 0 && !exTasks.toString().startsWith("{\"code\""))
-			{
-				for each xt2 in exTasks
-				{
-					xt2Who = "";
-					xw2 = xt2.get("Who_Id");
-					if(!isNull(xw2) && !isNull(xw2.get("id"))) { xt2Who = xw2.get("id").toString(); }
-					if(xt2Who == contactId.toString() && ifnull(xt2.get("Task_Type"), "").toString() == stTaskType && ifnull(xt2.get("Task_Sequence_Stage"), "").toString() == nextStage && (ifnull(xt2.get("Status"), "").toString() == "Not Started" || ifnull(xt2.get("Status"), "").toString() == "In Progress")) { taskDup = true; }
-				}
-			}
-			if(!taskDup)
-			{
-				stTask = Map();
-				stTask.put("Subject", stTaskType + ": " + nextStage);
-				stTask.put("Status", "Not Started");
-				stTask.put("What_Id", dealId);
-				stTask.put("$se_module", "Deals");
-				stTask.put("Who_Id", contactId);
-				stTask.put("Task_Sequence_Managed", true);
-				stTask.put("Task_Type", stTaskType);
-				stTask.put("Task_Sequence_Stage", nextStage);
-				stTask.put("Blocks_Sequence", "Yes");
-				stTask.put("Description", "Task-First route for " + nextStage + ". Complete with Task_State=Won to advance the Contact sequence.");
-				// activity mirror fields (automation-owned)
-				if(mirrorPipeline != "") { stTask.put("Task_Pipeline", mirrorPipeline); }
-				if(mirrorOppType != "")  { stTask.put("Task_Opportunity", mirrorOppType); }
-				if(nextStage != "")      { stTask.put("Task_Stage", nextStage); }
-				stTask.put("Task_Status", "New");
-				stTask.put("Task_State", "Open");
-				if(dealOwnerId != "") { stTask.put("Owner", dealOwnerId); }
-				zoho.crm.createRecord("Tasks", stTask);
-				automation.logAutomationEvent("routeContactSequence", "Tasks", "", "create_task", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "type":stTaskType, "stage":nextStage});
-			}
-		}
-		// "await_meeting" / "none" create no activity.
-	}
-	else
-	{
-		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "dispatch_suppressed", action, {"deal":dealId.toString(), "stage":nextStage, "reason":"sequence_state_stopped"});
-	}
+	// ---- 2. + 3. Side cadence email + primary action (create_call / create_task /
+	//         schedule_email) — DEFERRED. The state-machine DECISION above resolved the
+	//         action/stage/step/email vars, but the actual record creation now runs in
+	//         section 7 (below) AFTER processDeal + the suppressOuter gate, so a nested
+	//         transition (transitionRouted), a failed/blocked reconcile, or a Stopped
+	//         Sequence_State cannot produce a second downstream action (T38). ----
 
 	// =====================================================================
 	// COMMERCIAL DEAL STAMP (absorbed applyCommercialTransition — PHANTOM-SCRUBBED).
@@ -1194,6 +1015,211 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 
 		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "dispatch_gate", suppressWhy, {"deal":dealId.toString(), "suppressed":suppressOuter.toString(), "transitionRouted":transitionRouted.toString()});
+	}
+
+	// =====================================================================
+	// 7. DEFERRED NEXT-ACTION DISPATCH (side cadence email + primary action).
+	// Runs AFTER processDeal + the suppressOuter gate so we guarantee "exactly one
+	// downstream action" (T38). Dispatch ONLY when BOTH suppression switches allow it:
+	//   !dispatchSuppressed -> pre-reconcile switch #1 (Contact Sequence_State == "Stopped")
+	//   !suppressOuter      -> post-reconcile gate (activity Won only): defaults false, so
+	//                          non-activity calls (resume / commercial:*) dispatch as before;
+	//                          set true when transitionRouted / processDeal !success /
+	//                          re-read Sequence_State Stopped / open blocking Task.
+	// All create_* / send_* record creation + their logs were MOVED here unchanged from
+	// the former in-line section (which ran before processDeal).
+	// =====================================================================
+	if(!dispatchSuppressed && !suppressOuter)
+	{
+		// ---- 2. Side cadence email (accompanies the primary action) — DISPATCH ----
+		if(sideEmailKind != "")
+		{
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), stage, sideEmailStep.toLong(), sideEmailKind, "");
+		}
+
+		// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail absorbed) ----
+		// email-entry opener: send the opener, then fall through to the shared create_call block.
+		if(action == "send_opener_then_call")
+		{
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, 1, "opener", "");
+			action = "create_call";
+			nextStep = "1";
+			dueOffsetDays = 0;
+		}
+
+		if(action == "create_call")
+		{
+			callStep = 1;
+			if(nextStep != "None" && nextStep != "") { callStep = nextStep.toLong(); }
+
+			dupCall = false;
+			exCalls = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
+			if(isNull(exCalls) || exCalls.size() == 0 || exCalls.toString().startsWith("{\"code\""))
+			{
+				exCalls = zoho.crm.searchRecords("Calls", "(What_Id:equals:" + dealId + ")");
+			}
+			if(!isNull(exCalls) && exCalls.size() > 0 && !exCalls.toString().startsWith("{\"code\""))
+			{
+				for each ec in exCalls
+				{
+					ecWho = "";
+					ewl = ec.get("Who_Id");
+					if(!isNull(ewl) && !isNull(ewl.get("id"))) { ecWho = ewl.get("id").toString(); }
+					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Outcome"), "").toString() == "" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
+					{
+						dupCall = true;
+					}
+				}
+			}
+			if(!dupCall)
+			{
+				purposeMap = Map();
+				purposeMap.put("Marketing Consent", "Data Completion");
+				purposeMap.put("Demo Booking", "Book Demo");
+				purposeMap.put("Demo Confirmation", "Confirm Attendance");
+				purposeMap.put("Demo Hosted", "Post-Demo Follow-Up");
+				purposeMap.put("Proposal Preparation", "Commercial Discussion");
+				purposeMap.put("Commercial Agreement", "Commercial Discussion");
+				purposeMap.put("Onboarding", "Onboarding");
+				purposeMap.put("Renewal", "Renewal");
+				if(dueOffsetDays > 0)
+				{
+					dueBase = automation.calculateBusinessDate(zoho.currenttime, dueOffsetDays, "business_days");
+					callDue = dueBase.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+				}
+				else
+				{
+					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+				}
+				callMap = Map();
+				callMap.put("Subject", nextStage + " Call " + callStep);
+				callMap.put("What_Id", dealId);
+				callMap.put("$se_module", "Deals");
+				callMap.put("Who_Id", contactId);
+				callMap.put("Sequence_Managed", "Yes");
+				callMap.put("Sequence_Stage", nextStage);
+				callMap.put("Sequence_Attempt", callStep);
+				callMap.put("Block_Email_Until_Done", "Yes");
+				callMap.put("Call_Purpose_Detail", ifnull(purposeMap.get(nextStage), "Data Completion").toString());
+				callMap.put("Call_Type", "Outbound");
+				callMap.put("Call_Start_Time", callDue);
+				callMap.put("Stale", "No");
+				// activity mirror fields (automation-owned)
+				if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
+				if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
+				if(nextStage != "")      { callMap.put("Call_Task_Stage", nextStage); }
+				callMap.put("Call_Task_Status", "New");
+				callMap.put("Call_Task_State", "Open");
+				callResp = zoho.crm.createRecord("Calls", callMap);
+				automation.logAutomationEvent("routeContactSequence", "Calls", "", "create_call", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "stage":nextStage, "attempt":callStep});
+			}
+		}
+		else if(action == "send_email_now")
+		{
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, emailStep.toLong(), emailKind, "");
+		}
+		else if(action == "schedule_email")
+		{
+			// Template resolution happens at send time (sendSequencedEmail owns it). Here we
+			// only need the deterministic payload + a generic subject for the wake-up Task.
+			if(emailKind != "")
+			{
+				schedPayload = "ScheduledSend|stage=" + nextStage + "|step=" + emailStep + "|kind=" + emailKind;
+				schedDue = zoho.currenttime.toString("yyyy-MM-dd");
+				if(dueOffsetDays > 0)
+				{
+					schedBase = automation.calculateBusinessDate(zoho.currenttime, dueOffsetDays, "business_days");
+					schedDue = schedBase.toDateTime("yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd");
+				}
+				schedDup = false;
+				exSched = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+				if(isNull(exSched) || exSched.size() == 0 || exSched.toString().startsWith("{\"code\""))
+				{
+					exSched = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+				}
+				if(!isNull(exSched) && exSched.size() > 0 && !exSched.toString().startsWith("{\"code\""))
+				{
+					for each xt in exSched
+					{
+						xtWho = "";
+						xwl = xt.get("Who_Id");
+						if(!isNull(xwl) && !isNull(xwl.get("id"))) { xtWho = xwl.get("id").toString(); }
+						if(xtWho == contactId.toString() && ifnull(xt.get("Status"), "").toString() != "Completed" && ifnull(xt.get("Status"), "").toString() != "Cancelled" && ifnull(xt.get("Description"), "").toString().contains(schedPayload)) { schedDup = true; }
+					}
+				}
+				if(!schedDup)
+				{
+					schedTask = Map();
+					schedTask.put("Subject", "Scheduled Email: " + nextStage + " " + emailKind + " " + emailStep);
+					schedTask.put("Status", "Not Started");
+					schedTask.put("What_Id", dealId);
+					schedTask.put("$se_module", "Deals");
+					schedTask.put("Who_Id", contactId);
+					schedTask.put("Task_Sequence_Managed", true);
+					schedTask.put("Task_Type", "Scheduled Send");
+					schedTask.put("Task_Sequence_Stage", nextStage);
+					schedTask.put("Blocks_Sequence", "No");
+					schedTask.put("Due_Date", schedDue);
+					schedTask.put("Description", schedPayload + "\n(Awaiting Due_Date " + schedDue + " to send.)");
+					if(dealOwnerId != "") { schedTask.put("Owner", dealOwnerId); }
+					zoho.crm.createRecord("Tasks", schedTask);
+					automation.logAutomationEvent("routeContactSequence", "Tasks", "", "schedule_email", "scheduled", {"contact":contactId.toString(), "deal":dealId.toString(), "payload":schedPayload, "due":schedDue});
+				}
+			}
+		}
+		else if(action == "create_task")
+		{
+			stTaskType = "Manual Review";
+			if(nextStage == "Proposal Preparation") { stTaskType = "Draft Commercials"; }
+			else if(nextStage == "Onboarding") { stTaskType = "Onboarding Setup"; }
+
+			taskDup = false;
+			exTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			if(isNull(exTasks) || exTasks.size() == 0 || exTasks.toString().startsWith("{\"code\""))
+			{
+				exTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+			}
+			if(!isNull(exTasks) && exTasks.size() > 0 && !exTasks.toString().startsWith("{\"code\""))
+			{
+				for each xt2 in exTasks
+				{
+					xt2Who = "";
+					xw2 = xt2.get("Who_Id");
+					if(!isNull(xw2) && !isNull(xw2.get("id"))) { xt2Who = xw2.get("id").toString(); }
+					if(xt2Who == contactId.toString() && ifnull(xt2.get("Task_Type"), "").toString() == stTaskType && ifnull(xt2.get("Task_Sequence_Stage"), "").toString() == nextStage && (ifnull(xt2.get("Status"), "").toString() == "Not Started" || ifnull(xt2.get("Status"), "").toString() == "In Progress")) { taskDup = true; }
+				}
+			}
+			if(!taskDup)
+			{
+				stTask = Map();
+				stTask.put("Subject", stTaskType + ": " + nextStage);
+				stTask.put("Status", "Not Started");
+				stTask.put("What_Id", dealId);
+				stTask.put("$se_module", "Deals");
+				stTask.put("Who_Id", contactId);
+				stTask.put("Task_Sequence_Managed", true);
+				stTask.put("Task_Type", stTaskType);
+				stTask.put("Task_Sequence_Stage", nextStage);
+				stTask.put("Blocks_Sequence", "Yes");
+				stTask.put("Description", "Task-First route for " + nextStage + ". Complete with Task_State=Won to advance the Contact sequence.");
+				// activity mirror fields (automation-owned)
+				if(mirrorPipeline != "") { stTask.put("Task_Pipeline", mirrorPipeline); }
+				if(mirrorOppType != "")  { stTask.put("Task_Opportunity", mirrorOppType); }
+				if(nextStage != "")      { stTask.put("Task_Stage", nextStage); }
+				stTask.put("Task_Status", "New");
+				stTask.put("Task_State", "Open");
+				if(dealOwnerId != "") { stTask.put("Owner", dealOwnerId); }
+				zoho.crm.createRecord("Tasks", stTask);
+				automation.logAutomationEvent("routeContactSequence", "Tasks", "", "create_task", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "type":stTaskType, "stage":nextStage});
+			}
+		}
+		// "await_meeting" / "none" create no activity.
+	}
+	else
+	{
+		dispatchSkipReason = "sequence_state_stopped";
+		if(suppressOuter) { dispatchSkipReason = suppressWhy; }
+		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "dispatch_suppressed", action, {"deal":dealId.toString(), "stage":nextStage, "reason":dispatchSkipReason});
 	}
 
 	automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "routed", reason, {"deal":dealId.toString(), "action":action, "stage":nextStage, "seq_stage":nextSeqStage, "step":nextStep, "state":nextSeqState, "supersede":doSupersede, "lost":setContactLost, "dispatch_suppressed":dispatchSuppressed.toString(), "transition_routed":transitionRouted.toString()});
