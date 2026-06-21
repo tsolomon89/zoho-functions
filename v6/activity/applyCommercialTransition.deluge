@@ -128,6 +128,6 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		return;
 	}
 
-	automation.routeContactSequence(primaryId, dealId.toString(), token);
+	automation.routeContactSequence(primaryId, dealId.toString(), token, "{}");
 	automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "routed", token, {"contact":primaryId});
 }

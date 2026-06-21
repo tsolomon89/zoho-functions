@@ -33,7 +33,30 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 			tStatus = ifnull(tk.get("Status"), "").toString();
 			if(tWho == contactId.toString() && tType == taskType && (tStatus == "Not Started" || tStatus == "In Progress"))
 			{
-				return tk.get("id").toString();
+				// append-issue: a reused Manual Review accumulates DISTINCT issue codes
+				// instead of discarding later issues. Issue code = the leading [token] of
+				// the note (e.g. "[pricing_unavailable]"); dedup on that, else on the note.
+				existingTaskId = tk.get("id").toString();
+				newNote = ifnull(note, "").toString().trim();
+				if(newNote != "")
+				{
+					curDesc = ifnull(tk.get("Description"), "").toString();
+					issueCode = "";
+					if(newNote.startsWith("[") && newNote.contains("]")) { issueCode = newNote.subString(0, newNote.indexOf("]") + 1); }
+					alreadyPresent = false;
+					if(issueCode != "" && curDesc.contains(issueCode)) { alreadyPresent = true; }
+					else if(issueCode == "" && curDesc.contains(newNote)) { alreadyPresent = true; }
+					if(!alreadyPresent)
+					{
+						updDesc = curDesc;
+						if(updDesc.trim() != "") { updDesc = updDesc + "\n"; }
+						updDesc = updDesc + newNote;
+						noTriggerA = Map();
+						noTriggerA.put("trigger", List());
+						zoho.crm.updateRecord("Tasks", existingTaskId.toLong(), {"Description":updDesc}, noTriggerA);
+					}
+				}
+				return existingTaskId;
 			}
 		}
 	}

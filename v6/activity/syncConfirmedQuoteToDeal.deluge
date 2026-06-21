@@ -199,8 +199,10 @@ void automation.syncConfirmedQuoteToDeal(string quoteIdStr)
 	}
 
 	// ---- optional: advance the Deal commercial transition to Signed (Commercials_Status retired;
-	//      idempotent on Signed_At which applyCommercialTransition stamps) ----
-	if(advanceCommercial && isNull(deal.get("Signed_At")))
+	//      Signed_At is not a live Deal field -> idempotent on the real Opportunity_Stage:
+	//      commercial:signed advances to Onboarding, so skip if already at/past it) ----
+	oppStageNow = ifnull(deal.get("Opportunity_Stage"), "").toString();
+	if(advanceCommercial && oppStageNow != "Onboarding" && oppStageNow != "Renewal")
 	{
 		automation.applyCommercialTransition(dealId.toString(), "signed");
 	}

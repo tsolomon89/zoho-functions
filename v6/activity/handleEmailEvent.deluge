@@ -125,7 +125,7 @@ void automation.handleEmailEvent(string emailRecordIdStr, string eventType, stri
 		if(!isNull(cFull) && !isNull(cFull.get("id"))) { contactSeqState = ifnull(cFull.get("Sequence_State"), "").toString(); }
 		if(contactSeqState == "Complete")
 		{
-			automation.routeContactSequence(contactId, relatedDealId.toString(), "contactlost:No Response");
+			automation.routeContactSequence(contactId, relatedDealId.toString(), "contactlost:No Response", "{}");
 			automation.logAutomationEvent("handleEmailEvent", "Contacts", contactId, "not_replied", "sequence_exhausted_contact_lost", {"deal":relatedDealId.toString(), "email_task":emailTaskId});
 		}
 		else

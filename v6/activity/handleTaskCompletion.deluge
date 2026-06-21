@@ -131,14 +131,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 		// ---- 1. Task_Outcome EXCEPTION overrides everything (wins even if Task_Sequence_Type is set) ----
 		if(tOutcome == "Suppress" || tOutcome == "Already Handled")
 		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop");
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop", "{}");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stopped", {"contact":contactId.toString(), "outcome":tOutcome});
 			return;
 		}
 		if(tOutcome == "Stage Incorrect")
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Stage flagged incorrect during activation; correct Contact.Stage then re-activate.");
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop");
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop", "{}");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stage_incorrect", {"contact":contactId.toString()});
 			return;
 		}
@@ -181,7 +181,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		actTrig = "activate:email";
 		if(routeType == "Call") { actTrig = "activate:call"; }
 		else if(routeType == "Manual") { actTrig = "activate:manual"; }
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig);
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig, "{}");
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":routeVia});
 		return;
 	}
@@ -219,11 +219,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 		if(act == "contact_lost")
 		{
 			clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr);
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr, "{}");
 		}
 		else if(act == "continue_cadence")
 		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
 		}
 		else if(act == "find_decision_maker")
 		{
@@ -271,7 +271,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 	}
 	if(tOutcome == "Needs Follow-Up")
 	{
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_needs_followup", "resume_no_advance", {"contact":contactId.toString(), "type":tType});
 		return;
 	}
@@ -322,14 +322,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
-		automation.applyCommercialTransition(dealId.toString(), "sent");
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "commercial:sent", "{}");
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "commercial_sent", {"deal":dealId.toString()});
 		return;
 	}
 
 	if(tType == "Data Repair" || tType == "Review Reply" || tType == "Enrichment")
 	{
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_complete", "resumed", {"contact":contactId.toString(), "type":tType});
 		return;
 	}
@@ -349,7 +349,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		// A Completed review means resolved -> resume the sequence; otherwise await the human decision.
 		if(tOutcome == "Completed")
 		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume");
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "review_resolved", "resumed", {"contact":contactId.toString(), "type":tType});
 		}
 		else
@@ -363,8 +363,33 @@ void automation.handleTaskCompletion(string taskIdStr)
 	// task completion genuinely IS the stage gate (routeContactSequence/processDeal own the writes).
 	if(tOutcome == "Completed")
 	{
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive");
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType});
+		// carry commercial evidence: Task_Contract_Products is a MULTI-SELECT PICKLIST of Product
+		// NAME strings (jsonarray); brands/dates apply to the Product Quote line (not the Contact).
+		actx = Map();
+		actx.put("source", "activity");
+		actx.put("sourceModule", "Tasks");
+		actx.put("sourceActivityId", taskId.toString());
+		actx.put("contactId", contactId.toString());
+		actx.put("activityState", "Won");
+		prodList = List();
+		rawProds = task.get("Task_Contract_Products");
+		if(!isNull(rawProds))
+		{
+			for each pv in rawProds
+			{
+				pvs = ifnull(pv, "").toString().trim();
+				if(pvs != "" && pvs != "-None-") { prodList.add(pvs); }
+			}
+		}
+		actx.put("products", prodList);
+		tBrands = ifnull(task.get("Task_Contract_Brands"), "").toString().trim();
+		if(tBrands != "") { actx.put("numberOfBrands", tBrands.toLong()); }
+		tStart = ifnull(task.get("Task_Contract_Date_Start"), "").toString().trim();
+		if(tStart != "") { actx.put("contractDateStart", tStart); }
+		tEnd = ifnull(task.get("Task_Contract_Date_End"), "").toString().trim();
+		if(tEnd != "") { actx.put("contractDateEnd", tEnd); }
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive", actx.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType, "products":prodList.size().toString()});
 		return;
 	}
 	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"contact":contactId.toString()});

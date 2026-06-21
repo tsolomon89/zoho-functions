@@ -96,6 +96,6 @@ void automation.processAccount(string account_id)
 	// ---- 4. Delegate all reconciliation + rollup to processDeal ----
 	if(canonicalDealId != "")
 	{
-		automation.processDeal(canonicalDealId);
+		automation.processDeal(canonicalDealId, "{}");
 	}
 }

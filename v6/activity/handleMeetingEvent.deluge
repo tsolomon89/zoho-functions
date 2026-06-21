@@ -124,7 +124,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 				else if(act == "contact_lost" && contactId != "")
 				{
 					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr);
+					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
 				}
 				else if(act == "find_decision_maker" && contactId != "")
 				{
@@ -173,7 +173,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 	{
 		zoho.crm.updateRecord("Events", eventId, {"Reminder_Send_At": null}, noTrigger);
 		zoho.crm.updateRecord("Deals", dealId, {"Demo_Reminder_Send_At": null}, noTrigger);
-		if(contactId != "") { automation.routeContactSequence(contactId, dealId.toString(), "meeting:cancelled"); }
+		if(contactId != "") { automation.routeContactSequence(contactId, dealId.toString(), "meeting:cancelled", "{}"); }
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "cancelled", "routed", {"deal":dealId.toString()});
 		return;
 	}
@@ -190,12 +190,12 @@ void automation.handleMeetingEvent(string eventIdStr)
 		{
 			if(meetingTaskState == "Won")
 			{
-				automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified");
+				automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified", "{}");
 				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_won", "demo:qualified", {"deal":dealId.toString()});
 			}
 			else if(meetingTaskState == "Open")
 			{
-				automation.routeContactSequence(contactId, dealId.toString(), "demo:followup");
+				automation.routeContactSequence(contactId, dealId.toString(), "demo:followup", "{}");
 				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_open", "demo:followup", {"deal":dealId.toString()});
 			}
 			else if(meetingTaskState == "Lost")
@@ -207,12 +207,12 @@ void automation.handleMeetingEvent(string eventIdStr)
 				if(act == "continue_cadence")
 				{
 					// No Meeting / Demo -> reschedule: revert to Demo Booking and recover with a call
-					automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow");
+					automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow", "{}");
 				}
 				else if(act == "contact_lost")
 				{
 					clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr);
+					automation.routeContactSequence(contactId, dealId.toString(), "contactlost:" + clr, "{}");
 				}
 				else if(act == "find_decision_maker")
 				{
@@ -246,7 +246,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 		token = ifnull(outcomeTokens.get(effectiveOutcome), "").toString();
 		if(token != "" && contactId != "")
 		{
-			automation.routeContactSequence(contactId, dealId.toString(), token);
+			automation.routeContactSequence(contactId, dealId.toString(), token, "{}");
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "completed", token, {"deal":dealId.toString(), "outcome":effectiveOutcome});
 		}
 		else
@@ -306,7 +306,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 		demoConfRank = 3;
 		if(contactRank < demoConfRank)
 		{
-			automation.routeContactSequence(contactId, dealId.toString(), "meeting:created");
+			automation.routeContactSequence(contactId, dealId.toString(), "meeting:created", "{}");
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "first_booking", "meeting_created", {"deal":dealId.toString(), "status":meetingStatus, "contact_stage":contactStage});
 		}
 		else

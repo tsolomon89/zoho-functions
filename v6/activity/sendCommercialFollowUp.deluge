@@ -33,11 +33,13 @@ void automation.sendCommercialFollowUp(string dealIdStr)
 		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_not_commercial_agreement", {"opp_stage":ifnull(deal.get("Opportunity_Stage"), "").toString()});
 		return;
 	}
-	// Commercials_Status retired -> gate on the canonical signals: commercials sent (timestamp set)
-	// and not yet signed.
-	if(isNull(deal.get("Commercials_Sent_At")) || !isNull(deal.get("Signed_At")))
+	// Commercials_Status retired AND the commercial timestamp fields (Commercials_Sent_At/Signed_At)
+	// do NOT exist live -> gate on the real surviving signal: the Deal is at Commercial Agreement
+	// (checked above; only reached via commercial:sent) and still Open (signing advances to Onboarding;
+	// loss closes it). No phantom-field dependency.
+	if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open")
 	{
-		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_not_awaiting_signature", {"sent_at":ifnull(deal.get("Commercials_Sent_At"), "").toString(), "signed_at":ifnull(deal.get("Signed_At"), "").toString()});
+		automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "guard", "skip_not_open", {"opp_state":ifnull(deal.get("Opportunity_State"), "").toString()});
 		return;
 	}
 
@@ -56,6 +58,6 @@ void automation.sendCommercialFollowUp(string dealIdStr)
 		return;
 	}
 
-	automation.routeContactSequence(primaryId, dealId.toString(), "commercial:followup_due");
+	automation.routeContactSequence(primaryId, dealId.toString(), "commercial:followup_due", "{}");
 	automation.logAutomationEvent("sendCommercialFollowUp", "Deals", dealId.toString(), "routed", "commercial_followup_due", {"contact":primaryId});
 }

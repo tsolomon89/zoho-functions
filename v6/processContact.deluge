@@ -246,7 +246,7 @@ void automation.processContact(string contact_id)
 
 	// ---- 5. Reconcile FIRST (processDeal = sole owner of Contacts, Roles, Products,
 	//        Primary Contact, Opportunity_* rollup, Account rollup) ----
-	automation.processDeal(dealId);
+	automation.processDeal(dealId, "{}");
 
 	// ---- 6. Activation AFTER reconciliation, linked to the final canonical Deal.
 	//        Absorbs createActivationTask + _util_resolveSequenceRoute. ----

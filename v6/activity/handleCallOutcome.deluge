@@ -119,12 +119,38 @@ void automation.handleCallOutcome(string callIdStr)
 	// =====================================================================
 	if(callTaskState != "")
 	{
-		// ---- WON: the call achieved its purpose -> advance ----
+		// ---- WON: the call achieved its purpose -> advance + carry commercial evidence ----
 		if(callTaskState == "Won")
 		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:positive");
+			// Build the activity contextJson from the Call's commercial-capture fields.
+			// Call_Task_Contract_Products is a MULTI-SELECT PICKLIST of Product NAME strings
+			// (jsonarray); brands/dates apply to the Product Quote line (not the Contact).
+			actx = Map();
+			actx.put("source", "activity");
+			actx.put("sourceModule", "Calls");
+			actx.put("sourceActivityId", callId.toString());
+			actx.put("contactId", contactId.toString());
+			actx.put("activityState", "Won");
+			prodList = List();
+			rawProds = call.get("Call_Task_Contract_Products");
+			if(!isNull(rawProds))
+			{
+				for each pv in rawProds
+				{
+					pvs = ifnull(pv, "").toString().trim();
+					if(pvs != "" && pvs != "-None-") { prodList.add(pvs); }
+				}
+			}
+			actx.put("products", prodList);
+			cBrands = ifnull(call.get("Call_Task_Contract_Brands"), "").toString().trim();
+			if(cBrands != "") { actx.put("numberOfBrands", cBrands.toLong()); }
+			cStart = ifnull(call.get("Call_Task_Contract_Date_Start"), "").toString().trim();
+			if(cStart != "") { actx.put("contractDateStart", cStart); }
+			cEnd = ifnull(call.get("Call_Task_Contract_Date_End"), "").toString().trim();
+			if(cEnd != "") { actx.put("contractDateEnd", cEnd); }
+			automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:positive", actx.toString());
 			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
-			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_won", "call_positive", {"deal":dealId.toString(), "contact":contactId.toString()});
+			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_won", "call_positive", {"deal":dealId.toString(), "contact":contactId.toString(), "products":prodList.size().toString()});
 			return;
 		}
 
@@ -176,13 +202,13 @@ void automation.handleCallOutcome(string callIdStr)
 
 			if(act == "continue_cadence")
 			{
-				automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:neutral");
+				automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:neutral", "{}");
 				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
 			}
 			else if(act == "contact_lost")
 			{
 				clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
-				automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr);
+				automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr, "{}");
 				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
 			}
 			else if(act == "find_decision_maker")
@@ -239,7 +265,7 @@ void automation.handleCallOutcome(string callIdStr)
 	if(trig == "call:deferred")
 	{
 		nextFu = call.get("Next_Follow_Up_Date");
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), trig);
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), trig, "{}");
 		if(!isNull(nextFu))
 		{
 			newCall = Map();
@@ -265,7 +291,7 @@ void automation.handleCallOutcome(string callIdStr)
 	}
 
 	// ---- transition (single router owner) ----
-	automation.routeContactSequence(contactId.toString(), dealId.toString(), trig);
+	automation.routeContactSequence(contactId.toString(), dealId.toString(), trig, "{}");
 
 	// ---- legacy outcome-specific side effects ----
 	if(trig == "call:baddata")
