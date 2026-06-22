@@ -210,18 +210,28 @@ void automation.processLead(string lead_id)
 		leadContactRole = resolvedRole;
 	}
 
-	// Lead.Product_Interest is a Multiselect (delimited text of product names).
-	// Try both the documented API name and the "1"-suffixed variant in case the field
-	// was renamed in CRM (same pattern Zoho applies when fields are duplicated).
+	// Lead.Product_Interest is a Multiselect picklist of SKU Product names.
+	// D4 FIX (2026-06-22): build the staging string by stripping brackets/quotes and
+	// splitting on comma. This handles get() returning either a real List ("[a, b]") or a
+	// bracketed String, WITHOUT iterating a possibly-String value (which would yield
+	// characters). Replaces the prior fragile munge + phantom "Product_Interest1" read
+	// that left Contact.Product_Interest_Staging empty after conversion.
 	leadPIStr = "";
 	leadPIRaw = leadRecord.get("Product_Interest");
-	leadPIRaw1 = leadRecord.get("Product_Interest1");
-	info "Lead Product_Interest raw=" + leadPIRaw + " | Product_Interest1 raw=" + leadPIRaw1;
-	piSource = leadPIRaw;
-	if(piSource == null) { piSource = leadPIRaw1; }
-	if(piSource != null)
+	if(leadPIRaw != null)
 	{
-		leadPIStr = piSource.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
+		leadPICleaned = leadPIRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
+		if(leadPICleaned != "")
+		{
+			for each piTok in leadPICleaned.toList(",")
+			{
+				piTrim = piTok.trim();
+				if(piTrim != "" && piTrim != "-None-")
+				{
+					leadPIStr = leadPIStr + if(leadPIStr != "", ", ", "") + piTrim;
+				}
+			}
+		}
 	}
 	info "Lead PI parsed string='" + leadPIStr + "'";
 

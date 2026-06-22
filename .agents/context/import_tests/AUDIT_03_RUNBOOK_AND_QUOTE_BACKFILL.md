@@ -1,3 +1,5 @@
+> **⚠ UPDATED BY [AUDIT_00_REVISION_R1.md](AUDIT_00_REVISION_R1.md) (2026-06-22):** Revised open-item decisions (R1 §4) — no UX plan-type default; preserve `Type`; add Industry values; SQL no-email rows import inert **but excluded from auto-conversion**; RTP=Renewal default. **Production conversion is NO-GO until D1/D2/D4 are deployed + retested** (R1 §3/§5). Quote backfill must use **family-specific** pricing inputs (UX plan type, 360 frequency, brand count; Cortex → Manual Review) — R1 §1.
+
 # Pre-Import Audit, Part 3: Manual Import Runbook + Quote Backfill Plan
 
 This is the procedure **you** run manually. Nothing here has been executed against production data. The governing fact: **`WF001a` auto-converts every Lead on create/edit**, so the single most important control is the **"Trigger workflows" toggle** during import.

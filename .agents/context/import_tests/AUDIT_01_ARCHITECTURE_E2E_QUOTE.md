@@ -1,3 +1,5 @@
+> **⚠ SUPERSEDED IN PART BY [AUDIT_00_REVISION_R1.md](AUDIT_00_REVISION_R1.md) (2026-06-22).** The pricing statements below are **wrong**: the Quote line price is the banded **matrix** value (Line ACV = PPB × brand count), **not** `Product.Unit_Price`. Ignore the "£12,000 / £8,400" framing in §A.3 and §G and the "plan type + brand count" minimum in §C — see R1 §1. Defects D1/D2/D4 now have repo fixes (R1 §2) but are **not deployed**. Read R1 first.
+
 # Jurnii Zoho CRM — Pre-Import Audit, Part 1: Architecture, E2E Test, Quote Model
 
 **Date:** 2026-06-22 · **Org:** Jurnii.io (org20114906201, GBP £, Europe/London) · **Edition:** CRM Plus **trial, expires 2026-06-25**

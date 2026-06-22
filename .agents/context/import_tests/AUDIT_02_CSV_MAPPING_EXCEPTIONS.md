@@ -1,3 +1,5 @@
+> **⚠ CORRECTED BY [AUDIT_00_REVISION_R1.md](AUDIT_00_REVISION_R1.md) (2026-06-22):** (1) **Do NOT drop the `Type` column** (§D row 21) — it is the likely source of the pricing **tier** (Base/Markup/Agency), which materially changes price; preserve it pending business confirmation. (2) The binary "Quote-ready" in §F is replaced by a **4-tier** readiness model (Product-resolution / Draft-creation / Auto-pricing / Confirmation). (3) `Jurnii UX` (generic family) is **ambiguous → not Product-resolution-ready**; no Fixed/Flex default. See R1 §1.
+
 # Pre-Import Audit, Part 2: CSV Field Mapping, Row Exceptions, Readiness
 
 Target module for all four files = **Leads** (intake), which then auto-converts to Contact/Account/Deal. Currency throughout = **GBP**. All four files share columns 0–28 and 65–124; **SQL diverges** (uses `Contact AOR*` labels instead of `Contact Role AOR*`, and **blanks out the entire Contract block** as 35 empty-named columns).

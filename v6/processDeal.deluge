@@ -489,16 +489,20 @@ string automation.processDeal(string deal_id, string contextJson)
 		productNames = List();
 		if(!isNull(ctxProducts))
 		{
-			cpStr = ctxProducts.toString();
-			if(cpStr.startsWith("[") && cpStr.endsWith("]"))
+			// D2 FIX (2026-06-22): parse products robustly whether ctx.get("products")
+			// round-trips from handleTaskCompletion/handleCallOutcome/handleMeetingEvent as a
+			// real List OR as a bracketed String. Deluge Map.toString()->toMap() can deliver
+			// the JSON array as a String; "for each ... in <String>" then iterates CHARACTERS,
+			// not Product names, so productNames stayed empty and NO Quote was created
+			// (E2E: Draft Commercials activity produced no Quote). Strip brackets/quotes and
+			// split on comma — correct for both the List form ("[a, b]") and the String form.
+			cpStr = ctxProducts.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").replaceAll("'", "").trim();
+			if(cpStr != "")
 			{
-				for each pnItem in ctxProducts
+				for each pnTok in cpStr.toList(",")
 				{
-					if(!isNull(pnItem))
-					{
-						pnNm = pnItem.toString().trim();
-						if(pnNm != "") { productNames.add(pnNm); }
-					}
+					pnNm = pnTok.trim();
+					if(pnNm != "" && pnNm != "-None-") { productNames.add(pnNm); }
 				}
 			}
 		}

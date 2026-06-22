@@ -128,6 +128,32 @@ void automation.handleTaskCompletion(string taskIdStr)
 	// =====================================================================
 	if(tType == "Sequence Activation")
 	{
+		// ---- D1 FIX (2026-06-22): race-proof backstop. processContact §6b tries to defer
+		//      duplicate activation tasks at creation, but two concurrent processContact runs
+		//      (processLead's inline call + the WF001b2 Contacts-create trigger) can both create
+		//      one before either sweep sees the other, leaving TWO "Not Started" tasks (observed
+		//      in E2E). Here, at the single-threaded human completion point, defer EVERY other
+		//      open Sequence Activation task for this Contact + Stage so only THIS task activates. ----
+		sibTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+		if(isNull(sibTasks) || sibTasks.size() == 0 || sibTasks.toString().startsWith("{\"code\"")) { sibTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")"); }
+		if(!isNull(sibTasks) && sibTasks.size() > 0 && !sibTasks.toString().startsWith("{\"code\""))
+		{
+			for each sib in sibTasks
+			{
+				sibId = "";
+				if(!isNull(sib.get("id"))) { sibId = sib.get("id").toString(); }
+				sibWho = "";
+				sibWhoL = sib.get("Who_Id");
+				if(!isNull(sibWhoL) && !isNull(sibWhoL.get("id"))) { sibWho = sibWhoL.get("id").toString(); }
+				sibStatus = ifnull(sib.get("Status"), "").toString();
+				if(sibId != "" && sibId != taskId.toString() && sibWho == contactId.toString() && ifnull(sib.get("Task_Type"), "").toString() == "Sequence Activation" && ifnull(sib.get("Task_Sequence_Stage"), "").toString() == taskStage && (sibStatus == "Not Started" || sibStatus == "In Progress"))
+				{
+					zoho.crm.updateRecord("Tasks", sibId.toLong(), {"Status":"Deferred", "Blocks_Sequence":"No"}, noTrigger);
+					automation.logAutomationEvent("handleTaskCompletion", "Tasks", sibId, "activation_dedupe", "deferred_sibling", {"contact":contactId.toString(), "kept":taskId.toString()});
+				}
+			}
+		}
+
 		// ---- 1. Task_Outcome EXCEPTION overrides everything (wins even if Task_Sequence_Type is set) ----
 		if(tOutcome == "Suppress" || tOutcome == "Already Handled")
 		{
