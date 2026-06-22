@@ -639,11 +639,51 @@ void automation.handleTaskCompletion(string taskIdStr)
 						if(taskBrands != "")
 						{
 							fbProdFull = zoho.crm.getRecordById("Products", fbProdId.toLong());
+							fbFamily = "";
 							fbPlanType = "";
-							if(!isNull(fbProdFull) && !isNull(fbProdFull.get("id"))) { fbPlanType = ifnull(fbProdFull.get("Product_Plan_Type"), "").toString().trim(); }
+							if(!isNull(fbProdFull) && !isNull(fbProdFull.get("id")))
+							{
+								fbFamily = ifnull(fbProdFull.get("Product_Plan_Products"), "").toString().trim();
+								if(fbFamily == "Jurnii Cortext") { fbFamily = "Jurnii Cortex"; }
+								fbPlanType = ifnull(fbProdFull.get("Product_Plan_Type"), "").toString().trim();
+							}
 							if(fbPlanType == "Flexible") { fbPlanType = "Flex"; }
-							fbPriceResp = automation.resolveQuoteLinePrice(fbProdId, fbPlanType, taskBrands, "Base", "").toMap();
-							if(ifnull(fbPriceResp.get("valid"), "false").toString() == "true") { fbLine.put("List_Price", ifnull(fbPriceResp.get("line_acv"), 0)); }
+							fbBrandsNum = taskBrands.toLong();
+							fbPpb = 0.0;
+							if(fbFamily == "Jurnii UX")
+							{
+								fbBand = 0;
+								if(fbBrandsNum <= 5) { fbBand = 5; }
+								else if(fbBrandsNum <= 7) { fbBand = 7; }
+								else if(fbBrandsNum <= 10) { fbBand = 10; }
+								else if(fbBrandsNum <= 15) { fbBand = 15; }
+								else if(fbBrandsNum <= 20) { fbBand = 20; }
+								else if(fbBrandsNum <= 50) { fbBand = 50; }
+								else if(fbBrandsNum <= 100) { fbBand = 100; }
+								if(fbPlanType == "Fixed")
+								{
+									if(fbBand == 5 || fbBand == 7) { fbPpb = 2100.0; }
+									else if(fbBand == 10) { fbPpb = 1848.0; }
+									else if(fbBand == 15) { fbPpb = 1633.8; }
+									else if(fbBand == 20) { fbPpb = 1470.0; }
+									else if(fbBand == 50) { fbPpb = 1260.0; }
+									else if(fbBand == 100) { fbPpb = 1190.0; }
+								}
+								else if(fbPlanType == "Flex")
+								{
+									if(fbBand == 5 || fbBand == 7) { fbPpb = 1680.0; }
+									else if(fbBand == 10) { fbPpb = 1478.4; }
+									else if(fbBand == 15) { fbPpb = 1307.04; }
+									else if(fbBand == 20) { fbPpb = 1176.0; }
+									else if(fbBand == 50) { fbPpb = 1008.0; }
+									else if(fbBand == 100) { fbPpb = 952.0; }
+								}
+							}
+							if(fbPpb > 0)
+							{
+								fbLineAcv = fbPpb.toDecimal() * fbBrandsNum;
+								fbLine.put("List_Price", fbLineAcv.round(2));
+							}
 						}
 						fbLines = List();
 						fbLines.add(fbLine);
@@ -662,7 +702,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbQ.put("Quoted_Items", fbLines);
 						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
 
+						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_attempt", {"deal":dealId.toString(), "product":fbProdId, "brands":taskBrands});
 						fbCreateResp = zoho.crm.createRecord("Quotes", fbQ);
+						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_response", {"deal":dealId.toString(), "product":fbProdId, "resp":ifnull(fbCreateResp, "").toString()});
 						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbCreated = fbCreated + 1; }
 						else { fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString()); }
 					}
