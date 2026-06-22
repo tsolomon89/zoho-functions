@@ -240,7 +240,7 @@ string automation.resolveContactAction(string stage, string seqType, string seqS
 		}
 		else
 		{
-			// demo:rescheduled -> no sequence change (no Deal write; Event.Meeting_Status holds the lifecycle)
+			// demo:rescheduled -> no sequence change (no Deal write; Event state/stage holds the lifecycle)
 			r.put("action", "none");
 			r.put("reason", "demo_rescheduled");
 			return r.toString();

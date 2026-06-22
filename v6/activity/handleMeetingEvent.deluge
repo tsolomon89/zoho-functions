@@ -3,8 +3,8 @@ void automation.handleMeetingEvent(string eventIdStr)
 	// =========================================================================
 	// handleMeetingEvent  (Meeting/Event = source of truth — WF007)
 	//
-	// Driven by the Event's OWN live fields (Meeting_Status / Meeting_Type /
-	// Meeting_Outcome do NOT exist on Events and are NOT read):
+	// Driven by the Event's OWN live state-centric fields. Legacy Meeting_Status,
+	// Meeting_Type, and Meeting_Outcome are not read:
 	//   - Meeting_Task_State  : Open / Won / Lost  (result + lifecycle surface)
 	//   - Meeting_Task_Stage  : 8-stage; infers meeting TYPE (demo/commercial/renewal)
 	//   - Meeting_Task_Lost_Reasons : scoped loss
@@ -121,7 +121,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 			// Promote the commercial evidence straight to processDeal: it links Products,
 			// upserts the per-Product Quote, recomputes Amount/ledger, and the term-complete
 			// gate owns any commercial:signed advance (a meeting expresses intent; the Quote
-			// owns the signed ledger). Intent_To_Sign is phantom -> nothing else to stamp.
+			// owns the signed ledger). No Deal intent/timestamp phantom fields are stamped.
 			pdRes = automation.processDeal(dealId.toString(), ctxStr);
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "won_evidence_promoted", {"deal":dealId.toString(), "products":prodList.size().toString(), "pd":ifnull(pdRes, "").toString()});
 		}

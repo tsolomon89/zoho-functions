@@ -1,520 +1,56 @@
-%%{ init: { "theme": "base", "themeVariables": { "primaryColor": "#1a1a2e", "primaryTextColor": "#e0e0e0", "primaryBorderColor": "#0f3460", "lineColor": "#16213e", "secondaryColor": "#0f3460", "tertiaryColor": "#533483", "edgeLabelBackground": "#1a1a2e", "clusterBkg": "#16213e22", "clusterBorder": "#0f3460" }, "flowchart": { "curve": "basis", "nodeSpacing": 30, "rankSpacing": 50 } } }%%
-
 flowchart TD
+    classDef live fill:#e8f5ff,stroke:#1f6feb,color:#0b1f33
+    classDef gate fill:#fff4ce,stroke:#9a6700,color:#2f2100
+    classDef retired fill:#f6f8fa,stroke:#8c959f,color:#24292f
+    classDef review fill:#ffebe9,stroke:#cf222e,color:#24292f
 
-    %% =========================================================================
-    %% V6 ZOHO CRM AUTOMATION — MASTER FLOW
-    %%
-    %% Source of truth: v6/*.deluge + v6/activity/*.deluge (29 files)
-    %%
-    %% Stage flow (v6 code):
-    %%   Marketing Consent → Demo Booking → Demo Confirmation → Demo Hosted
-    %%   → Proposal Preparation → Commercial Agreement → Onboarding → Renewal
-    %%
-    %% Opp Type mapping:
-    %%   rank 1 = MQL | rank 2-4 = SQL | rank 5-6 = FTP | rank 7-8 = RTP
-    %% =========================================================================
+    Lead["Lead intake<br/>Product_Interest names"]:::live
+    ProcessLead["processLead<br/>convert to Contact + Account + Deal"]:::live
+    Contact["Contact<br/>Products_Linked<br/>Product_Interest_Staging"]:::live
+    Deal["Deal<br/>Opportunity state/stage<br/>Amount + ledgers"]:::live
 
-    %% ======================= LEAD INTAKE / MQL =======================
-    subgraph LEAD_INTAKE["🟢 Lead Intake — processLead"]
-        direction TB
-        LI_START(["⚡ Lead Created / Edited"])
-        LI_READ["READ Lead<br/><i>Email, Company, Website, Phone,<br/>Stage, Lead_Source, Job_Title,<br/>Product_Interest, Lost_Reasons,<br/>Contract_*, AOR/AOO, Expansion</i>"]
-        LI_ROLE{"Job_Title present<br/>& Contact_Role1 blank?"}
-        LI_RESOLVE_ROLE["Resolve Contact_Role1<br/><i>Decision Maker / End User / Influencer</i><br/>UPDATE Lead.Contact_Role1"]
-        LI_DERIVE_KEY["Derive Account_Key<br/><i>website domain → email domain → company name</i>"]
-        LI_PI["Parse Product_Interest<br/><i>(try Product_Interest then Product_Interest1)</i>"]
+    Lead --> ProcessLead --> Contact
+    ProcessLead --> Deal
 
-        LI_START --> LI_READ
-        LI_READ --> LI_ROLE
-        LI_ROLE -->|"Yes"| LI_RESOLVE_ROLE --> LI_DERIVE_KEY
-        LI_ROLE -->|"No"| LI_DERIVE_KEY
-        LI_DERIVE_KEY --> LI_PI
-    end
+    Task["Task completed<br/>Task_Contract_Products<br/>multi-select picklist names"]:::live
+    Call["Call Won/Lost<br/>Call_Task_Contract_Products<br/>multi-select picklist names"]:::live
+    Event["Event Won/Lost/Open<br/>Meeting_Task_Stage<br/>Meeting_Task_Contract_Products"]:::live
 
-    %% ======================= ACCOUNT RESOLUTION =======================
-    subgraph ACCOUNT_RES["🏢 Account Resolution"]
-        direction TB
-        AR_SEARCH["SEARCH Accounts<br/><i>Priority: Account_Key → Website → Account_Name</i>"]
-        AR_FOUND{"Account<br/>found?"}
-        AR_CREATE["CREATE Account<br/><i>Account_Key, Account_Name,<br/>Phone, Source_Class,<br/>AOO/Expansion multiselects</i>"]
-        AR_UPDATE["UPDATE existing Account<br/><i>Account_Key (if blank), Phone,<br/>Source_Class, AOO/Expansion (if blank)</i>"]
-        AR_DUP_HANDLE["Handle DUPLICATE_DATA<br/><i>use returned existing id</i>"]
-        AR_FAIL(["❌ Account resolution FAILED<br/>RETURN — Lead NOT converted"])
+    Task --> Adapter["Activity adapters<br/>contextJson.products = Product names"]:::live
+    Call --> Adapter
+    Event --> Adapter
 
-        AR_SEARCH --> AR_FOUND
-        AR_FOUND -->|"No"| AR_CREATE
-        AR_FOUND -->|"Yes"| AR_UPDATE
-        AR_CREATE -->|"DUPLICATE_DATA code"| AR_DUP_HANDLE
-        AR_CREATE -->|"Failed + no fallback"| AR_FAIL
-    end
+    Adapter --> Router["routeContactSequence<br/>Contact state machine"]:::live
+    Router --> ProcessDeal["processDeal<br/>resolve Product_Name/Product_Code<br/>link Contact + Deal Products"]:::live
 
-    %% ======================= LEAD CONVERSION =======================
-    subgraph LEAD_CONV["🔄 Lead Conversion"]
-        direction TB
-        LC_DEDUP["SEARCH Contacts by Email<br/><i>(reuse existing Contact if found)</i>"]
-        LC_CONVERT["zoho.crm.convertLead<br/><i>overwrite=false,<br/>notify_lead_owner=false,<br/>link to canonical Account,<br/>reuse Contact if found</i>"]
-        LC_ENRICH["UPDATE Contact (suppressTrigger)<br/><i>Stage (never regress by rank),<br/>State (Open or Lost),<br/>Status (New or Closed),<br/>Job_Title, Contact_Role1,<br/>Personal_Phone, Lead_Referrer,<br/>Product_Interest_Staging,<br/>Contact_Source_Class,<br/>AOR multiselects, stage dates</i>"]
+    ProcessDeal --> ProductCheck{"Product resolved<br/>and unambiguous?"}:::gate
+    ProductCheck -- no --> ManualReview["Manual Review Task<br/>no arbitrary Product selection"]:::review
+    ProductCheck -- yes --> QuoteUpsert["Per-Product Quote upsert<br/>Quote_Product + Quoted_Items"]:::live
 
-        LC_DEDUP --> LC_CONVERT --> LC_ENRICH
-    end
+    QuoteUpsert --> KeyWrite["Write Quote_Applied_Activity_Keys<br/>same request as Quote mutation"]:::live
+    KeyWrite --> VerifyQuote{"Readback verifies<br/>exact key + header Product + line Product"}:::gate
+    VerifyQuote -- no --> ManualReview
+    VerifyQuote -- yes --> Recompute["Recompute Amount<br/>and contract ledgers"]:::live
 
-    %% ======================= DEAL RESOLUTION (from processLead) =======================
-    subgraph DEAL_RES["💰 Deal Resolution — processLead"]
-        direction TB
-        DR_SEARCH["SEARCH Deals<br/><i>Deal_Key = accountKey::active</i>"]
-        DR_FOUND{"Deal<br/>found?"}
-        DR_CREATE["CREATE Deal<br/><i>Deal_Key, Deal_Name,<br/>Account_Name, Contact_Name,<br/>Opportunity_State (Open/Lost), Opportunity_Status,<br/>Lead_Source, Contract_*,<br/>Product_Interest_Staging,<br/>Closing_Date = today+30</i>"]
-        DR_REUSE["Use existing Deal<br/><i>lowest id = canonical</i>"]
+    Recompute --> CommercialGate{"Quote lifecycle gate"}:::gate
+    CommercialGate -- Delivered ready --> Sent["commercial:sent<br/>Commercial Agreement"]:::live
+    CommercialGate -- Confirmed with dates --> Signed["commercial:signed<br/>Onboarding/RTP floor"]:::live
+    CommercialGate -- Closed Lost only --> LostReview["Exclude from Amount<br/>preserve viability rules"]:::live
+    CommercialGate -- no transition --> Done["Reconciled"]:::live
 
-        DR_SEARCH --> DR_FOUND
-        DR_FOUND -->|"No"| DR_CREATE
-        DR_FOUND -->|"Yes"| DR_REUSE
-    end
+    Sent --> Router
+    Signed --> Router
 
-    %% ======================= processContact =======================
-    subgraph PROCESS_CONTACT["👤 processContact"]
-        direction TB
-        PC_READ["READ Contact<br/><i>Account_Name, Email, Full_Name,<br/>Stage, State, Status, Job_Title</i>"]
-        PC_ACCT["Resolve / repair Account<br/><i>ensure Account_Key stamped,<br/>create Account if orphan Contact</i>"]
-        PC_DEFAULTS["Normalize defaults<br/><i>Stage → Marketing Consent (if blank),<br/>State → Open, Status → New,<br/>Contact_Role1 from Job_Title,<br/>stamp stage completion dates</i>"]
-        PC_DEAL_RESOLVE["Resolve canonical Deal<br/><i>Deal_Key search → Account related → create</i>"]
-        PC_CALL_PD["→ processDeal(dealId)<br/><i>sole reconciliation owner</i>"]
-        PC_REREAD["Re-read Contact<br/><i>(processDeal may have updated roles)</i>"]
-        PC_SEQ_CHECK{"State = Open<br/>AND<br/>Sequence_State<br/>= Not Activated?"}
-        PC_DEDUP_ACT{"Activation Task<br/>already exists<br/>for this Contact<br/>+ Stage?"}
-        PC_CREATE_ACT["CREATE Task<br/><i>Type: Sequence Activation<br/>Blocks_Sequence: Yes<br/>Task_Sequence_Stage: contactStage<br/>Subject: 'Activate sequence: name — stage'</i>"]
-        PC_END(["processContact complete"])
+    QuoteEdit["WF021 Quote create/edit<br/>handleQuoteStageChange"]:::gate
+    QuoteEdit --> MoveCheck{"Quote_Last_Deal_ID<br/>vs Deal_Name"}:::gate
+    MoveCheck -- no move --> ProcessDeal
+    MoveCheck -- moved --> OldNew["processDeal old role<br/>then new role<br/>verify marker"]:::live
+    MoveCheck -- unlinked --> OldOnly["processDeal old role<br/>clear marker"]:::live
 
-        PC_READ --> PC_ACCT --> PC_DEFAULTS --> PC_DEAL_RESOLVE --> PC_CALL_PD
-        PC_CALL_PD --> PC_REREAD --> PC_SEQ_CHECK
-        PC_SEQ_CHECK -->|"Yes"| PC_DEDUP_ACT
-        PC_SEQ_CHECK -->|"No"| PC_END
-        PC_DEDUP_ACT -->|"No duplicate"| PC_CREATE_ACT --> PC_END
-        PC_DEDUP_ACT -->|"Already exists"| PC_END
-    end
+    WF020["WF020 Quote_Stage field update<br/>legacy until cutover"]:::retired
+    WF004["WF004 Commercials_Status<br/>legacy wrapper until cutover"]:::retired
+    WF020 -. disable after gates .-> QuoteEdit
+    WF004 -. disable after gates .-> Router
 
-    %% ======================= processAccount =======================
-    subgraph PROCESS_ACCOUNT["🏗️ processAccount"]
-        direction TB
-        PA_READ["READ Account<br/><i>Account_Key, Website, Account_Name</i>"]
-        PA_KEY["Ensure Account_Key stamped<br/><i>(derive from Website/Name if blank)</i>"]
-        PA_DEAL["Resolve canonical open Deal<br/><i>lowest-id open Deal on Account</i>"]
-        PA_DEAL_MISSING{"Has Contacts<br/>but no open Deal?"}
-        PA_CREATE_DEAL["CREATE minimal Deal<br/><i>Deal_Key, Opportunity_State=Open, Opportunity_Status=New</i>"]
-        PA_DELEGATE["→ processDeal(dealId)"]
-
-        PA_READ --> PA_KEY --> PA_DEAL
-        PA_DEAL --> PA_DEAL_MISSING
-        PA_DEAL_MISSING -->|"Yes"| PA_CREATE_DEAL --> PA_DELEGATE
-        PA_DEAL_MISSING -->|"No"| PA_DELEGATE
-    end
-
-    %% ======================= processDeal =======================
-    subgraph PROCESS_DEAL["📊 processDeal — Sole Reconciliation Owner"]
-        direction TB
-        PD_DUP_CHECK{"Deal name ends<br/>'(Duplicate)' or<br/>Reason_For_Loss =<br/>'Duplicate / Test Record'?"}
-        PD_EXIT_DUP(["↩ Skip duplicate Deal"])
-        PD_RESOLVE_ACCT["Resolve Account + Account_Key<br/><i>bail if Account_Key blank</i>"]
-        PD_SILENCE["Silence duplicate active Deals<br/><i>All non-canonical open Deals →<br/>Opportunity_State=Lost, Opportunity_Status=Closed,<br/>Reason='Duplicate / Test Record',<br/>clear Deal_Key, append '(Duplicate)'</i>"]
-        PD_GATHER["Gather Account Contacts<br/><i>Full-read each Contact:<br/>• Stamp Contact_Role1 if blank<br/>• Aggregate Product_Interest_Staging<br/>  + Products_Linked<br/>• Track max open stage rank<br/>• Build contactRoleMap, contactDatesMap</i>"]
-        PD_ROLES["Maintain Contact_Roles junction<br/><i>FETCH role IDs via invokeurl<br/>/crm/v2/Contacts/roles<br/>Upsert missing roles on Deal<br/>(never overwrite manual role)</i>"]
-        PD_PRODUCTS["Resolve Products<br/><i>getRecords catalog (up to 200)<br/>+ searchRecords fallback<br/>Match by name (case-insensitive)<br/>LINK to Deal Products related list<br/>Sum Unit_Price → totalAmount</i>"]
-        PD_QUOTE_AMT{"Has Confirmed<br/>Quote?"}
-        PD_AMT_PRODUCT["Amount = sum of<br/>Product Unit_Prices"]
-        PD_AMT_QUOTE["Amount owned by<br/>syncConfirmedQuoteToDeal"]
-        PD_PRIMARY["Pick Primary Contact<br/><i>Furthest open stage rank<br/>Tiebreak: Decision Maker > End User > Influencer<br/>Then: current primary wins ties</i>"]
-        PD_UPDATE["UPDATE Deal (suppressTrigger)<br/><i>Deal_Key, Opportunity_Stage (never regress),<br/>Stage (MQL/SQL/FTP/RTP),<br/>Opportunity_State, Opportunity_Status, Amount,<br/>Contact_Name, Primary_Contact,<br/>Product_Interest_Staging,<br/>Stage completion dates</i>"]
-        PD_PP_CHECK{"Opportunity_Stage =<br/>Proposal Preparation?"}
-        PD_SEED_QUOTE["→ ensureDealQuote(dealId)"]
-        PD_ACCT_ROLLUP["Roll up Account State/Status<br/><i>any Deal Open → Account Open<br/>any Deal Working → Account Working<br/>else → Account Lost/Closed</i>"]
-
-        PD_DUP_CHECK -->|"Yes"| PD_EXIT_DUP
-        PD_DUP_CHECK -->|"No"| PD_RESOLVE_ACCT
-        PD_RESOLVE_ACCT --> PD_SILENCE --> PD_GATHER
-        PD_GATHER --> PD_ROLES --> PD_PRODUCTS
-        PD_PRODUCTS --> PD_QUOTE_AMT
-        PD_QUOTE_AMT -->|"No"| PD_AMT_PRODUCT --> PD_PRIMARY
-        PD_QUOTE_AMT -->|"Yes"| PD_AMT_QUOTE --> PD_PRIMARY
-        PD_PRIMARY --> PD_UPDATE --> PD_PP_CHECK
-        PD_PP_CHECK -->|"Yes"| PD_SEED_QUOTE --> PD_ACCT_ROLLUP
-        PD_PP_CHECK -->|"No"| PD_ACCT_ROLLUP
-    end
-
-    %% ======================= ACTIVATION =======================
-    subgraph ACTIVATION["🔑 Task-Gated Activation — handleTaskCompletion"]
-        direction TB
-        ACT_TASK(["⚡ Sequence Activation Task<br/>completed by rep"])
-        ACT_GUARDS["Guards:<br/><i>Audit guard (Email Sent → skip)<br/>ScheduledSend guard → skip<br/>Seq_Managed or known type<br/>What_Id = Deals, Who_Id = Contact<br/>Status = Completed or Outcome set</i>"]
-        ACT_OUTCOME{"Task_Outcome<br/>exception?"}
-        ACT_SUPPRESS["Suppress / Already Handled<br/><i>→ activate:stop<br/>Contact.Sequence_State = Stopped</i>"]
-        ACT_STAGE_BAD["Stage Incorrect<br/><i>→ CREATE Manual Review Task<br/>→ activate:stop</i>"]
-        ACT_ROUTE{"Resolve route:<br/>Task_Sequence_Type<br/>(primary) or<br/>Task_Outcome<br/>(legacy fallback)"}
-        ACT_IDEMPOTENT{"Email/Call route +<br/>Seq_State = Running?"}
-        ACT_SKIP(["↩ Idempotency skip"])
-        ACT_STAGE_ADOPT["Stage adoption:<br/><i>Task_Sequence_Stage → Contact.Stage<br/>(if different)</i>"]
-        ACT_EMAIL["→ routeContactSequence<br/><i>activate:email</i><br/>Send opener → Call 1"]
-        ACT_CALL["→ routeContactSequence<br/><i>activate:call</i><br/>Call 1 immediately"]
-        ACT_MANUAL["→ routeContactSequence<br/><i>activate:manual</i><br/>Sequence Stopped"]
-
-        ACT_TASK --> ACT_GUARDS --> ACT_OUTCOME
-        ACT_OUTCOME -->|"Suppress / Already Handled"| ACT_SUPPRESS
-        ACT_OUTCOME -->|"Stage Incorrect"| ACT_STAGE_BAD
-        ACT_OUTCOME -->|"No exception"| ACT_ROUTE
-        ACT_ROUTE --> ACT_IDEMPOTENT
-        ACT_IDEMPOTENT -->|"Yes"| ACT_SKIP
-        ACT_IDEMPOTENT -->|"No"| ACT_STAGE_ADOPT
-        ACT_STAGE_ADOPT -->|"Email"| ACT_EMAIL
-        ACT_STAGE_ADOPT -->|"Call"| ACT_CALL
-        ACT_STAGE_ADOPT -->|"Manual"| ACT_MANUAL
-    end
-
-    %% ======================= SEQUENCE ROUTER =======================
-    subgraph ROUTER["⚙️ routeContactSequence — THE Single Transition Executor"]
-        direction TB
-        RT_READ["READ Contact + Deal<br/><i>Stage, Sequence_Type/State/Stage/Step</i>"]
-        RT_BLOCK_CHECK{"resume trigger +<br/>open Blocks_Sequence<br/>Task exists?"}
-        RT_BLOCKED(["↩ Blocked by open Task"])
-        RT_RESOLVE["→ resolveContactAction<br/><i>Pure state machine:<br/>trigger + current state → action map</i>"]
-        RT_SUPERSEDE{"supersede = true?"}
-        RT_CANCEL_OLD["Cancel stale activities<br/><i>Calls → Stale=Yes, Status=Cancelled<br/>Tasks → Status=Deferred<br/>(ScheduledSend → Cancelled)</i>"]
-        RT_SIDE_EMAIL{"Side cadence<br/>email?"}
-        RT_SEND_SIDE["→ sendSequencedEmail<br/><i>(accompanies primary action)</i>"]
-        RT_ACTION{"Primary action?"}
-        RT_OPENER_CALL["send_opener_then_call<br/><i>Send opener email<br/>then fall through to create_call</i>"]
-        RT_CREATE_CALL["create_call<br/><i>Dedup check → CREATE Call<br/>Subject, Sequence_Stage/Attempt,<br/>Call_Purpose_Detail, Call_Type=Outbound,<br/>Block_Email_Until_Done=Yes</i>"]
-        RT_SEND_EMAIL["send_email_now<br/><i>→ sendSequencedEmail</i>"]
-        RT_SCHED_EMAIL["schedule_email<br/><i>CREATE 'Scheduled Send' wake-up Task<br/>with ScheduledSend| payload<br/>+ Due_Date (business days offset)</i>"]
-        RT_CREATE_TASK["create_task<br/><i>Draft Commercials (Proposal Prep)<br/>Onboarding Setup (Onboarding)<br/>Manual Review (default)</i>"]
-        RT_AWAIT["await_meeting / none<br/><i>No activity created</i>"]
-        RT_WRITE_CONTACT["UPDATE Contact (suppressTrigger)<br/><i>Stage, Sequence_Type/State/Stage/Step<br/>+ Lost flags if setContactLost</i>"]
-        RT_DEAL_VIABILITY{"Contact Lost +<br/>is Primary Contact?"}
-        RT_CHECK_OTHERS["Check Deal Contact_Roles<br/><i>for other Open Contacts</i>"]
-        RT_ANOTHER_OPEN["Another Open exists →<br/><i>CREATE Manual Review Task<br/>'Reassign Primary Contact'</i>"]
-        RT_DEAL_LOST["No other Open →<br/><i>UPDATE Deal: Opportunity_State=Lost,<br/>Opportunity_Status=Closed</i>"]
-        RT_LOOKUP_FAIL["Lookup failed (fail-safe) →<br/><i>CREATE Manual Review Task<br/>'Viability unresolved'<br/>DO NOT close Deal</i>"]
-        RT_PRIMARY_ROLLUP["Primary Contact (not lost) →<br/><i>→ processDeal(dealId)</i>"]
-
-        RT_READ --> RT_BLOCK_CHECK
-        RT_BLOCK_CHECK -->|"Yes"| RT_BLOCKED
-        RT_BLOCK_CHECK -->|"No"| RT_RESOLVE
-        RT_RESOLVE --> RT_SUPERSEDE
-        RT_SUPERSEDE -->|"Yes"| RT_CANCEL_OLD --> RT_SIDE_EMAIL
-        RT_SUPERSEDE -->|"No"| RT_SIDE_EMAIL
-        RT_SIDE_EMAIL -->|"Yes"| RT_SEND_SIDE --> RT_ACTION
-        RT_SIDE_EMAIL -->|"No"| RT_ACTION
-        RT_ACTION -->|"send_opener_then_call"| RT_OPENER_CALL --> RT_CREATE_CALL
-        RT_ACTION -->|"create_call"| RT_CREATE_CALL
-        RT_ACTION -->|"send_email_now"| RT_SEND_EMAIL
-        RT_ACTION -->|"schedule_email"| RT_SCHED_EMAIL
-        RT_ACTION -->|"create_task"| RT_CREATE_TASK
-        RT_ACTION -->|"await_meeting / none"| RT_AWAIT
-        RT_CREATE_CALL --> RT_WRITE_CONTACT
-        RT_SEND_EMAIL --> RT_WRITE_CONTACT
-        RT_SCHED_EMAIL --> RT_WRITE_CONTACT
-        RT_CREATE_TASK --> RT_WRITE_CONTACT
-        RT_AWAIT --> RT_WRITE_CONTACT
-        RT_WRITE_CONTACT --> RT_DEAL_VIABILITY
-        RT_DEAL_VIABILITY -->|"Yes"| RT_CHECK_OTHERS
-        RT_CHECK_OTHERS -->|"Another Open"| RT_ANOTHER_OPEN
-        RT_CHECK_OTHERS -->|"None Open"| RT_DEAL_LOST
-        RT_CHECK_OTHERS -->|"Lookup failed"| RT_LOOKUP_FAIL
-        RT_DEAL_VIABILITY -->|"No (not lost or not primary)"| RT_PRIMARY_ROLLUP
-    end
-
-    %% ======================= CALL CADENCE =======================
-    subgraph CALL_CADENCE["📞 Call / Email Cadence — handleCallOutcome"]
-        direction TB
-        CC_CALL(["⚡ Call N (N=1..5)<br/>Sequence_Stage=Call<br/>Sequence_Step=N"])
-        CC_GUARDS["Guards:<br/><i>Sequence_Managed = Yes<br/>Stale ≠ Yes<br/>Call_Outcome present<br/>Call.Sequence_Stage = Contact.Stage<br/>(NOT Contact.Sequence_Stage)<br/>Call.Sequence_Attempt = Contact.Sequence_Step<br/>(only when Contact.Sequence_Stage=Call)</i>"]
-        CC_OUTCOME{"Call_Outcome?"}
-        CC_POSITIVE["✅ Positive<br/><i>→ call:positive<br/>SUPERSEDE → advance<br/>to next stage</i>"]
-        CC_NEUTRAL["➡️ Neutral / No Answer<br/><i>step < 5: Call N+1 in 2 biz days<br/>+ cadence email N<br/>step = 5: schedule postcall email<br/>+ cadence email 5</i>"]
-        CC_DEFERRED["⏸️ Deferred<br/><i>Resolver action=none (seq stays Running)<br/>handleCallOutcome creates new Call<br/>at Next_Follow_Up_Date (side-effect,<br/>not via router)</i>"]
-        CC_BADDATA["🔧 Bad Data<br/><i>Resolver: action=none, stay Running<br/>handleCallOutcome side-effect:<br/>CREATE Data Repair Task (blocking)</i>"]
-        CC_NOT_REL["❓ Not Relevant<br/><i>Resolver: action=none, stay Running<br/>handleCallOutcome side-effect:<br/>CREATE Manual Review Task</i>"]
-        CC_ALREADY["✓ Already Handled<br/><i>action=none, reason=call_already_handled<br/>Sequence state unchanged</i>"]
-        CC_MANUAL["🤚 Manual Only<br/><i>Seq Type=Manual<br/>Seq State=Stopped<br/>terminal=true</i>"]
-        CC_NEGATIVE["❌ Negative / Do Not Contact<br/><i>Resolver: setContactLost=true<br/>contactLostReason=No Fit (Neg) / No Response (DNC) — canonical<br/>handleCallOutcome stamps the same canonical Lost_Reasons<br/>Deal viability check</i>"]
-
-        CC_CALL --> CC_GUARDS --> CC_OUTCOME
-        CC_OUTCOME -->|"Positive"| CC_POSITIVE
-        CC_OUTCOME -->|"Neutral / No Answer"| CC_NEUTRAL
-        CC_OUTCOME -->|"Deferred"| CC_DEFERRED
-        CC_OUTCOME -->|"Bad Data"| CC_BADDATA
-        CC_OUTCOME -->|"Not Relevant"| CC_NOT_REL
-        CC_OUTCOME -->|"Already Handled"| CC_ALREADY
-        CC_OUTCOME -->|"Manual Only"| CC_MANUAL
-        CC_OUTCOME -->|"Negative / DNC"| CC_NEGATIVE
-    end
-
-    %% ======================= DEMO LIFECYCLE =======================
-    subgraph DEMO_FLOW["🎥 Demo Lifecycle — handleMeetingEvent (demo SOT)"]
-        direction TB
-        DF_BOOKING["Demo Booking cadence<br/><i>(Call 1..5 + cadence emails)</i>"]
-        DF_MEETING_CREATE(["⚡ Meeting Created/Scheduled<br/>(Event record)"])
-        DF_FIRST_BOOK{"Contact.Stage<br/>< Demo Confirmation?"}
-        DF_ADVANCE_DC["→ meeting:created<br/><i>Stage = Demo Confirmation<br/>Seq_Stage = Meeting<br/>SEND demo_confirmation email</i>"]
-        DF_MIRROR["Mirror to Deal (suppressTrigger)<br/><i>Deal.Demo_Start_DateTime<br/>Deal.Demo_Reminder_Send_At<br/>(1 biz day before, 09:00)<br/>Event.Reminder_Send_At = source of truth</i>"]
-        DF_REMINDER(["⏰ WF010c fires<br/>Demo_Reminder_Send_At"])
-        DF_SEND_REMINDER["SEND demo_reminder email<br/><i>(guard: Outcome blank, start future,<br/>Primary Contact open)</i>"]
-        DF_COMPLETED(["⚡ Meeting Completed<br/>(handleMeetingEvent reads<br/>Event.Meeting_Outcome — sole SOT;<br/>Deal.Demo_Outcome retired/not written)"])
-        DF_OUTCOME{"Meeting_Outcome?<br/><i>(NO Demo_Status field<br/>exists in v6)</i>"}
-        DF_QUALIFIED["✅ Attended - Qualified<br/><i>→ demo:qualified<br/>(no Deal write — Event outcome<br/>resolves into Contact Stage)<br/>SEND demo_post_demo email<br/>→ Proposal Preparation</i>"]
-        DF_FOLLOWUP["➡️ Needs Follow-up<br/><i>→ demo:followup<br/>(no Deal write)<br/>→ Demo Hosted cadence</i>"]
-        DF_NOT_QUAL["❌ Not Qualified<br/><i>→ demo:not_qualified<br/>Contact Lost (No Fit)<br/>Deal viability check</i>"]
-        DF_NOSHOW["🚫 No Show<br/><i>→ demo:noshow<br/>(no Deal write — outcome lives<br/>on Event.Meeting_Outcome)<br/>SEND demo_no_show email<br/>→ Revert to Demo Booking</i>"]
-        DF_CANCELLED(["Meeting Status=Cancelled<br/>(handleMeetingEvent)"])
-        DF_CANCEL_ACTION["Clear Event + Deal reminders<br/><i>→ meeting:cancelled (direct router call)<br/>→ Revert to Demo Booking<br/>(handleMeetingEvent owns cancel;<br/>distinct from demo:cancelled token)</i>"]
-        DF_RESCHEDULED["Rescheduled<br/><i>→ demo:rescheduled<br/>action=none (no Deal write,<br/>no sequence change).<br/>Event.Meeting_Status holds lifecycle.</i>"]
-
-        DF_BOOKING --> DF_MEETING_CREATE
-        DF_MEETING_CREATE --> DF_FIRST_BOOK
-        DF_FIRST_BOOK -->|"Yes"| DF_ADVANCE_DC
-        DF_FIRST_BOOK -->|"No (already past)"| DF_MIRROR
-        DF_ADVANCE_DC --> DF_MIRROR
-        DF_MIRROR --> DF_REMINDER --> DF_SEND_REMINDER
-        DF_MIRROR --> DF_COMPLETED
-        DF_COMPLETED --> DF_OUTCOME
-        DF_OUTCOME -->|"Attended - Qualified"| DF_QUALIFIED
-        DF_OUTCOME -->|"Attended - Needs Follow-up"| DF_FOLLOWUP
-        DF_OUTCOME -->|"Attended - Not Qualified"| DF_NOT_QUAL
-        DF_OUTCOME -->|"No Show"| DF_NOSHOW
-        DF_MEETING_CREATE -->|"Meeting_Status=Cancelled"| DF_CANCELLED --> DF_CANCEL_ACTION
-        DF_OUTCOME -->|"Rescheduled"| DF_RESCHEDULED
-    end
-
-    %% ======================= PROPOSAL PREPARATION =======================
-    subgraph PROPOSAL["📝 FTP — Proposal Preparation"]
-        direction TB
-        PP_ENTRY["Stage = Proposal Preparation<br/><i>task-first route</i>"]
-        PP_TASK["CREATE Task<br/><i>Type: Draft Commercials<br/>Blocks_Sequence = Yes</i>"]
-        PP_QUOTE_SEED["ensureDealQuote:<br/><i>Dedup: skip if open Quote exists<br/>Gather quote-ready Products<br/>(Active + Plan_Products + Plan_Type + Code)<br/>Price each line via resolveQuoteLinePrice<br/>CREATE Quote (Draft) with Quoted_Items</i>"]
-        PP_NO_PRODUCTS["No quote-ready Products →<br/><i>CREATE Manual Review Task</i>"]
-        PP_COMPLETE["Task completed →<br/><i>task:positive<br/>SUPERSEDE → advance</i>"]
-
-        PP_ENTRY --> PP_TASK
-        PP_ENTRY --> PP_QUOTE_SEED
-        PP_QUOTE_SEED -->|"No products"| PP_NO_PRODUCTS
-        PP_TASK --> PP_COMPLETE
-    end
-
-    %% ======================= COMMERCIAL AGREEMENT =======================
-    subgraph COMMERCIAL["💼 FTP — Commercial Agreement"]
-        direction TB
-        CA_ENTRY["Stage = Commercial Agreement<br/><i>cadence stage (Call 1..5 + emails)</i>"]
-        CA_SEND_TASK(["Send Commercials Task completed"])
-        CA_SEND_EFFECT["Quote → Delivered<br/><i>Deal.Commercials_Status = Sent<br/>→ handleCommercialsStatusChange</i>"]
-        CA_SENT_ACTION["commercial:sent<br/><i>SEND commercials_terms email<br/>Stamp Commercials_Sent_At</i>"]
-        CA_FOLLOWUP(["⏰ WF010d fires<br/>Next_Comm_Follow_Up_Date"])
-        CA_FOLLOWUP_ACTION["commercial:followup_due<br/><i>Re-engage cadence with Call</i>"]
-        CA_DISCUSSED["Commercials_Status = Discussed<br/><i>Stamp Commercials_Discussed_At<br/>No transition</i>"]
-        CA_INTENT["Commercials_Status = Intent to Sign<br/><i>Set Intent_To_Sign = true<br/>No transition</i>"]
-        CA_DEFERRED["Commercials_Status = Deferred<br/><i>No transition (cadence keeps running;<br/>no Paused state exists)</i>"]
-        CA_SIGNED(["Commercials_Status = Signed"])
-        CA_SIGNED_ACTION["commercial:signed<br/><i>Stamp Signed_At<br/>Deal.Opportunity_State stays Open (never Won)<br/>SEND commercials_signed_confirmation email<br/>→ Onboarding</i>"]
-        CA_REJECTED(["Commercials_Status = Rejected"])
-        CA_REJECTED_ACTION["commercial:rejected<br/><i>Contact Lost (Terms Rejected)<br/>Deal viability check</i>"]
-
-        CA_ENTRY --> CA_SEND_TASK --> CA_SEND_EFFECT --> CA_SENT_ACTION
-        CA_SENT_ACTION --> CA_FOLLOWUP --> CA_FOLLOWUP_ACTION
-        CA_ENTRY --> CA_DISCUSSED
-        CA_ENTRY --> CA_INTENT
-        CA_ENTRY --> CA_DEFERRED
-        CA_ENTRY --> CA_SIGNED --> CA_SIGNED_ACTION
-        CA_ENTRY --> CA_REJECTED --> CA_REJECTED_ACTION
-    end
-
-    %% ======================= QUOTE LIFECYCLE =======================
-    subgraph QUOTE_LIFE["📋 Quote Lifecycle — handleQuoteStageChange + syncConfirmedQuoteToDeal"]
-        direction TB
-        QL_DRAFT["Quote: Draft<br/><i>(seeded by ensureDealQuote)</i>"]
-        QL_NEGOTIATION["Quote: Negotiation<br/><i>No auto side-effect</i>"]
-        QL_DELIVERED["Quote: Delivered<br/><i>→ Deal.Commercials_Status = Sent<br/>→ handleCommercialsStatusChange</i>"]
-        QL_CONFIRMED["Quote: Confirmed<br/><i>→ syncConfirmedQuoteToDeal</i>"]
-        QL_SYNC["syncConfirmedQuoteToDeal:<br/><i>Validate (Subject, Account, Contact, Start)<br/>resolveQuotePlanSummary → ACV<br/>First Quote → Contract_Initial_*<br/>Later Quote → require Contract_Type<br/>  Demote prior Confirmed → Closed Won<br/>  → Contract_Current_*<br/>Deal.Amount = ACV<br/>Commercials_Status → Signed</i>"]
-        QL_VALID_FAIL["Validation failed →<br/><i>Quote → On Hold<br/>CREATE Manual Review Task</i>"]
-        QL_TYPE_FAIL["Later Quote missing Contract_Type →<br/><i>Quote → On Hold<br/>CREATE Manual Review Task</i>"]
-        QL_CLOSED_LOST["Quote: Closed Lost"]
-        QL_OTHER_CHECK{"Other active<br/>Quote exists?"}
-        QL_LOSS_ONLY["No other active →<br/><i>Deal.Commercials_Status = Rejected<br/>→ handleCommercialsStatusChange</i>"]
-        QL_REPLACEMENT["Other active exists →<br/><i>Log only, no loss</i>"]
-
-        QL_DRAFT --> QL_NEGOTIATION --> QL_DELIVERED
-        QL_DELIVERED --> QL_CONFIRMED
-        QL_CONFIRMED --> QL_SYNC
-        QL_SYNC -->|"Validation OK"| CA_SIGNED_ACTION
-        QL_SYNC -->|"Validation failed"| QL_VALID_FAIL
-        QL_SYNC -->|"Missing Contract_Type"| QL_TYPE_FAIL
-        QL_DELIVERED --> QL_CLOSED_LOST
-        QL_CLOSED_LOST --> QL_OTHER_CHECK
-        QL_OTHER_CHECK -->|"No"| QL_LOSS_ONLY
-        QL_OTHER_CHECK -->|"Yes"| QL_REPLACEMENT
-    end
-
-    %% ======================= ONBOARDING =======================
-    subgraph ONBOARDING["🚀 RTP — Onboarding"]
-        direction TB
-        OB_ENTRY["Stage = Onboarding<br/><i>task-first route</i>"]
-        OB_TASK["CREATE Task<br/><i>Type: Onboarding Setup<br/>Blocks_Sequence = Yes</i>"]
-        OB_COMPLETE_HTC["handleTaskCompletion:<br/><i>Onboarding Setup completed →<br/>Contact.Sequence_State = Complete<br/>Contact.Sequence_Stage = None<br/>Contact.Sequence_Step = None</i>"]
-        OB_ADVANCE["task:positive →<br/><i>SUPERSEDE → advance<br/>→ Renewal</i>"]
-
-        OB_ENTRY --> OB_TASK --> OB_COMPLETE_HTC
-        OB_TASK --> OB_ADVANCE
-    end
-
-    %% ======================= RENEWAL =======================
-    subgraph RENEWAL_FLOW["🔄 RTP — Renewal"]
-        direction TB
-        RN_ENTRY["Stage = Renewal<br/><i>cadence stage (Call 1..5 + emails)</i>"]
-        RN_POSITIVE["call:positive →<br/><i>Renewal → Renewal (self-loop)<br/>Re-enter cadence</i>"]
-        RN_LOST["call:negative/DNC →<br/><i>Contact Lost<br/>Deal viability check</i>"]
-
-        RN_ENTRY --> RN_POSITIVE
-        RN_ENTRY --> RN_LOST
-    end
-
-    %% ======================= EMAIL EVENTS =======================
-    subgraph EMAIL_EVENTS["📧 Email Events — handleEmailEvent + wrappers"]
-        direction TB
-        EE_REPLIED(["WF009a: Email Replied"])
-        EE_BOUNCED(["WF009b: Email Bounced"])
-        EE_UNREPLIED(["WF009c: Not Replied"])
-        EE_OPENED(["WF009d: Opened Not Replied"])
-        EE_CLICKED(["WF009e: Clicked"])
-        EE_REPLY_ACTION["CREATE Review Reply Task<br/><i>(blocking — rep decides next step)</i>"]
-        EE_BOUNCE_ACTION["CREATE Data Repair Task<br/><i>+ Contact.Profile_Completion_Status<br/>= Needs Enrichment</i>"]
-        EE_PASSIVE["Log only<br/><i>No auto-action</i>"]
-
-        EE_REPLIED --> EE_REPLY_ACTION
-        EE_BOUNCED --> EE_BOUNCE_ACTION
-        EE_UNREPLIED --> EE_PASSIVE
-        EE_OPENED --> EE_PASSIVE
-        EE_CLICKED --> EE_PASSIVE
-    end
-
-    %% ======================= TASK COMPLETION (non-activation) =======================
-    subgraph TASK_TYPES["📋 Other Task Completions — handleTaskCompletion"]
-        direction TB
-        TT_SEND_COMM["Send Commercials →<br/><i>Quote → Delivered<br/>Deal.Commercials_Status = Sent<br/>→ handleCommercialsStatusChange</i>"]
-        TT_DATA_REPAIR["Data Repair / Review Reply /<br/>Enrichment →<br/><i>routeContactSequence('resume')<br/>Sequence continues</i>"]
-        TT_DRAFT_COMM["Draft Commercials /<br/>Manual Review /<br/>Suppression Review →<br/><i>Log only, no auto-action</i>"]
-
-        TT_SEND_COMM
-        TT_DATA_REPAIR
-        TT_DRAFT_COMM
-    end
-
-    %% ======================= EMAIL SENDING =======================
-    subgraph EMAIL_ENGINE["✉️ sendSequencedEmail — Sole Email Owner"]
-        direction TB
-        SE_RESOLVE["Resolve canonical template key<br/><i>stage-slug : step : kind<br/>(e.g. demo-booking:2:follow-up)</i>"]
-        SE_REGISTRY["V5 Template Registry<br/><i>38 registered templates across<br/>Marketing Consent, Demo Booking,<br/>Demo Confirmation, Demo Hosted,<br/>Commercial Agreement, Renewal,<br/>+ event emails (confirmation,<br/>reminder, no-show, post-demo,<br/>proposal-sent, signed-confirmation)</i>"]
-        SE_IDEMP["Idempotency check<br/><i>SendKey = contactId|dealId|canonicalKey<br/>Skip if Completed 'Email Sent' audit<br/>with same SendKey exists</i>"]
-        SE_CONSENT{"Marketing_Consent_Status<br/>= Not Consented /<br/>Withdrawn?"}
-        SE_SKIP(["↩ Skip — no consent"])
-        SE_SEND["invokeurl POST<br/><i>/crm/v3/Contacts/{id}/actions/send_mail<br/>from = Deal Owner email<br/>to = Contact.Email<br/>template = registry id</i>"]
-        SE_AUDIT["CREATE/UPDATE Task<br/><i>Type: Email Sent<br/>Status: Completed<br/>Description: SendKey + Message ID</i>"]
-        SE_FAIL["Send failed →<br/><i>CREATE Manual Review Task<br/>Leave scheduled Task retryable</i>"]
-        SE_MISSING["Missing template →<br/><i>CREATE Manual Review Task</i>"]
-
-        SE_RESOLVE --> SE_REGISTRY --> SE_IDEMP
-        SE_IDEMP --> SE_CONSENT
-        SE_CONSENT -->|"Yes"| SE_SKIP
-        SE_CONSENT -->|"No"| SE_SEND
-        SE_SEND -->|"Success"| SE_AUDIT
-        SE_SEND -->|"Failure"| SE_FAIL
-        SE_REGISTRY -->|"Key not found"| SE_MISSING
-    end
-
-    %% ======================= LOST / SUPPRESSED =======================
-    subgraph LOST_PATHS["🛑 Lost / Suppressed / Error Paths"]
-        direction TB
-        LP_CONTACT_LOST["Contact Lost<br/><i>State=Lost, Status=Closed<br/>Sequence_State=Stopped<br/>Lost_Reasons stamped</i>"]
-        LP_DEAL_VIABILITY["Deal viability check<br/><i>Is Contact the Primary?<br/>Any other Open Contact<br/>in Deal Contact Roles?</i>"]
-        LP_DEAL_SURVIVES["Deal survives<br/><i>CREATE Manual Review Task<br/>'Reassign Primary Contact'</i>"]
-        LP_DEAL_LOST["Deal Lost<br/><i>Opportunity_State=Lost<br/>Opportunity_Status=Closed</i>"]
-        LP_FAIL_SAFE["Lookup failed (fail-safe)<br/><i>CREATE Manual Review Task<br/>DO NOT close the Deal</i>"]
-        LP_SUPPRESSED["Deal.Automation_Suppressed = true<br/><i>All activity handlers skip:<br/>handleMeetingEvent, handleEmailEvent,<br/>handleCommercialsStatusChange,<br/>ensureDealQuote, syncConfirmedQuoteToDeal,<br/>sendDemoReminder, sendCommercialFollowUp,<br/>handleQuoteStageChange</i>"]
-
-        LP_CONTACT_LOST --> LP_DEAL_VIABILITY
-        LP_DEAL_VIABILITY -->|"Another Open"| LP_DEAL_SURVIVES
-        LP_DEAL_VIABILITY -->|"None Open"| LP_DEAL_LOST
-        LP_DEAL_VIABILITY -->|"Lookup failed"| LP_FAIL_SAFE
-    end
-
-    %% ======================= UTILITIES =======================
-    subgraph UTILITIES["🔧 Utilities / Shared Services"]
-        direction TB
-        UT_RESOLVE_ACTION["resolveContactAction<br/><i>Pure state machine<br/>38 trigger tokens →<br/>action + next state</i>"]
-        UT_AUX_TASK["createAuxTask<br/><i>Deduped blocking Task<br/>(Data Repair, Manual Review,<br/>Review Reply, etc.)<br/>Who_Id=Contact, What_Id=Deal</i>"]
-        UT_BIZ_DATE["calculateBusinessDate<br/><i>±N business days (skip weekends)<br/>business_days_minus_AM → 09:00 snap</i>"]
-        UT_LOG["logAutomationEvent<br/><i>Structured info log:<br/>func, module, record, action, outcome, payload</i>"]
-        UT_QUOTE_PRICE["resolveQuoteLinePrice<br/><i>Pricing matrix: UX Fixed/Flex,<br/>360 4x/2x/1x, bands 5-100,<br/>tiers Base/Markup/Agency<br/>→ line_acv = ppb × brands</i>"]
-        UT_QUOTE_SUMMARY["resolveQuotePlanSummary<br/><i>Aggregate Quote Quoted_Items →<br/>total ACV, planType, planProducts,<br/>planBrands, mixed flag</i>"]
-        UT_SCHED_SEND["sendScheduledEmailFromTask<br/><i>Parse ScheduledSend| payload<br/>→ sendSequencedEmail(taskId)<br/>postcall → Contact.Sequence_State=Complete</i>"]
-        UT_DEMO_REMIND["sendDemoReminder<br/><i>WF010c: Demo_Reminder_Send_At<br/>Guard: outcome blank, start future, primary open<br/>→ sendSequencedEmail(demo_reminder)</i>"]
-        UT_COMM_FOLLOW["sendCommercialFollowUp<br/><i>WF010d: Next_Comm_Follow_Up_Date<br/>Guard: Opp_Stage=Commercial Agreement,<br/>Commercials_Status=Sent, primary open<br/>→ routeContactSequence(commercial:followup_due)</i>"]
-    end
-
-    %% ======================= CROSS-SUBGRAPH CONNECTIONS =======================
-
-    %% Lead → Account → Conversion → Deal → processContact
-    LI_PI --> AR_SEARCH
-    AR_UPDATE --> LC_DEDUP
-    AR_CREATE --> LC_DEDUP
-    AR_DUP_HANDLE --> LC_DEDUP
-    LC_ENRICH --> DR_SEARCH
-    DR_CREATE --> PC_READ
-    DR_REUSE --> PC_READ
-
-    %% processContact → processDeal
-    PC_CALL_PD --> PD_DUP_CHECK
-
-    %% processAccount → processDeal
-    PA_DELEGATE --> PD_DUP_CHECK
-
-    %% processDeal → ensureDealQuote
-    PD_SEED_QUOTE --> PP_QUOTE_SEED
-
-    %% Activation → Cadence
-    ACT_EMAIL --> RT_READ
-    ACT_CALL --> RT_READ
-
-    %% Router → external actions
-    RT_SEND_SIDE --> SE_RESOLVE
-    RT_SEND_EMAIL --> SE_RESOLVE
-    RT_PRIMARY_ROLLUP --> PD_DUP_CHECK
-
-    %% Call outcomes → stages
-    CC_POSITIVE -->|"Marketing Consent →"| DF_BOOKING
-    CC_NEGATIVE --> LP_CONTACT_LOST
-
-    %% Demo outcomes → stages
-    DF_QUALIFIED --> PP_ENTRY
-    DF_NOT_QUAL --> LP_CONTACT_LOST
-    DF_NOSHOW --> DF_BOOKING
-
-    %% Proposal → Commercial Agreement
-    PP_COMPLETE --> CA_ENTRY
-
-    %% Commercial → Onboarding
-    CA_SIGNED_ACTION --> OB_ENTRY
-
-    %% Commercial loss
-    CA_REJECTED_ACTION --> LP_CONTACT_LOST
-    QL_LOSS_ONLY --> LP_CONTACT_LOST
-
-    %% Onboarding → Renewal
-    OB_ADVANCE --> RN_ENTRY
-
-    %% Renewal loss
-    RN_LOST --> LP_CONTACT_LOST
-
-    %% Quote connections
-    CA_SEND_EFFECT --> QL_DELIVERED
-
-    %% Task completions
-    TT_SEND_COMM --> CA_SEND_EFFECT
-    TT_DATA_REPAIR --> RT_READ
+    RetiredFields["Retired/DEP labels<br/>Commercials_Status<br/>Meeting_Type<br/>Conversion_Outcome"]:::retired
+    Phantom["Do not write<br/>Commercials_*_At<br/>Signed_At<br/>Intent_To_Sign<br/>activity marker fields"]:::retired

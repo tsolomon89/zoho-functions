@@ -3,11 +3,9 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	// =========================================================================
 	// handleCommercialsStatusChange  (LEGACY back-compat wrapper — WF004)
 	//
-	// Commercials_Status is being RETIRED as a source of truth. Commercial transitions
-	// are now driven DIRECTLY via automation.applyCommercialTransition(dealId, transition)
-	// from the Quote stage change, Send Commercials task, commercial/renewal meeting, and
-	// contract sync. This wrapper simply maps the legacy Commercials_Status field value to a
-	// transition so WF004 keeps working until it is disabled (then DEP-rename the field).
+	// Commercials_Status is RETIRED as a source of truth. This wrapper exists only
+	// while WF004 remains active during cutover. It maps legacy field values into
+	// the safe transition wrapper, which routes but does not write phantom fields.
 	// =========================================================================
 
 	info "VERSION: v6-activity-state";

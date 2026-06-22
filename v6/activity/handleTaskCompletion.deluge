@@ -25,7 +25,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 	//   "Already Handled"  -> idempotent no-op
 	// Positive ("Completed") or blank -> Task_Type success behaviour:
 	//   "Onboarding Setup"  -> Contact Sequence_State = Complete (terminal; Renewal is date-driven)
-	//   "Send Commercials"  -> Deal Commercials_Status = Sent + handleCommercialsStatusChange
+	//   "Send Commercials"  -> Quote Delivered + commercial:sent routing
 	//   "Data Repair"/"Review Reply"/"Enrichment" -> resume the Contact sequence
 	//   "Draft Commercials" -> create/surface "Send Commercials" task; stay at Proposal Preparation
 	//   "Manual Review"/"Suppression Review" -> Completed: resume; else no auto action
@@ -281,6 +281,34 @@ void automation.handleTaskCompletion(string taskIdStr)
 		return;
 	}
 
+	// Build commercial evidence context once. Commercial helper Task types
+	// (Draft/Send Commercials) return before the generic branch below, so they
+	// must call processDeal directly when Product evidence is present.
+	taskActivityCtx = Map();
+	taskActivityCtx.put("source", "activity");
+	taskActivityCtx.put("sourceModule", "Tasks");
+	taskActivityCtx.put("sourceActivityId", taskId.toString());
+	taskActivityCtx.put("contactId", contactId.toString());
+	taskActivityCtx.put("activityState", "Won");
+	taskProductList = List();
+	rawTaskProds = task.get("Task_Contract_Products");
+	if(!isNull(rawTaskProds))
+	{
+		for each pv in rawTaskProds
+		{
+			pvs = ifnull(pv, "").toString().trim();
+			if(pvs != "" && pvs != "-None-") { taskProductList.add(pvs); }
+		}
+	}
+	taskActivityCtx.put("products", taskProductList);
+	taskBrands = ifnull(task.get("Task_Contract_Brands"), "").toString().trim();
+	if(taskBrands != "") { taskActivityCtx.put("numberOfBrands", taskBrands.toLong()); }
+	taskStart = ifnull(task.get("Task_Contract_Date_Start"), "").toString().trim();
+	if(taskStart != "") { taskActivityCtx.put("contractDateStart", taskStart); }
+	taskEnd = ifnull(task.get("Task_Contract_Date_End"), "").toString().trim();
+	if(taskEnd != "") { taskActivityCtx.put("contractDateEnd", taskEnd); }
+	hasTaskProductEvidence = taskProductList.size() > 0;
+
 	// =====================================================================
 	// OTHER TASK TYPES — positive ("Completed") or blank outcome runs the Type success behaviour
 	// =====================================================================
@@ -297,8 +325,22 @@ void automation.handleTaskCompletion(string taskIdStr)
 
 	if(tType == "Send Commercials")
 	{
-		// Drive the Deal's active open Quote to Delivered (suppressed: WF020 will not
-		// re-fire; Commercials_Status=Sent is set directly below). Picks the latest
+		if(tOutcome == "Completed" && hasTaskProductEvidence)
+		{
+			pdRawSend = automation.processDeal(dealId.toString(), taskActivityCtx.toString());
+			pdSend = Map();
+			if(!isNull(pdRawSend) && pdRawSend.toString().trim() != "") { pdSend = pdRawSend.toString().toMap(); }
+			if(ifnull(pdSend.get("success"), false) != true)
+			{
+				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Send Commercials Task " + taskId + " could not apply Product evidence before sending. Resolve the Quote/Product issue and re-run.");
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdSend.get("outcome"), "").toString()});
+				return;
+			}
+		}
+
+		// Drive the Deal's active open Quote to Delivered with workflow suppressed.
+		// WF021 will reconcile on later Quote edits; this task routes commercial:sent
+		// directly without writing retired Commercials_Status. Picks the latest
 		// (highest-id) Quote still in an editable stage.
 		dealQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
 		if(!isNull(dealQuotes) && dealQuotes.size() > 0 && !dealQuotes.toString().startsWith("{\"code\""))
@@ -340,6 +382,18 @@ void automation.handleTaskCompletion(string taskIdStr)
 		// Send Commercials task and stay at Proposal Preparation. The advance to Commercial
 		// Agreement happens only at the customer-facing boundary (Send Commercials completion /
 		// Quote_Stage=Delivered -> commercial:sent). createAuxTask dedups on the open task.
+		if(tOutcome == "Completed" && hasTaskProductEvidence)
+		{
+			pdRawDraft = automation.processDeal(dealId.toString(), taskActivityCtx.toString());
+			pdDraft = Map();
+			if(!isNull(pdRawDraft) && pdRawDraft.toString().trim() != "") { pdDraft = pdRawDraft.toString().toMap(); }
+			if(ifnull(pdDraft.get("success"), false) != true)
+			{
+				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Draft Commercials Task " + taskId + " could not apply Product evidence. Resolve the Quote/Product issue and re-run.");
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdDraft.get("outcome"), "").toString()});
+				return;
+			}
+		}
 		newSendId = automation.createAuxTask(contactId.toString(), dealId.toString(), "Send Commercials", "Commercials drafted - send to the customer to advance to Commercial Agreement.");
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "send_commercials_surfaced", {"contact":contactId.toString(), "send_task":newSendId});
 		return;
@@ -363,33 +417,8 @@ void automation.handleTaskCompletion(string taskIdStr)
 	// task completion genuinely IS the stage gate (routeContactSequence/processDeal own the writes).
 	if(tOutcome == "Completed")
 	{
-		// carry commercial evidence: Task_Contract_Products is a MULTI-SELECT PICKLIST of Product
-		// NAME strings (jsonarray); brands/dates apply to the Product Quote line (not the Contact).
-		actx = Map();
-		actx.put("source", "activity");
-		actx.put("sourceModule", "Tasks");
-		actx.put("sourceActivityId", taskId.toString());
-		actx.put("contactId", contactId.toString());
-		actx.put("activityState", "Won");
-		prodList = List();
-		rawProds = task.get("Task_Contract_Products");
-		if(!isNull(rawProds))
-		{
-			for each pv in rawProds
-			{
-				pvs = ifnull(pv, "").toString().trim();
-				if(pvs != "" && pvs != "-None-") { prodList.add(pvs); }
-			}
-		}
-		actx.put("products", prodList);
-		tBrands = ifnull(task.get("Task_Contract_Brands"), "").toString().trim();
-		if(tBrands != "") { actx.put("numberOfBrands", tBrands.toLong()); }
-		tStart = ifnull(task.get("Task_Contract_Date_Start"), "").toString().trim();
-		if(tStart != "") { actx.put("contractDateStart", tStart); }
-		tEnd = ifnull(task.get("Task_Contract_Date_End"), "").toString().trim();
-		if(tEnd != "") { actx.put("contractDateEnd", tEnd); }
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive", actx.toString());
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType, "products":prodList.size().toString()});
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive", taskActivityCtx.toString());
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType, "products":taskProductList.size().toString()});
 		return;
 	}
 	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"contact":contactId.toString()});

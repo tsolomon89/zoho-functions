@@ -1,25 +1,21 @@
 void automation.applyCommercialTransition(string dealIdStr, string transition)
 {
 	// =========================================================================
-	// applyCommercialTransition  (commercial executor — replaces Commercials_Status)
+	// applyCommercialTransition  (legacy-safe commercial transition wrapper)
 	//
-	// The canonical way to drive a commercial transition. Callers (Quote stage change,
-	// Send Commercials task, commercial/renewal meeting, contract sync) invoke this
-	// DIRECTLY with an explicit transition instead of writing the retired
-	// Deal.Commercials_Status field. Stamps the Deal-owned date/flag and routes the
-	// Primary Contact with the matching commercial:* token (the router owns Stage +
-	// the boundary email). Deals are never "Won": signing advances Opportunity_Stage.
+	// Retained only so WF004/handleCommercialsStatusChange can keep routing while
+	// Commercials_Status is being cut over. It must not write retired or phantom
+	// Deal fields. Quote lifecycle, processDeal, and routeContactSequence own the
+	// canonical commercial state.
 	//
-	//   transition:
-	//     "sent"      -> Commercials_Sent_At; commercial:sent
-	//     "signed"    -> Signed_At; Opportunity_State stays Open; commercial:signed
-	//     "rejected"  -> commercial:rejected (loss handled by router viability)
-	//     "discussed" -> Commercials_Discussed_At (no transition)
-	//     "intent"    -> Intent_To_Sign = true (no transition)
-	//     "deferred"  -> no transition (cadence keeps running)
+	// Routed transitions:
+	//   "sent"      -> route commercial:sent
+	//   "signed"    -> keep Opportunity_State Open, route commercial:signed
+	//   "rejected"  -> route commercial:rejected
+	//   "rejected_final" -> close the Deal as a final opportunity loss
 	//
-	// All Deal writes are workflow-suppressed; routeContactSequence is the single
-	// transition executor.
+	// Informational transitions:
+	//   "discussed", "intent", "deferred" -> log only; no field writes.
 	// =========================================================================
 
 	info "VERSION: v6-activity-state";
@@ -39,7 +35,6 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		return;
 	}
 
-	now = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
 	noTrigger = Map();
 	noTrigger.put("trigger", List());
 
@@ -47,29 +42,12 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 	cnLookup = deal.get("Contact_Name");
 	if(!isNull(cnLookup) && !isNull(cnLookup.get("id"))) { primaryId = cnLookup.get("id").toString(); }
 
-	// ---- non-transition stamps ----
-	if(tr == "discussed")
+	if(tr == "discussed" || tr == "intent" || tr == "deferred")
 	{
-		if(isNull(deal.get("Commercials_Discussed_At"))) { zoho.crm.updateRecord("Deals", dealId, {"Commercials_Discussed_At": now}, noTrigger); }
-		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "discussed", "stamped", null);
-		return;
-	}
-	if(tr == "intent")
-	{
-		zoho.crm.updateRecord("Deals", dealId, {"Intent_To_Sign": true}, noTrigger);
-		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "intent_to_sign", "flag_set", null);
-		return;
-	}
-	if(tr == "deferred")
-	{
-		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "deferred", "cadence_continues", null);
+		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), tr, "logged_no_field_write", null);
 		return;
 	}
 
-	// ---- FINAL opportunity-level rejection: close the Deal regardless of Contact viability ----
-	// Used for a genuinely final commercial loss (e.g. Quote Closed Lost with no active replacement
-	// Quote, or a final Terms Rejected / Churned). Unlike "rejected", this does NOT depend on the
-	// Deal-viability rollup (which would keep the Deal Open if another Contact is still open).
 	if(tr == "rejected_final")
 	{
 		dClose = Map();
@@ -77,8 +55,7 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		if(ifnull(deal.get("Opportunity_Status"), "").toString() != "Closed") { dClose.put("Opportunity_Status", "Closed"); }
 		if(ifnull(deal.get("Lost_Reasons"), "").toString() == "") { dClose.put("Lost_Reasons", "Terms Rejected"); }
 		if(dClose.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dClose, noTrigger); }
-		// Stop the Primary Contact's sequence + mark it Lost directly (the opportunity decision is final;
-		// no viability rollup needed). Other Contacts are moot once the opportunity is lost.
+
 		if(primaryId != "")
 		{
 			pUpd = Map();
@@ -95,20 +72,17 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		return;
 	}
 
-	// ---- transitions ----
 	token = "";
-	dUpd = Map();
 	if(tr == "sent")
 	{
 		token = "commercial:sent";
-		if(isNull(deal.get("Commercials_Sent_At"))) { dUpd.put("Commercials_Sent_At", now); }
 	}
 	else if(tr == "signed")
 	{
 		token = "commercial:signed";
-		if(isNull(deal.get("Signed_At"))) { dUpd.put("Signed_At", now); }
-		// Deals are never Won: signing advances Opportunity_Stage; keep viability Open.
+		dUpd = Map();
 		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open") { dUpd.put("Opportunity_State", "Open"); }
+		if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
 	}
 	else if(tr == "rejected")
 	{
@@ -119,8 +93,6 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 		automation.logAutomationEvent("applyCommercialTransition", "Deals", dealId.toString(), "no_action", tr, null);
 		return;
 	}
-
-	if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
 
 	if(primaryId == "")
 	{

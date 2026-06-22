@@ -464,6 +464,8 @@ string automation.processDeal(string deal_id, string contextJson)
 	// ===================================================================
 	productCatalog = Map();      // lowercase Product_Name -> product map
 	productCatalogByCode = Map(); // lowercase Product_Code -> product map
+	duplicateProductNameKeys = List();
+	duplicateProductCodeKeys = List();
 	catalogLoaded = false;
 
 	sourceContactId = ifnull(ctx.get("contactId"), "").toString();
@@ -515,9 +517,31 @@ string automation.processDeal(string deal_id, string contextJson)
 						if(isActiveP == true || isActiveP == "true")
 						{
 							pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
-							if(pNameRaw != "") { productCatalog.put(pNameRaw.toLowerCase(), p); }
+							if(pNameRaw != "")
+							{
+								pNameKey = pNameRaw.toLowerCase();
+								if(productCatalog.get(pNameKey) != null)
+								{
+									if(!duplicateProductNameKeys.contains(pNameKey)) { duplicateProductNameKeys.add(pNameKey); }
+								}
+								else
+								{
+									productCatalog.put(pNameKey, p);
+								}
+							}
 							pCodeRaw = ifnull(p.get("Product_Code"), "").toString().trim();
-							if(pCodeRaw != "") { productCatalogByCode.put(pCodeRaw.toLowerCase(), p); }
+							if(pCodeRaw != "")
+							{
+								pCodeKey = pCodeRaw.toLowerCase();
+								if(productCatalogByCode.get(pCodeKey) != null)
+								{
+									if(!duplicateProductCodeKeys.contains(pCodeKey)) { duplicateProductCodeKeys.add(pCodeKey); }
+								}
+								else
+								{
+									productCatalogByCode.put(pCodeKey, p);
+								}
+							}
 						}
 					}
 				}
@@ -533,9 +557,32 @@ string automation.processDeal(string deal_id, string contextJson)
 				safeName = pName.trim().replaceAll("  ", " ");
 				if(safeName != "")
 				{
+					// Temporary alias for live picklist options whose display labels were fixed
+					// but whose actual values still read back with one "i" via Zoho metadata.
+					if(safeName == "Jurni Cortex - Fixed") { safeName = "Jurnii Cortex - Fixed"; }
+					if(safeName == "Jurni Cortex - Flex") { safeName = "Jurnii Cortex - Flex"; }
 					nameKey = safeName.toLowerCase();
-					prod = productCatalog.get(nameKey);
-					if(prod == null) { prod = productCatalogByCode.get(nameKey); }
+					prod = null;
+					ambiguousProduct = false;
+					if(duplicateProductNameKeys.contains(nameKey))
+					{
+						ambiguousProduct = true;
+					}
+					else
+					{
+						prod = productCatalog.get(nameKey);
+						if(prod == null)
+						{
+							if(duplicateProductCodeKeys.contains(nameKey))
+							{
+								ambiguousProduct = true;
+							}
+							else
+							{
+								prod = productCatalogByCode.get(nameKey);
+							}
+						}
+					}
 					if(prod != null && prod.get("id") != null)
 					{
 						pid = prod.get("id").toString();
@@ -544,6 +591,12 @@ string automation.processDeal(string deal_id, string contextJson)
 							seenResolvedIds.add(pid);
 							resolvedProducts.add(prod);
 						}
+					}
+					else if(ambiguousProduct)
+					{
+						if(!reviewReasons.contains("product_name_ambiguous")) { reviewReasons.add("product_name_ambiguous"); }
+						automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Activity Product value matched multiple active Products: '" + safeName + "'. Make Product_Name/Product_Code unique and re-run.");
+						automation.logAutomationEvent("processDeal", "Deals", targetDealId, "product_ambiguous", safeName, {"activityKey":activityKey});
 					}
 					else
 					{
@@ -651,6 +704,11 @@ string automation.processDeal(string deal_id, string contextJson)
 						upQid = updatableMatches.get(0);
 						existingQ = zoho.crm.getRecordById("Quotes", upQid.toLong());
 						qUpd = Map();
+						qHeaderProd = Map();
+						qHeaderProd.put("id", prodId);
+						qUpd.put("Quote_Product", qHeaderProd);
+						qUpd.put("Opportunity_Type", quoteOppType);
+						qUpd.put("Quote_Last_Deal_ID", targetDealId);
 
 						// dates (nonblank-overwrite; blanks never erase)
 						if(ctxDateStart != "") { qUpd.put("Contract_Date_Start", ctxDateStart); }
@@ -706,7 +764,18 @@ string automation.processDeal(string deal_id, string contextJson)
 								newLines.add(lm);
 							}
 						}
-						if(lineEdited && newLines.size() > 0) { qUpd.put("Quoted_Items", newLines); }
+						else
+						{
+							lm = Map();
+							pm = Map();
+							pm.put("id", prodId);
+							lm.put("Product_Name", pm);
+							lm.put("Quantity", 1);
+							lm.put("Quoted_Item_Pricing_Tier", "Base");
+							if(ctxBrands != "" && ctxBrands != "null") { lm.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
+							newLines.add(lm);
+						}
+						if(newLines.size() > 0) { qUpd.put("Quoted_Items", newLines); }
 
 						// append activityKey (preserve all prior keys) in the SAME update request
 						priorKeysStr = ifnull(existingQ.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
@@ -725,8 +794,51 @@ string automation.processDeal(string deal_id, string contextJson)
 
 						if(qUpd.size() > 0)
 						{
-							zoho.crm.updateRecord("Quotes", upQid.toLong(), qUpd, noTrigger);
-							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_updated", prodName, {"quote":upQid, "activityKey":activityKey});
+							updateResp = zoho.crm.updateRecord("Quotes", upQid.toLong(), qUpd, noTrigger);
+							verifyQ = zoho.crm.getRecordById("Quotes", upQid.toLong());
+							verifyKeyOk = false;
+							verifyProductOk = false;
+							verifyLineOk = false;
+							if(!isNull(verifyQ) && !isNull(verifyQ.get("id")))
+							{
+								verifyKeyOk = true;
+								if(activityKey != "")
+								{
+									verifyKeyOk = false;
+									verifyKeysRaw = ifnull(verifyQ.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									for each vk in verifyKeysRaw.toList("\n")
+									{
+										if(vk.trim() == activityKey) { verifyKeyOk = true; }
+									}
+								}
+								verifyQp = verifyQ.get("Quote_Product");
+								if(!isNull(verifyQp) && !isNull(verifyQp.get("id")) && verifyQp.get("id").toString() == prodId) { verifyProductOk = true; }
+								verifyLines = verifyQ.get("Quoted_Items");
+								if(!isNull(verifyLines) && verifyLines.size() > 0)
+								{
+									verifyLineProductIds = List();
+									for each vl in verifyLines
+									{
+										vlProdId = "";
+										vlProd = vl.get("Product_Name");
+										if(!isNull(vlProd) && !isNull(vlProd.get("id"))) { vlProdId = vlProd.get("id").toString(); }
+										if(vlProdId != "" && !verifyLineProductIds.contains(vlProdId)) { verifyLineProductIds.add(vlProdId); }
+									}
+									if(verifyLineProductIds.size() == 1 && verifyLineProductIds.contains(prodId)) { verifyLineOk = true; }
+								}
+							}
+							if(verifyKeyOk != true || verifyProductOk != true || verifyLineOk != true)
+							{
+								anyBlocked = true;
+								result.put("reviewRequired", true);
+								if(!reviewReasons.contains("quote_post_write_verification_failed")) { reviewReasons.add("quote_post_write_verification_failed"); }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote " + upQid + " was updated for Product " + prodName + " but post-write verification failed. Check Quote_Applied_Activity_Keys, Quote_Product, and Quoted_Items.");
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_update_verify_failed", prodName, {"quote":upQid, "activityKey":activityKey, "resp":updateResp});
+							}
+							else
+							{
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_updated", prodName, {"quote":upQid, "activityKey":activityKey});
+							}
 						}
 					}
 					else
@@ -781,7 +893,61 @@ string automation.processDeal(string deal_id, string contextJson)
 						createResp = zoho.crm.createRecord("Quotes", qMap, noTrigger);
 						newQid = "";
 						if(!isNull(createResp) && !isNull(createResp.get("id"))) { newQid = createResp.get("id").toString(); }
-						automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_created", prodName, {"quote":newQid, "oppType":quoteOppType, "activityKey":activityKey});
+						if(newQid == "")
+						{
+							anyBlocked = true;
+							result.put("reviewRequired", true);
+							if(!reviewReasons.contains("quote_write_failed")) { reviewReasons.add("quote_write_failed"); }
+							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote could not be created for Product " + prodName + ". Check function failure logs and re-run the Activity after correction.");
+							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_create_failed", prodName, {"oppType":quoteOppType, "activityKey":activityKey, "resp":createResp});
+						}
+						else
+						{
+							verifyNewQ = zoho.crm.getRecordById("Quotes", newQid.toLong());
+							verifyNewKeyOk = false;
+							verifyNewProductOk = false;
+							verifyNewLineOk = false;
+							if(!isNull(verifyNewQ) && !isNull(verifyNewQ.get("id")))
+							{
+								verifyNewKeyOk = true;
+								if(activityKey != "")
+								{
+									verifyNewKeyOk = false;
+									verifyNewKeysRaw = ifnull(verifyNewQ.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									for each vnk in verifyNewKeysRaw.toList("\n")
+									{
+										if(vnk.trim() == activityKey) { verifyNewKeyOk = true; }
+									}
+								}
+								verifyNewQp = verifyNewQ.get("Quote_Product");
+								if(!isNull(verifyNewQp) && !isNull(verifyNewQp.get("id")) && verifyNewQp.get("id").toString() == prodId) { verifyNewProductOk = true; }
+								verifyNewLines = verifyNewQ.get("Quoted_Items");
+								if(!isNull(verifyNewLines) && verifyNewLines.size() > 0)
+								{
+									verifyNewLineProductIds = List();
+									for each vnl in verifyNewLines
+									{
+										vnlProdId = "";
+										vnlProd = vnl.get("Product_Name");
+										if(!isNull(vnlProd) && !isNull(vnlProd.get("id"))) { vnlProdId = vnlProd.get("id").toString(); }
+										if(vnlProdId != "" && !verifyNewLineProductIds.contains(vnlProdId)) { verifyNewLineProductIds.add(vnlProdId); }
+									}
+									if(verifyNewLineProductIds.size() == 1 && verifyNewLineProductIds.contains(prodId)) { verifyNewLineOk = true; }
+								}
+							}
+							if(verifyNewKeyOk != true || verifyNewProductOk != true || verifyNewLineOk != true)
+							{
+								anyBlocked = true;
+								result.put("reviewRequired", true);
+								if(!reviewReasons.contains("quote_post_write_verification_failed")) { reviewReasons.add("quote_post_write_verification_failed"); }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote " + newQid + " was created for Product " + prodName + " but post-write verification failed. Check Quote_Applied_Activity_Keys, Quote_Product, and Quoted_Items.");
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_create_verify_failed", prodName, {"quote":newQid, "oppType":quoteOppType, "activityKey":activityKey});
+							}
+							else
+							{
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_created", prodName, {"quote":newQid, "oppType":quoteOppType, "activityKey":activityKey});
+							}
+						}
 					}
 				}
 			}
@@ -789,11 +955,11 @@ string automation.processDeal(string deal_id, string contextJson)
 		// Won with NO Product -> productNames empty: no Quote created, structural reconciliation continues.
 	}
 
-	// If any Product BLOCKED -> stop before downstream writes; success=false, no dispatch.
+	// If any Product/Quote write BLOCKED -> stop before downstream writes; success=false, no dispatch.
 	if(anyBlocked)
 	{
 		result.put("success", false);
-		result.put("outcome", "blocked_anomaly_multiple_open_match");
+		result.put("outcome", "blocked_activity_product_or_quote");
 		return result.toString();
 	}
 

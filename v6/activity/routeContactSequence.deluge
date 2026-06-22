@@ -9,9 +9,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// (linked Who_Id=Contact, What_Id=Deal). Absorbs supersedeOldSequence,
 	// createStageCall, createStageTask, scheduleSequencedEmail,
 	// advancePrimaryContactStage, lossPrimaryContact, and the commercial:* token
-	// handling formerly in applyCommercialTransition (phantom-scrubbed: stamps ONLY
-	// live Deal Opportunity_State / Intent_To_Sign — never Commercials_Sent_At /
-	// Signed_At / Commercials_Discussed_At / Commercials_Status). The scoped activity
+	// handling formerly in applyCommercialTransition (phantom-scrubbed: stamps only
+	// verified-live Deal fields, currently Opportunity_State for signed viability;
+	// never Commercials_Sent_At / Signed_At / Commercials_Discussed_At /
+	// Commercials_Status / Intent_To_Sign). The scoped activity
 	// loss matrix (_util_resolveActivityLoss) is also inlined for source=="activity"
 	// Lost contexts. Deal+Quote rollup is delegated to processDeal (sole owner).
 	//
