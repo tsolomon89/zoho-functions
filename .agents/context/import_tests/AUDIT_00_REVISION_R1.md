@@ -6,6 +6,8 @@ Authoritative sources re-read: `.agents/context/pricing/price_model.csv`, `v6/ac
 
 **Hard status (unchanged): NO CSV imported. NO production records created from CSVs. NO production conversion. NO Quote backfill.** Live retest used synthetic `ZZE2E…` records, all deleted (verified).
 
+> **UPDATE — post-publish retest round 1 (see §6 below):** after you published, the D2 parse fix is **verified working** (the activity now resolves + links the Product). That uncovered a **second, deeper bug (D2b)**: `processDeal` calls `createRecord("Quotes", …, noTrigger)` with a **Map** where a **List** is required, so every Quote create failed. **Fixed in repo (one line) — needs republish of `processDeal`.** Pricing **verified**: a UX-Fixed/5-brand line = **£10,500** (PPB £2,100 × 5; List_Price drives totals, not Unit_Price £12,000).
+
 ---
 
 ## 1. Pricing model — corrected understanding
@@ -133,3 +135,46 @@ Lead Quote/Contract Stage field: **still NOT required** (unchanged) — `Opportu
 | **Quote backfill** | **NO-GO** | until exact Product selection + family-specific pricing inputs (UX plan type, 360 frequency, brand count) and the `Type`→tier mapping are resolved; Cortex routes to Manual Review by design |
 
 **Remaining business decisions for you:** (a) confirm `Type` → tier mapping (Brand=Base/Agency=Agency/Platform=Markup?); (b) UX plan-type enrichment source for historical rows; (c) Cortex pricing (manual vs new matrix); (d) how you want the repo fixes deployed (your function-deploy path), after which I can run the §3 live retests.
+
+---
+
+## 6. Post-publish retest round 1 (2026-06-22, after you published the fixes)
+
+Synthetic Lead "ZZE2E Epsilon" (FTP, Proposal Preparation, CCO, `Product_Interest=["Jurnii UX - Fixed"]`) → converted → Account `…690007` / Contact `…738003` / Deal `…708005` (rolled up to **FTP / Proposal Preparation** ✓, after the usual settling lag). Then a "Draft Commercials" activity (Won/Completed, `Task_Contract_Products=["Jurnii UX - Fixed"]`, `Task_Contract_Brands=5`). All records deleted afterwards. `getAutomationFunctionFailures` = 0 throughout (no runtime errors introduced by the publish).
+
+| Check | Result | Verdict |
+|---|---|---|
+| **D2 products parse** | Activity now **resolves "Jurnii UX - Fixed" and links it to the Deal's Products** related list (never happened pre-fix) | ✅ **FIXED & verified** |
+| Quote created by the activity | still none — a Manual Review task appeared: *"Quote could not be created for Product Jurnii UX - Fixed"* | ❌ **new layer → D2b** |
+| **D2b root cause** | `processDeal.deluge:897` calls `zoho.crm.createRecord("Quotes", qMap, noTrigger)` — `noTrigger` is a **Map** `{"trigger":[]}`, but `createRecord`'s 3rd arg must be a **List** of trigger names. (Only `updateRecord`'s 3rd arg is a map — which is why every `updateRecord(...,noTrigger)` works.) The wrong type fails the create. It is the **only** `createRecord(...noTrigger)` in v6. | **identified** |
+| D2b proof | the **identical payload created successfully via the MCP API** (Quote `…704004`) | ✅ payload valid |
+| **Pricing math** | that Quote: **Grand_Total £10,500, Sub_Total £10,500**, Quoted_Item **List_Price £10,500**, `Quoted_Item_Plan_Brands=5`, tier Base — i.e. **PPB £2,100 × 5 brands**; List_Price (not Unit_Price £12,000) drives totals | ✅ **matrix verified** |
+| **D2b fix** | changed line 897 to `zoho.crm.createRecord("Quotes", qMap, List())` (empty List = suppress workflows, correct type) | ✅ applied to repo — **needs republish of `processDeal`** |
+| **D4** PI propagation | `Contact.Product_Interest_Staging` still **null** after publish. Chain ran with no failures, so `leadPIStr` was empty → the most likely cause is `zoho.crm.getRecordById("Leads", …).get("Product_Interest")` not returning the multiselect value (a **read-side** issue), not the parse. **Lower priority — does not block quoting** (interest is preserved on the converted Lead + via `Products_Linked`). Needs a `processLead` execution-log check of `leadPIStr`; if confirmed read-side, switch to reading PI via COQL/`searchRecords` inside `processLead`. | ⚠ unresolved (low priority) |
+| **D1** activation | still **2 "Not Started"** at creation. **I did not change `processContact`** (its §6b self-heal already exists in the repo but the deployed copy lacks it). The new completion-path backstop I added to `handleTaskCompletion` guarantees only **one activation effect** when a task is completed, but to get **one visible task at creation**, deploy the current `processContact` too. | ⚠ deploy `processContact` |
+
+**Net:** the activity→Quote path was blocked by **two** bugs in series — D2 (parse, now fixed & verified) and **D2b** (create-arg type, now fixed in repo, pending republish). Pricing is confirmed correct against the matrix.
+
+**To finish verification, please republish `processDeal` (with the D2b one-line fix) and `processContact` (for the §6b dedup), then I will rerun §3** — expecting: a UX-Fixed/5-brand activity to produce a Draft Quote with a **£10,500** line; UX-Flex/5 → £8,400; Cortex / missing-frequency / missing-brands → unpriced Draft + Manual Review; ambiguous `Jurnii UX` → no Quote; exactly one active activation task. The **go/no-go in §5 is unchanged** (production conversion remains NO-GO until this passes).
+
+### Post-publish retest **round 2** (after you republished `processDeal` + `processContact`)
+Synthetic Lead "ZZE2E Zeta" (FTP) → converted → Deal `…746009` (FTP/Proposal Preparation). Fired a UX-Fixed/5-brand "Draft Commercials" activity. Then completed one activation task to test the D1 backstop. All records deleted; `getAutomationFunctionFailures` = 0.
+
+| Check | Result | Verdict |
+|---|---|---|
+| **D1 backstop** (handleTaskCompletion) | completing one activation task **Deferred the duplicate sibling** (`Blocks_Sequence=No`) → only one activation effect | ✅ **FIXED & verified** |
+| **D2 parse** (processDeal) | activity again **resolved + linked** `Jurnii UX - Fixed` to the Deal | ✅ still working |
+| D1 at creation (processContact §6b) | still **2 "Not Started"** at creation (the §6b at-creation sweep is defeated by index lag on the trial). The completion backstop covers the *effect*; for a single *visible* task, the at-creation dedup needs hardening or accept one Deferred. | ⚠ partial |
+| **Activity → Quote create** | **still no Quote** ~8 min on: product linked, but **no Quote, no Manual Review, no Deal update** (Amount null, Deal `Modified_Time` unchanged at the conversion time), **0 function failures**, exactly one Quote in the whole org (the 09:48 proof) | ❌ **unresolved** |
+| **D4** PI staging | still null (unchanged; read-side; low priority) | ⚠ |
+
+**Interpretation of the round-2 Quote failure.** `processDeal` linked the Product (early in §5) but did **not** reach the Deal update (§8) and produced **neither** a Quote **nor** a Manual Review — a state that a clean run cannot produce (every create/verify failure path writes a Manual Review). The two plausible causes, both **only confirmable from the `processDeal` execution log (or the org's function-usage page)**, which `logAutomationEvent` writes to `info` only (not a queryable module, so unreadable via MCP):
+1. **Trial function-execution quota exhausted.** This org is a CRM-Plus **trial**; today's testing fired many `processLead`/`processContact`/`processDeal`/`handleTaskCompletion` executions. If the daily quota was hit, the long `processDeal` would be killed **mid-run after the product link**, exactly matching the symptoms — and the **code may already be correct** (retest under quota would pass).
+2. **`createRecord("Quotes", qMap, List())` throwing** in Deluge (the empty-List trigger arg), aborting `processDeal` after the link. If so, the proven fix is the 2-arg `zoho.crm.createRecord("Quotes", qMap)` used by every other create in the codebase (tradeoff: it fires WF020 on the Draft; acceptable pre-cutover, or use the exact trigger-suppression syntax the log error indicates).
+
+**Required to finalize D2 (one of):** (a) open **Setup → Functions → `processDeal` → Execution Logs** for the test run and share the `action=quote_create…` / `createResp` line; or (b) check the org's **function-execution usage**; or (c) **retest after the daily quota resets** (or on a paid plan). Until the activity→Quote path completes end-to-end once (a real £10,500 Draft Quote), **production conversion + Quote backfill remain NO-GO** (go/no-go §5 unchanged). D1 and the D2 parse + pricing are verified; D2b's create call is the last blocker.
+
+### Post-publish retest **round 3** (after the function quota reset)
+Re-ran the exact UX-Fixed/5-brand activity (Lead "ZZE2E Eta", **14:06:47**; Draft Commercials activity **14:07:18**; Deal `…692012`). ~3.5 min later: Deal rolled to **FTP / Proposal Preparation** (conversion, `Modified_Time` **14:07:02**), Product **Jurnii UX - Fixed linked**, but **0 Quotes, no Manual Review, `Amount` null, Deal `Modified_Time` not bumped by the activity, 0 captured function failures**.
+
+**Conclusion: same failure after the quota reset → NOT daily-quota exhaustion.** Per the agreed decision rule, **no further speculative code change** was made. The activity path (`processDeal`'s heaviest: catalogue load + per-product quote read/create/verify + §6/§7/§9 re-reads + Account rollup ≈ 30–50 CRM API calls in one execution) silently stops between the product link (§5b) and the Deal update (§8) — producing no quote, no Manual Review, no Deal write, and no captured exception. The leading hypothesis is a **per-execution statement/API-call limit** terminating the run (trial edition), not the `createRecord` syntax; this is confirmable only from the **`processDeal` execution log** (look for a Zoho "maximum limit … exceeded" line vs an `action=quote_create…`/`createResp` error). **Decision branch:** if the log shows the 3-arg `createRecord("Quotes", qMap, List())` erroring → switch to the 2-arg form; if it shows a limit/termination → slim `processDeal`'s activity-path API calls (or move to a paid plan), not the create syntax. **D1 fixed, D2 parse + pricing verified; the Quote *create/persist* on the activity path is the one remaining blocker. Production conversion + Quote backfill remain NO-GO.**

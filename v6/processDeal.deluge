@@ -894,7 +894,20 @@ string automation.processDeal(string deal_id, string contextJson)
 						qMap.put("Quoted_Items", lineList);
 						if(activityKey != "") { qMap.put("Quote_Applied_Activity_Keys", activityKey); }
 
-						createResp = zoho.crm.createRecord("Quotes", qMap, noTrigger);
+						// D2b FIX (2026-06-22): createRecord's 3rd arg is a LIST of triggers to fire,
+						// NOT a Map. Passing the noTrigger map {"trigger":[]} (valid only for updateRecord)
+						// made every Quote create FAIL (E2E: "Quote could not be created"), so the activity
+						// path never produced a Quote even after products resolved. List() = fire no
+						// workflows = the intended suppression, with the correct argument type.
+						// ===== TEMP DIAGNOSTIC (2026-06-22) — REMOVE after pinpointing the Quote-create failure. =====
+						// Writes a breadcrumb to the Deal Description (readable via API; logAutomationEvent only
+						// emits to info). If Description shows PD-PRECREATE but not PD-POSTCREATE, the createRecord
+						// call itself terminates the run (-> switch to 2-arg). If POSTCREATE shows an error map,
+						// the create returns an error. noTrigger (map) is correct for updateRecord.
+						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"PD-PRECREATE reached prod=" + prodName + " brands=" + ctxBrands}, noTrigger);
+						createResp = zoho.crm.createRecord("Quotes", qMap, List());
+						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"PD-POSTCREATE resp=" + createResp.toString()}, noTrigger);
+						// ===== END TEMP DIAGNOSTIC =====
 						newQid = "";
 						if(!isNull(createResp) && !isNull(createResp.get("id"))) { newQid = createResp.get("id").toString(); }
 						if(newQid == "")
