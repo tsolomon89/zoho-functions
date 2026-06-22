@@ -532,12 +532,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 		}
 		if(hasTaskProductEvidence)
 		{
-			pdRawDraft = automation.processDeal(dealId.toString(), taskActivityCtx.toString());
+			// Draft Commercials uses a direct, Task-evidence Quote package path. The full
+			// processDeal(activity) path is too heavy in this org and can terminate before
+			// returning, leaving the workflow unable to create a retryable review task.
+			pdRawDraft = "{}";
 			pdDraft = Map();
 			if(!isNull(pdRawDraft) && pdRawDraft.toString().trim() != "") { pdDraft = pdRawDraft.toString().toMap(); }
 			if(ifnull(pdDraft.get("success"), false) != true)
 			{
-				// Fallback: processDeal(activity) can exhaust before Quote create on heavy orgs.
 				// Create the Draft Quote package directly from this Task, then let the existing
 				// package validation below decide whether Send Commercials can be surfaced.
 				fbReasons = List();
