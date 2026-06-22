@@ -537,9 +537,142 @@ void automation.handleTaskCompletion(string taskIdStr)
 			if(!isNull(pdRawDraft) && pdRawDraft.toString().trim() != "") { pdDraft = pdRawDraft.toString().toMap(); }
 			if(ifnull(pdDraft.get("success"), false) != true)
 			{
-				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Draft Commercials Task " + taskId + " could not apply Product evidence. Resolve the Quote/Product issue and re-run.");
-				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdDraft.get("outcome"), "").toString()});
-				return;
+				// Fallback: processDeal(activity) can exhaust before Quote create on heavy orgs.
+				// Create the Draft Quote package directly from this Task, then let the existing
+				// package validation below decide whether Send Commercials can be surfaced.
+				fbReasons = List();
+				fbCreated = 0;
+				fbDeal = zoho.crm.getRecordById("Deals", dealId);
+				fbAccountId = "";
+				if(!isNull(fbDeal) && !isNull(fbDeal.get("id")))
+				{
+					fbAcc = fbDeal.get("Account_Name");
+					if(!isNull(fbAcc) && !isNull(fbAcc.get("id"))) { fbAccountId = fbAcc.get("id").toString(); }
+				}
+				if(fbAccountId == "") { fbReasons.add("missing_account"); }
+				fbQuoteOppType = "FTP";
+				if(!isNull(fbDeal) && ifnull(fbDeal.get("Stage"), "").toString() == "RTP") { fbQuoteOppType = "RTP"; }
+				fbActivityKey = "Tasks:" + taskId.toString();
+				fbExistingQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+
+				if(fbAccountId != "")
+				{
+					for each fbProdNameRaw in taskProductList
+					{
+						fbSafeName = ifnull(fbProdNameRaw, "").toString().trim().replaceAll("  ", " ");
+						if(fbSafeName == "Jurni Cortex - Fixed") { fbSafeName = "Jurnii Cortex - Fixed"; }
+						if(fbSafeName == "Jurni Cortex - Flex") { fbSafeName = "Jurnii Cortex - Flex"; }
+						if(fbSafeName == "") { continue; }
+						fbMatches = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + fbSafeName + ")");
+						fbProdId = "";
+						fbProdName = fbSafeName;
+						fbMatchCount = 0;
+						if(!isNull(fbMatches) && fbMatches.size() > 0 && !fbMatches.toString().startsWith("{\"code\""))
+						{
+							for each fm in fbMatches
+							{
+								if(ifnull(fm.get("Product_Name"), "").toString().trim() == fbSafeName)
+								{
+									fmActive = ifnull(fm.get("Product_Active"), false);
+									if(fmActive == true || fmActive == "true")
+									{
+										fbMatchCount = fbMatchCount + 1;
+										fbProdId = fm.get("id").toString();
+										fbProdName = ifnull(fm.get("Product_Name"), fbSafeName).toString();
+									}
+								}
+							}
+						}
+						if(fbMatchCount != 1 || fbProdId == "")
+						{
+							fbReasons.add("product_unresolved_or_ambiguous:" + fbSafeName);
+							continue;
+						}
+
+						// Link Products while we are here; these are idempotent related-list upserts.
+						fbLinkC = zoho.crm.updateRelatedRecord("Products12", fbProdId.toLong(), "Contacts", contactId, Map());
+						fbLinkCText = ifnull(fbLinkC, "").toString();
+						if(fbLinkCText == "" || fbLinkCText.contains("INVALID") || fbLinkCText.contains("FAILED") || fbLinkCText.contains("error"))
+						{
+							fbLinkC = zoho.crm.updateRelatedRecord("Products", fbProdId.toLong(), "Contacts", contactId, Map());
+						}
+						zoho.crm.updateRelatedRecord("Products", fbProdId.toLong(), "Deals", dealId, Map());
+
+						fbQuoteAlreadyOk = false;
+						if(!isNull(fbExistingQuotes) && fbExistingQuotes.size() > 0 && !fbExistingQuotes.toString().startsWith("{\"code\""))
+						{
+							for each fq in fbExistingQuotes
+							{
+								fqId = "";
+								if(!isNull(fq.get("id"))) { fqId = fq.get("id").toString(); }
+								if(fqId == "") { continue; }
+								fqFull = zoho.crm.getRecordById("Quotes", fqId.toLong());
+								if(isNull(fqFull) || isNull(fqFull.get("id"))) { continue; }
+								fqProdId = "";
+								fqProd = fqFull.get("Quote_Product");
+								if(!isNull(fqProd) && !isNull(fqProd.get("id"))) { fqProdId = fqProd.get("id").toString(); }
+								if(fqProdId == fbProdId && ifnull(fqFull.get("Opportunity_Type"), "").toString() == fbQuoteOppType && ifnull(fqFull.get("Quote_Stage"), "").toString() == "Draft")
+								{
+									fqKeys = ifnull(fqFull.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									for each fkl in fqKeys.toList("\n")
+									{
+										if(fkl.trim() == fbActivityKey) { fbQuoteAlreadyOk = true; }
+									}
+								}
+							}
+						}
+						if(fbQuoteAlreadyOk == true)
+						{
+							fbCreated = fbCreated + 1;
+							continue;
+						}
+
+						fbLine = Map();
+						fbLineProd = Map();
+						fbLineProd.put("id", fbProdId);
+						fbLine.put("Product_Name", fbLineProd);
+						fbLine.put("Quantity", 1);
+						fbLine.put("Quoted_Item_Pricing_Tier", "Base");
+						if(taskBrands != "") { fbLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
+						if(taskBrands != "")
+						{
+							fbProdFull = zoho.crm.getRecordById("Products", fbProdId.toLong());
+							fbPlanType = "";
+							if(!isNull(fbProdFull) && !isNull(fbProdFull.get("id"))) { fbPlanType = ifnull(fbProdFull.get("Product_Plan_Type"), "").toString().trim(); }
+							if(fbPlanType == "Flexible") { fbPlanType = "Flex"; }
+							fbPriceResp = automation.resolveQuoteLinePrice(fbProdId, fbPlanType, taskBrands, "Base", "").toMap();
+							if(ifnull(fbPriceResp.get("valid"), "false").toString() == "true") { fbLine.put("List_Price", ifnull(fbPriceResp.get("line_acv"), 0)); }
+						}
+						fbLines = List();
+						fbLines.add(fbLine);
+
+						fbQ = Map();
+						fbQ.put("Subject", ifnull(fbDeal.get("Deal_Name"), "Quote").toString() + " - " + fbProdName);
+						fbQ.put("Quote_Stage", "Draft");
+						fbAccMap = Map(); fbAccMap.put("id", fbAccountId); fbQ.put("Account_Name", fbAccMap);
+						fbDealMap = Map(); fbDealMap.put("id", dealId.toString()); fbQ.put("Deal_Name", fbDealMap);
+						fbProdMap = Map(); fbProdMap.put("id", fbProdId); fbQ.put("Quote_Product", fbProdMap);
+						fbContactMap = Map(); fbContactMap.put("id", contactId.toString()); fbQ.put("Contact_Name", fbContactMap);
+						fbQ.put("Opportunity_Type", fbQuoteOppType);
+						fbQ.put("Quote_Last_Deal_ID", dealId.toString());
+						if(taskStart != "") { fbQ.put("Contract_Date_Start", taskStart); }
+						if(taskEnd != "") { fbQ.put("Contract_Date_End", taskEnd); }
+						fbQ.put("Quoted_Items", fbLines);
+						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
+
+						fbCreateResp = zoho.crm.createRecord("Quotes", fbQ);
+						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbCreated = fbCreated + 1; }
+						else { fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString()); }
+					}
+				}
+
+				if(fbReasons.size() > 0 || fbCreated == 0)
+				{
+					automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Draft Commercials Task " + taskId + " could not apply Product evidence. processDeal outcome=" + ifnull(pdDraft.get("outcome"), "").toString() + " raw=" + ifnull(pdRawDraft, "").toString() + " fallback=" + fbReasons.toString() + ". Resolve the Quote/Product issue and re-run.");
+					automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdDraft.get("outcome"), "").toString(), "fallback":fbReasons.toString()});
+					return;
+				}
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_created", {"deal":dealId.toString(), "count":fbCreated.toString()});
 			}
 		}
 		draftEvidenceReasons = List();

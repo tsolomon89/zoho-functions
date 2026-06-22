@@ -934,7 +934,7 @@ string automation.processDeal(string deal_id, string contextJson)
 							anyBlocked = true;
 							result.put("reviewRequired", true);
 							if(!reviewReasons.contains("quote_write_failed")) { reviewReasons.add("quote_write_failed"); }
-							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote could not be created for Product " + prodName + ". Check function failure logs and re-run the Activity after correction.");
+							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote could not be created for Product " + prodName + ". CRM create response: " + ifnull(createResp, "").toString() + ". Check function failure logs and re-run the Activity after correction.");
 							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_create_failed", prodName, {"oppType":quoteOppType, "activityKey":activityKey, "resp":createResp});
 						}
 						else
