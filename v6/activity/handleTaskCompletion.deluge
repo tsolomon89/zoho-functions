@@ -703,7 +703,12 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
 
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_attempt", {"deal":dealId.toString(), "product":fbProdId, "brands":taskBrands});
-						fbCreateResp = zoho.crm.createRecord("Quotes", fbQ);
+						// FIX (2026-06-23): suppress triggers on the Quote create (3rd arg = empty List).
+						// A 2-arg create fires WF020 -> handleQuoteStageChange -> processDeal (the heavy
+						// engine), which terminates mid-chain in this org and kills the create before it
+						// commits -> Product links but no Quote and no review task. List() = fire no
+						// workflows, so the create completes; reconciliation is handled by this branch.
+						fbCreateResp = zoho.crm.createRecord("Quotes", fbQ, List());
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_response", {"deal":dealId.toString(), "product":fbProdId, "resp":ifnull(fbCreateResp, "").toString()});
 						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbCreated = fbCreated + 1; }
 						else { fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString()); }
