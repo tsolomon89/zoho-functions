@@ -966,7 +966,27 @@ string automation.processDeal(string deal_id, string contextJson)
 								if(ctxBrands != "" && ctxBrands != "null") { metaLine.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
 								metaLines = List();
 								metaLines.add(metaLine);
-								metaResp = zoho.crm.updateRecord("Quotes", newQid.toLong(), {"Quoted_Items":metaLines}, noTrigger);
+								// Custom subform fields can only be persisted via the REST API (native Deluge
+								// createRecord drops them and updateRecord ignores the Quoted_Items key). Use the
+								// zoho_crm Connection to PUT the line by id with the custom fields. trigger:[] suppresses WF020.
+								metaBody = Map();
+								metaRec = Map();
+								metaRec.put("id", newQid);
+								metaRec.put("Quoted_Items", metaLines);
+								metaDataList = List();
+								metaDataList.add(metaRec);
+								metaBody.put("data", metaDataList);
+								metaBody.put("trigger", List());
+								metaHeaders = Map();
+								metaHeaders.put("Content-Type", "application/json");
+								metaResp = invokeurl
+								[
+									url: "https://www.zohoapis.eu/crm/v6/Quotes"
+									type: PUT
+									parameters: metaBody.toString()
+									connection: "zoho_crm"
+									headers: metaHeaders
+								];
 								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_line_meta_update", prodName, {"quote":newQid, "line":newLineId, "resp":ifnull(metaResp, "").toString()});
 							}
 							verifyNewQ = zoho.crm.getRecordById("Quotes", newQid.toLong());

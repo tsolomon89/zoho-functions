@@ -762,7 +762,27 @@ void automation.handleTaskCompletion(string taskIdStr)
 								if(taskBrands != "") { fbUpdLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
 								fbUpdLines = List();
 								fbUpdLines.add(fbUpdLine);
-								fbMetaResp = zoho.crm.updateRecord("Quotes", fbNewQid.toLong(), {"Quoted_Items":fbUpdLines}, noTrigger);
+								// Custom subform fields can only be persisted via the REST API (native Deluge
+								// createRecord drops them and updateRecord ignores the Quoted_Items key). Use the
+								// zoho_crm Connection to PUT the line by id with the custom fields. trigger:[] suppresses WF020.
+								fbMetaBody = Map();
+								fbMetaRec = Map();
+								fbMetaRec.put("id", fbNewQid);
+								fbMetaRec.put("Quoted_Items", fbUpdLines);
+								fbMetaDataList = List();
+								fbMetaDataList.add(fbMetaRec);
+								fbMetaBody.put("data", fbMetaDataList);
+								fbMetaBody.put("trigger", List());
+								fbMetaHeaders = Map();
+								fbMetaHeaders.put("Content-Type", "application/json");
+								fbMetaResp = invokeurl
+								[
+									url: "https://www.zohoapis.eu/crm/v6/Quotes"
+									type: PUT
+									parameters: fbMetaBody.toString()
+									connection: "zoho_crm"
+									headers: fbMetaHeaders
+								];
 								automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_line_meta_update", {"quote":fbNewQid, "line":fbLineId, "resp":ifnull(fbMetaResp, "").toString()});
 								fbVQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
 								if(!isNull(fbVQ) && !isNull(fbVQ.get("id")))
