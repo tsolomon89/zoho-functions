@@ -544,6 +544,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 				// package validation below decide whether Send Commercials can be surfaced.
 				fbReasons = List();
 				fbCreated = 0;
+				fbCreatedQuoteIds = List();
 				fbDeal = zoho.crm.getRecordById("Deals", dealId);
 				fbAccountId = "";
 				if(!isNull(fbDeal) && !isNull(fbDeal.get("id")))
@@ -769,6 +770,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 							if(fbMetaOk == true)
 							{
 								fbCreated = fbCreated + 1;
+								fbCreatedQuoteIds.add(fbNewQid);
 							}
 							else
 							{
@@ -877,6 +879,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 			connection: "zoho_crm"
 		];
 		if(!isNull(draftQGetResp) && !isNull(draftQGetResp.get("data"))) { draftQuotes = draftQGetResp.get("data"); }
+		// The deal-Quotes related list can lag on a quote created THIS run; always include the freshly-
+		// created quote id(s) so they are checked directly (per-record REST GET is read-after-write consistent).
+		for each fbCqId in fbCreatedQuoteIds
+		{
+			fbCqSeen = false;
+			for each dqChk in draftQuotes { if(ifnull(dqChk.get("id"), "").toString() == fbCqId.toString()) { fbCqSeen = true; } }
+			if(fbCqSeen == false) { fbCqRec = Map(); fbCqRec.put("id", fbCqId); draftQuotes.add(fbCqRec); }
+		}
 		for each draftProdId in draftProductIds
 		{
 			if(!dealProdIds.contains(draftProdId)) { draftReasons.add("deal_product_missing:" + draftProdId); }
