@@ -899,7 +899,7 @@ string automation.processDeal(string deal_id, string contextJson)
 						if(sourceContactId != "") { srcCMap = Map(); srcCMap.put("id", sourceContactId); qMap.put("Contact_Name", srcCMap); }
 						if(ctxDateStart != "") { qMap.put("Contract_Date_Start", ctxDateStart); }
 						if(ctxDateEnd != "") { qMap.put("Contract_Date_End", ctxDateEnd); }
-						qMap.put("Quoted_Items", lineList);
+						qMap.put("Product_Details", lineList);
 						if(activityKey != "") { qMap.put("Quote_Applied_Activity_Keys", activityKey); }
 
 						// D2b FIX (2026-06-23): native create with trigger suppression. The 3rd arg is a

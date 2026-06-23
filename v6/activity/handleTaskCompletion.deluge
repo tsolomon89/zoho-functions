@@ -699,7 +699,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbQ.put("Quote_Last_Deal_ID", dealId.toString());
 						if(taskStart != "") { fbQ.put("Contract_Date_Start", taskStart); }
 						if(taskEnd != "") { fbQ.put("Contract_Date_End", taskEnd); }
-						fbQ.put("Quoted_Items", fbLines);
+						fbQ.put("Product_Details", fbLines);
 						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
 
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_attempt", {"deal":dealId.toString(), "product":fbProdId, "brands":taskBrands});
