@@ -738,17 +738,26 @@ void automation.handleTaskCompletion(string taskIdStr)
 							// created until this metadata survives readback (matters for the contract ledger,
 							// re-pricing, and audit).
 							fbLineId = "";
+							fbCQLine0 = Map();
 							fbCreatedQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
 							if(!isNull(fbCreatedQ) && !isNull(fbCreatedQ.get("id")))
 							{
 								fbCQLines = fbCreatedQ.get("Quoted_Items");
-								if(!isNull(fbCQLines) && fbCQLines.size() > 0 && !isNull(fbCQLines.get(0).get("id"))) { fbLineId = fbCQLines.get(0).get("id").toString(); }
+								if(!isNull(fbCQLines) && fbCQLines.size() > 0 && !isNull(fbCQLines.get(0).get("id")))
+								{
+									fbCQLine0 = fbCQLines.get(0);
+									fbLineId = fbCQLine0.get("id").toString();
+								}
 							}
 							fbMetaOk = false;
 							if(fbLineId != "")
 							{
 								fbUpdLine = Map();
 								fbUpdLine.put("id", fbLineId);
+								fbExProd = fbCQLine0.get("Product_Name");
+								if(!isNull(fbExProd) && !isNull(fbExProd.get("id"))) { fbPmMap = Map(); fbPmMap.put("id", fbExProd.get("id").toString()); fbUpdLine.put("Product_Name", fbPmMap); }
+								fbUpdLine.put("Quantity", ifnull(fbCQLine0.get("Quantity"), 1));
+								if(!isNull(fbCQLine0.get("List_Price"))) { fbUpdLine.put("List_Price", fbCQLine0.get("List_Price")); }
 								fbUpdLine.put("Quoted_Item_Pricing_Tier", "Base");
 								if(taskBrands != "") { fbUpdLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
 								fbUpdLines = List();

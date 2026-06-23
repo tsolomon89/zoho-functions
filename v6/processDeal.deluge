@@ -943,16 +943,25 @@ string automation.processDeal(string deal_id, string contextJson)
 							// created line and update it by id via the subform api_name (Quoted_Items) — the
 							// proven update contract. Verified below before this Quote counts as created.
 							newLineId = "";
+							preMetaLine0 = Map();
 							preMetaQ = zoho.crm.getRecordById("Quotes", newQid.toLong());
 							if(!isNull(preMetaQ) && !isNull(preMetaQ.get("id")))
 							{
 								preMetaLines = preMetaQ.get("Quoted_Items");
-								if(!isNull(preMetaLines) && preMetaLines.size() > 0 && !isNull(preMetaLines.get(0).get("id"))) { newLineId = preMetaLines.get(0).get("id").toString(); }
+								if(!isNull(preMetaLines) && preMetaLines.size() > 0 && !isNull(preMetaLines.get(0).get("id")))
+								{
+									preMetaLine0 = preMetaLines.get(0);
+									newLineId = preMetaLine0.get("id").toString();
+								}
 							}
 							if(newLineId != "")
 							{
 								metaLine = Map();
 								metaLine.put("id", newLineId);
+								metaExProd = preMetaLine0.get("Product_Name");
+								if(!isNull(metaExProd) && !isNull(metaExProd.get("id"))) { metaPmMap = Map(); metaPmMap.put("id", metaExProd.get("id").toString()); metaLine.put("Product_Name", metaPmMap); }
+								metaLine.put("Quantity", ifnull(preMetaLine0.get("Quantity"), 1));
+								if(!isNull(preMetaLine0.get("List_Price"))) { metaLine.put("List_Price", preMetaLine0.get("List_Price")); }
 								metaLine.put("Quoted_Item_Pricing_Tier", "Base");
 								if(ctxBrands != "" && ctxBrands != "null") { metaLine.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
 								metaLines = List();
