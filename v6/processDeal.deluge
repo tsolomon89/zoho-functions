@@ -656,10 +656,8 @@ string automation.processDeal(string deal_id, string contextJson)
 				keyAlreadyApplied = false;
 				updatableMatches = List();   // ids of activity-updatable matching Quotes
 				anomalyMultipleOpen = false;
-				zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGQ1 pre-quotes-query prod=" + prodName}, noTrigger);
 
 				dealQuotesForProd = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
-				zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGQ2 post-quotes-query"}, noTrigger);
 				if(dealQuotesForProd != null && dealQuotesForProd.size() > 0 && !dealQuotesForProd.toString().startsWith("{\"code\""))
 				{
 					for each dqp in dealQuotesForProd
@@ -854,27 +852,20 @@ string automation.processDeal(string deal_id, string contextJson)
 					}
 					else
 					{
-						// 0 matches -> CREATE one Draft Quote (single canonical line)
-						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGA create-branch prod=" + prodName + " brands=" + ctxBrands}, noTrigger);
-						accMap = Map(); accMap.put("id", accountId);
-						dMap = Map(); dMap.put("id", targetDealId);
-						qpMap = Map(); qpMap.put("id", prodId);
-
+						// 0 matches -> CREATE one Draft Quote via the REST API in ONE call. Native Deluge createRecord
+						// (Product_Details) drops custom subform fields; the REST API persists the Quoted_Items custom
+						// fields directly. trigger:[] suppresses WF020 -> handleQuoteStageChange -> processDeal recursion.
 						line = Map();
-						// Inventory line WRITE contract: reserved keys product/quantity/list_price (lowercase),
-						// NOT the read api_names Product_Name/Quantity/List_Price.
-						linePm = Map(); linePm.put("id", prodId); line.put("product", linePm);
-						line.put("quantity", 1);
+						linePm = Map(); linePm.put("id", prodId); line.put("Product_Name", linePm);
+						line.put("Quantity", 1);
 						line.put("Quoted_Item_Pricing_Tier", "Base");
 						if(ctxBrands != "" && ctxBrands != "null") { line.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
-
-						// best-effort price (NONFATAL)
 						if(ctxBrands != "" && ctxBrands != "null")
 						{
 							priceResp = automation.resolveQuoteLinePrice(prodId, prodPlanType, ctxBrands, "Base", "").toMap();
 							if(ifnull(priceResp.get("valid"), "false").toString() == "true")
 							{
-								line.put("list_price", ifnull(priceResp.get("line_acv"), 0));
+								line.put("List_Price", ifnull(priceResp.get("line_acv"), 0));
 							}
 							else
 							{
@@ -889,45 +880,43 @@ string automation.processDeal(string deal_id, string contextJson)
 							if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); }
 						}
 						lineList = List(); lineList.add(line);
-
 						qMap = Map();
 						qMap.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + prodName);
 						qMap.put("Quote_Stage", "Draft");
-						qMap.put("Account_Name", accMap);
-						qMap.put("Deal_Name", dMap);
-						qMap.put("Quote_Product", qpMap);
+						accMap = Map(); accMap.put("id", accountId); qMap.put("Account_Name", accMap);
+						dMap = Map(); dMap.put("id", targetDealId); qMap.put("Deal_Name", dMap);
+						qpMap = Map(); qpMap.put("id", prodId); qMap.put("Quote_Product", qpMap);
 						qMap.put("Opportunity_Type", quoteOppType);
 						qMap.put("Quote_Last_Deal_ID", targetDealId);
 						if(sourceContactId != "") { srcCMap = Map(); srcCMap.put("id", sourceContactId); qMap.put("Contact_Name", srcCMap); }
 						if(ctxDateStart != "") { qMap.put("Contract_Date_Start", ctxDateStart); }
 						if(ctxDateEnd != "") { qMap.put("Contract_Date_End", ctxDateEnd); }
-						qMap.put("Product_Details", lineList);
+						qMap.put("Quoted_Items", lineList);
 						if(activityKey != "") { qMap.put("Quote_Applied_Activity_Keys", activityKey); }
-
-						// CREATE with trigger suppression. The 3rd arg to zoho.crm.createRecord is an OPTIONS
-						// MAP; {"trigger":List()} = run NO workflows (empty trigger list). Suppression is
-						// REQUIRED: WF020 fires handleQuoteStageChange -> processDeal on a Quote_Stage write,
-						// which would recurse into this function. (A bare List() third arg throws
-						// "Argument type mismatch - Expected [MAP]"; this matches the proven handleTaskCompletion path.)
-						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGM pre-create reached prod=" + prodName}, noTrigger);
-						createResp = Map();
-						try
-						{
-							createResp = zoho.crm.createRecord("Quotes", qMap, {"trigger":List()});
-						}
-						catch (e)
-						{
-							createResp.put("exception", e.toString());
-						}
-						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGB createResp=" + createResp.toString()}, noTrigger);
+						crBody = Map();
+						crData = List(); crData.add(qMap);
+						crBody.put("data", crData);
+						crBody.put("trigger", List());
+						crHeaders = Map(); crHeaders.put("Content-Type", "application/json");
+						createResp = invokeurl
+						[
+							url: "https://www.zohoapis.eu/crm/v6/Quotes"
+							type: POST
+							parameters: crBody.toString()
+							connection: "zoho_crm"
+							headers: crHeaders
+						];
 						newQid = "";
-						if(!isNull(createResp) && !isNull(createResp.get("id"))) { newQid = createResp.get("id").toString(); }
-						respData = createResp.get("data");
-						if(newQid == "" && !isNull(respData) && respData.size() > 0)
+						crArr = null;
+						if(!isNull(createResp)) { crArr = createResp.get("data"); }
+						if(!isNull(crArr) && crArr.size() > 0)
 						{
-							respFirst = respData.get(0);
-							respDetails = respFirst.get("details");
-							if(!isNull(respDetails) && !isNull(respDetails.get("id"))) { newQid = respDetails.get("id").toString(); }
+							cr0 = crArr.get(0);
+							if(ifnull(cr0.get("code"), "").toString() == "SUCCESS")
+							{
+								crDet = cr0.get("details");
+								if(!isNull(crDet) && !isNull(crDet.get("id"))) { newQid = crDet.get("id").toString(); }
+							}
 						}
 						if(newQid == "")
 						{
@@ -939,107 +928,43 @@ string automation.processDeal(string deal_id, string contextJson)
 						}
 						else
 						{
-							// Persist custom line fields (dropped by the Product_Details create): re-read the
-							// created line and update it by id via the subform api_name (Quoted_Items) — the
-							// proven update contract. Verified below before this Quote counts as created.
-							newLineId = "";
-							preMetaLine0 = Map();
-							preMetaQ = zoho.crm.getRecordById("Quotes", newQid.toLong());
-							if(!isNull(preMetaQ) && !isNull(preMetaQ.get("id")))
+							// Strict readback via REST GET (read-after-write consistent): key + product + line + tier + brands.
+							vGetResp = invokeurl
+							[
+								url: "https://www.zohoapis.eu/crm/v6/Quotes/" + newQid
+								type: GET
+								connection: "zoho_crm"
+							];
+							vRec = Map();
+							if(!isNull(vGetResp) && !isNull(vGetResp.get("data")) && vGetResp.get("data").size() > 0) { vRec = vGetResp.get("data").get(0); }
+							vKeyOk = true;
+							if(activityKey != "")
 							{
-								preMetaLines = preMetaQ.get("Quoted_Items");
-								if(!isNull(preMetaLines) && preMetaLines.size() > 0 && !isNull(preMetaLines.get(0).get("id")))
-								{
-									preMetaLine0 = preMetaLines.get(0);
-									newLineId = preMetaLine0.get("id").toString();
-								}
+								vKeyOk = false;
+								vKeysRaw = ifnull(vRec.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+								for each vk in vKeysRaw.toList("\n") { if(vk.trim() == activityKey) { vKeyOk = true; } }
 							}
-							if(newLineId != "")
+							vProdOk = false;
+							vqp = vRec.get("Quote_Product");
+							if(!isNull(vqp) && !isNull(vqp.get("id")) && vqp.get("id").toString() == prodId) { vProdOk = true; }
+							vLineOk = false;
+							vTierOk = false;
+							vBrandsOk = true;
+							vLines = vRec.get("Quoted_Items");
+							if(!isNull(vLines) && vLines.size() > 0)
 							{
-								metaLine = Map();
-								metaLine.put("id", newLineId);
-								metaExProd = preMetaLine0.get("Product_Name");
-								if(!isNull(metaExProd) && !isNull(metaExProd.get("id"))) { metaPmMap = Map(); metaPmMap.put("id", metaExProd.get("id").toString()); metaLine.put("Product_Name", metaPmMap); }
-								metaLine.put("Quantity", ifnull(preMetaLine0.get("Quantity"), 1));
-								if(!isNull(preMetaLine0.get("List_Price"))) { metaLine.put("List_Price", preMetaLine0.get("List_Price")); }
-								metaLine.put("Quoted_Item_Pricing_Tier", "Base");
-								if(ctxBrands != "" && ctxBrands != "null") { metaLine.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
-								metaLines = List();
-								metaLines.add(metaLine);
-								// Custom subform fields can only be persisted via the REST API (native Deluge
-								// createRecord drops them and updateRecord ignores the Quoted_Items key). Use the
-								// zoho_crm Connection to PUT the line by id with the custom fields. trigger:[] suppresses WF020.
-								metaBody = Map();
-								metaRec = Map();
-								metaRec.put("id", newQid);
-								metaRec.put("Quoted_Items", metaLines);
-								metaDataList = List();
-								metaDataList.add(metaRec);
-								metaBody.put("data", metaDataList);
-								metaBody.put("trigger", List());
-								metaHeaders = Map();
-								metaHeaders.put("Content-Type", "application/json");
-								metaResp = invokeurl
-								[
-									url: "https://www.zohoapis.eu/crm/v6/Quotes"
-									type: PUT
-									parameters: metaBody.toString()
-									connection: "zoho_crm"
-									headers: metaHeaders
-								];
-								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_line_meta_update", prodName, {"quote":newQid, "line":newLineId, "resp":ifnull(metaResp, "").toString()});
+								vL = vLines.get(0);
+								vlp = vL.get("Product_Name");
+								if(!isNull(vlp) && !isNull(vlp.get("id")) && vlp.get("id").toString() == prodId) { vLineOk = true; }
+								vTierOk = (ifnull(vL.get("Quoted_Item_Pricing_Tier"), "").toString() == "Base");
+								if(ctxBrands != "" && ctxBrands != "null") { vBrandsOk = (ifnull(vL.get("Quoted_Item_Plan_Brands"), "").toString() == ctxBrands); }
 							}
-							verifyNewQ = zoho.crm.getRecordById("Quotes", newQid.toLong());
-							verifyNewKeyOk = false;
-							verifyNewProductOk = false;
-							verifyNewLineOk = false;
-							if(!isNull(verifyNewQ) && !isNull(verifyNewQ.get("id")))
-							{
-								verifyNewKeyOk = true;
-								if(activityKey != "")
-								{
-									verifyNewKeyOk = false;
-									verifyNewKeysRaw = ifnull(verifyNewQ.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-									for each vnk in verifyNewKeysRaw.toList("\n")
-									{
-										if(vnk.trim() == activityKey) { verifyNewKeyOk = true; }
-									}
-								}
-								verifyNewQp = verifyNewQ.get("Quote_Product");
-								if(!isNull(verifyNewQp) && !isNull(verifyNewQp.get("id")) && verifyNewQp.get("id").toString() == prodId) { verifyNewProductOk = true; }
-								verifyNewLines = verifyNewQ.get("Quoted_Items");
-								if(!isNull(verifyNewLines) && verifyNewLines.size() > 0)
-								{
-									verifyNewLineProductIds = List();
-									for each vnl in verifyNewLines
-									{
-										vnlProdId = "";
-										vnlProd = vnl.get("Product_Name");
-										if(!isNull(vnlProd) && !isNull(vnlProd.get("id"))) { vnlProdId = vnlProd.get("id").toString(); }
-										if(vnlProdId != "" && !verifyNewLineProductIds.contains(vnlProdId)) { verifyNewLineProductIds.add(vnlProdId); }
-									}
-									if(verifyNewLineProductIds.size() == 1 && verifyNewLineProductIds.contains(prodId)) { verifyNewLineOk = true; }
-								}
-							}
-							verifyNewMetaOk = false;
-							if(!isNull(verifyNewQ) && !isNull(verifyNewQ.get("id")))
-							{
-								vmLines = verifyNewQ.get("Quoted_Items");
-								if(!isNull(vmLines) && vmLines.size() > 0)
-								{
-									vmL = vmLines.get(0);
-									vmTierOk = (ifnull(vmL.get("Quoted_Item_Pricing_Tier"), "").toString() == "Base");
-									vmBrandsOk = true;
-									if(ctxBrands != "" && ctxBrands != "null") { vmBrandsOk = (ifnull(vmL.get("Quoted_Item_Plan_Brands"), "").toString() == ctxBrands); }
-									if(vmTierOk == true && vmBrandsOk == true) { verifyNewMetaOk = true; }
-								}
-							}
-							if(verifyNewKeyOk != true || verifyNewProductOk != true || verifyNewLineOk != true || verifyNewMetaOk != true)
+							if(vKeyOk != true || vProdOk != true || vLineOk != true || vTierOk != true || vBrandsOk != true)
 							{
 								anyBlocked = true;
 								result.put("reviewRequired", true);
 								if(!reviewReasons.contains("quote_post_write_verification_failed")) { reviewReasons.add("quote_post_write_verification_failed"); }
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote " + newQid + " was created for Product " + prodName + " but post-write verification failed (key/product/line/commercial-metadata). Check Quote_Applied_Activity_Keys, Quote_Product, Quoted_Items, and Quoted_Item_Pricing_Tier/Plan_Brands.");
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote " + newQid + " created for Product " + prodName + " but post-write verification failed (key/product/line/tier/brands).");
 								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "quote_create_verify_failed", prodName, {"quote":newQid, "oppType":quoteOppType, "activityKey":activityKey});
 							}
 							else
