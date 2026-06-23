@@ -656,8 +656,10 @@ string automation.processDeal(string deal_id, string contextJson)
 				keyAlreadyApplied = false;
 				updatableMatches = List();   // ids of activity-updatable matching Quotes
 				anomalyMultipleOpen = false;
+				zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGQ1 pre-quotes-query prod=" + prodName}, noTrigger);
 
 				dealQuotesForProd = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
+				zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGQ2 post-quotes-query"}, noTrigger);
 				if(dealQuotesForProd != null && dealQuotesForProd.size() > 0 && !dealQuotesForProd.toString().startsWith("{\"code\""))
 				{
 					for each dqp in dealQuotesForProd
