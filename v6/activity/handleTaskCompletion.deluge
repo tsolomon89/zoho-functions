@@ -632,8 +632,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbLine = Map();
 						fbLineProd = Map();
 						fbLineProd.put("id", fbProdId);
-						fbLine.put("Product_Name", fbLineProd);
-						fbLine.put("Quantity", 1);
+						// Inventory line WRITE contract: reserved keys product/quantity/list_price (lowercase),
+						// NOT the read api_names Product_Name/Quantity/List_Price. Custom line fields
+						// (Quoted_Item_*) are still passed by their own api_names below.
+						fbLine.put("product", fbLineProd);
+						fbLine.put("quantity", 1);
 						fbLine.put("Quoted_Item_Pricing_Tier", "Base");
 						if(taskBrands != "") { fbLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
 						if(taskBrands != "")
@@ -682,7 +685,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 							if(fbPpb > 0)
 							{
 								fbLineAcv = fbPpb.toDecimal() * fbBrandsNum;
-								fbLine.put("List_Price", fbLineAcv.round(2));
+								fbLine.put("list_price", fbLineAcv.round(2));
 							}
 						}
 						fbLines = List();

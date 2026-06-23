@@ -861,8 +861,10 @@ string automation.processDeal(string deal_id, string contextJson)
 						qpMap = Map(); qpMap.put("id", prodId);
 
 						line = Map();
-						linePm = Map(); linePm.put("id", prodId); line.put("Product_Name", linePm);
-						line.put("Quantity", 1);
+						// Inventory line WRITE contract: reserved keys product/quantity/list_price (lowercase),
+						// NOT the read api_names Product_Name/Quantity/List_Price.
+						linePm = Map(); linePm.put("id", prodId); line.put("product", linePm);
+						line.put("quantity", 1);
 						line.put("Quoted_Item_Pricing_Tier", "Base");
 						if(ctxBrands != "" && ctxBrands != "null") { line.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
 
@@ -872,7 +874,7 @@ string automation.processDeal(string deal_id, string contextJson)
 							priceResp = automation.resolveQuoteLinePrice(prodId, prodPlanType, ctxBrands, "Base", "").toMap();
 							if(ifnull(priceResp.get("valid"), "false").toString() == "true")
 							{
-								line.put("List_Price", ifnull(priceResp.get("line_acv"), 0));
+								line.put("list_price", ifnull(priceResp.get("line_acv"), 0));
 							}
 							else
 							{
