@@ -703,12 +703,22 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
 
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_attempt", {"deal":dealId.toString(), "product":fbProdId, "brands":taskBrands});
-						// FIX (2026-06-23): suppress triggers on the Quote create (3rd arg = empty List).
-						// A 2-arg create fires WF020 -> handleQuoteStageChange -> processDeal (the heavy
-						// engine), which terminates mid-chain in this org and kills the create before it
-						// commits -> Product links but no Quote and no review task. List() = fire no
-						// workflows, so the create completes; reconciliation is handled by this branch.
-						fbCreateResp = zoho.crm.createRecord("Quotes", fbQ, List());
+						// FIX (2026-06-23, execution-log confirmed): createRecord's 3rd arg is a MAP
+						// (options), NOT a List. List() threw "Argument type mismatch - Expected [MAP]" and,
+						// because the call was unwrapped, hard-terminated the function right after
+						// fallback_quote_create_attempt (no Quote, no review task). {"trigger":List()} is the
+						// empty-trigger options map = fire no workflows, which suppresses the
+						// WF020 -> handleQuoteStageChange -> heavy processDeal recursion. Wrapped in try/catch
+						// so any create error becomes a review task instead of terminating the run.
+						fbCreateResp = Map();
+						try
+						{
+							fbCreateResp = zoho.crm.createRecord("Quotes", fbQ, {"trigger":List()});
+						}
+						catch (fbErr)
+						{
+							fbCreateResp.put("exception", fbErr.toString());
+						}
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_response", {"deal":dealId.toString(), "product":fbProdId, "resp":ifnull(fbCreateResp, "").toString()});
 						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbCreated = fbCreated + 1; }
 						else { fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString()); }
