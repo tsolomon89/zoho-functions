@@ -853,6 +853,7 @@ string automation.processDeal(string deal_id, string contextJson)
 					else
 					{
 						// 0 matches -> CREATE one Draft Quote (single canonical line)
+						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGA create-branch prod=" + prodName + " brands=" + ctxBrands}, noTrigger);
 						accMap = Map(); accMap.put("id", accountId);
 						dMap = Map(); dMap.put("id", targetDealId);
 						qpMap = Map(); qpMap.put("id", prodId);
@@ -899,27 +900,25 @@ string automation.processDeal(string deal_id, string contextJson)
 						qMap.put("Quoted_Items", lineList);
 						if(activityKey != "") { qMap.put("Quote_Applied_Activity_Keys", activityKey); }
 
-						quoteCreateData = List();
-						quoteCreateData.add(qMap);
-						quoteCreatePayload = Map();
-						quoteCreatePayload.put("data", quoteCreateData);
-						quoteCreatePayload.put("trigger", List());
+						// D2b FIX (2026-06-23): native create with trigger suppression. The 3rd arg is a
+						// LIST of triggers to fire; an empty List() fires NONE. Suppression is REQUIRED:
+						// WF020 fires handleQuoteStageChange -> processDeal on any Quote_Stage write, which
+						// would recurse into this function. The ORIGINAL bug passed a Map ({"trigger":[]})
+						// as this arg — that is updateRecord's option format and breaks createRecord. The
+						// later invokeurl approach hard-terminated because connection:"zoho_crm" is not a
+						// resolvable/authorized Deluge connection (no catchable error, no return). Native
+						// createRecord uses the function's own context — no connection, EU-routed internally.
+						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGM pre-create reached prod=" + prodName}, noTrigger);
 						createResp = Map();
 						try
 						{
-							createResp = invokeurl
-							[
-								url : "https://www.zohoapis.eu/crm/v3/Quotes"
-								type : POST
-								parameters : quoteCreatePayload.toString()
-								headers : {"Content-Type":"application/json"}
-								connection : "zoho_crm"
-							];
+							createResp = zoho.crm.createRecord("Quotes", qMap, List());
 						}
 						catch (e)
 						{
 							createResp.put("exception", e.toString());
 						}
+						zoho.crm.updateRecord("Deals", targetDealId.toLong(), {"Description":"DBGB createResp=" + createResp.toString()}, noTrigger);
 						newQid = "";
 						if(!isNull(createResp) && !isNull(createResp.get("id"))) { newQid = createResp.get("id").toString(); }
 						respData = createResp.get("data");
