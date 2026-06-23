@@ -723,8 +723,61 @@ void automation.handleTaskCompletion(string taskIdStr)
 							fbCreateResp.put("exception", fbErr.toString());
 						}
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_response", {"deal":dealId.toString(), "product":fbProdId, "resp":ifnull(fbCreateResp, "").toString()});
-						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbCreated = fbCreated + 1; }
-						else { fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString()); }
+						fbNewQid = "";
+						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbNewQid = fbCreateResp.get("id").toString(); }
+						if(fbNewQid == "")
+						{
+							fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString());
+						}
+						else
+						{
+							// The Product_Details (reserved inventory) create persists ONLY the standard line
+							// fields (product/quantity/list_price); custom subform fields are dropped. Re-read the
+							// created line and persist the commercial metadata by line id via the subform's own
+							// api_name (Quoted_Items) — the proven update contract. A Quote is NOT counted as
+							// created until this metadata survives readback (matters for the contract ledger,
+							// re-pricing, and audit).
+							fbLineId = "";
+							fbCreatedQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
+							if(!isNull(fbCreatedQ) && !isNull(fbCreatedQ.get("id")))
+							{
+								fbCQLines = fbCreatedQ.get("Quoted_Items");
+								if(!isNull(fbCQLines) && fbCQLines.size() > 0 && !isNull(fbCQLines.get(0).get("id"))) { fbLineId = fbCQLines.get(0).get("id").toString(); }
+							}
+							fbMetaOk = false;
+							if(fbLineId != "")
+							{
+								fbUpdLine = Map();
+								fbUpdLine.put("id", fbLineId);
+								fbUpdLine.put("Quoted_Item_Pricing_Tier", "Base");
+								if(taskBrands != "") { fbUpdLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
+								fbUpdLines = List();
+								fbUpdLines.add(fbUpdLine);
+								fbMetaResp = zoho.crm.updateRecord("Quotes", fbNewQid.toLong(), {"Quoted_Items":fbUpdLines}, noTrigger);
+								automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_line_meta_update", {"quote":fbNewQid, "line":fbLineId, "resp":ifnull(fbMetaResp, "").toString()});
+								fbVQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
+								if(!isNull(fbVQ) && !isNull(fbVQ.get("id")))
+								{
+									fbVLines = fbVQ.get("Quoted_Items");
+									if(!isNull(fbVLines) && fbVLines.size() > 0)
+									{
+										fbVL = fbVLines.get(0);
+										fbTierOk = (ifnull(fbVL.get("Quoted_Item_Pricing_Tier"), "").toString() == "Base");
+										fbBrandsOk = true;
+										if(taskBrands != "") { fbBrandsOk = (ifnull(fbVL.get("Quoted_Item_Plan_Brands"), "").toString() == taskBrands); }
+										if(fbTierOk == true && fbBrandsOk == true) { fbMetaOk = true; }
+									}
+								}
+							}
+							if(fbMetaOk == true)
+							{
+								fbCreated = fbCreated + 1;
+							}
+							else
+							{
+								fbReasons.add("quote_line_meta_persist_failed:" + fbNewQid);
+							}
+						}
 					}
 				}
 
