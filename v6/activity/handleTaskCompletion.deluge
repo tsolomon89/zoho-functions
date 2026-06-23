@@ -632,11 +632,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbLine = Map();
 						fbLineProd = Map();
 						fbLineProd.put("id", fbProdId);
-						// Inventory line WRITE contract: reserved keys product/quantity/list_price (lowercase),
-						// NOT the read api_names Product_Name/Quantity/List_Price. Custom line fields
-						// (Quoted_Item_*) are still passed by their own api_names below.
-						fbLine.put("product", fbLineProd);
-						fbLine.put("quantity", 1);
+						// REST create via Quoted_Items (subform api_name) carries standard AND custom line fields.
+						fbLine.put("Product_Name", fbLineProd);
+						fbLine.put("Quantity", 1);
 						fbLine.put("Quoted_Item_Pricing_Tier", "Base");
 						if(taskBrands != "") { fbLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
 						if(taskBrands != "")
@@ -685,7 +683,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 							if(fbPpb > 0)
 							{
 								fbLineAcv = fbPpb.toDecimal() * fbBrandsNum;
-								fbLine.put("list_price", fbLineAcv.round(2));
+								fbLine.put("List_Price", fbLineAcv.round(2));
 							}
 						}
 						fbLines = List();
@@ -702,102 +700,72 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbQ.put("Quote_Last_Deal_ID", dealId.toString());
 						if(taskStart != "") { fbQ.put("Contract_Date_Start", taskStart); }
 						if(taskEnd != "") { fbQ.put("Contract_Date_End", taskEnd); }
-						fbQ.put("Product_Details", fbLines);
+						fbQ.put("Quoted_Items", fbLines);
 						fbQ.put("Quote_Applied_Activity_Keys", fbActivityKey);
 
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_attempt", {"deal":dealId.toString(), "product":fbProdId, "brands":taskBrands});
-						// FIX (2026-06-23, execution-log confirmed): createRecord's 3rd arg is a MAP
-						// (options), NOT a List. List() threw "Argument type mismatch - Expected [MAP]" and,
-						// because the call was unwrapped, hard-terminated the function right after
-						// fallback_quote_create_attempt (no Quote, no review task). {"trigger":List()} is the
-						// empty-trigger options map = fire no workflows, which suppresses the
-						// WF020 -> handleQuoteStageChange -> heavy processDeal recursion. Wrapped in try/catch
-						// so any create error becomes a review task instead of terminating the run.
-						fbCreateResp = Map();
-						try
-						{
-							fbCreateResp = zoho.crm.createRecord("Quotes", fbQ, {"trigger":List()});
-						}
-						catch (fbErr)
-						{
-							fbCreateResp.put("exception", fbErr.toString());
-						}
+						// Create the Quote via the REST API (zoho_crm connection) in ONE call. Native Deluge createRecord
+						// uses the reserved Product_Details contract which DROPS custom subform fields; the REST API
+						// persists the Quoted_Items custom fields (Quoted_Item_Pricing_Tier/Plan_Brands) directly.
+						// trigger:[] suppresses WF020 -> handleQuoteStageChange -> processDeal recursion.
+						fbCrBody = Map();
+						fbCrData = List();
+						fbCrData.add(fbQ);
+						fbCrBody.put("data", fbCrData);
+						fbCrBody.put("trigger", List());
+						fbCrHeaders = Map();
+						fbCrHeaders.put("Content-Type", "application/json");
+						fbCreateResp = invokeurl
+						[
+							url: "https://www.zohoapis.eu/crm/v6/Quotes"
+							type: POST
+							parameters: fbCrBody.toString()
+							connection: "zoho_crm"
+							headers: fbCrHeaders
+						];
 						automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_create_response", {"deal":dealId.toString(), "product":fbProdId, "resp":ifnull(fbCreateResp, "").toString()});
 						fbNewQid = "";
-						if(!isNull(fbCreateResp) && !isNull(fbCreateResp.get("id"))) { fbNewQid = fbCreateResp.get("id").toString(); }
+						fbCrArr = null;
+						if(!isNull(fbCreateResp)) { fbCrArr = fbCreateResp.get("data"); }
+						if(!isNull(fbCrArr) && fbCrArr.size() > 0)
+						{
+							fbCr0 = fbCrArr.get(0);
+							if(ifnull(fbCr0.get("code"), "").toString() == "SUCCESS")
+							{
+								fbCrDet = fbCr0.get("details");
+								if(!isNull(fbCrDet) && !isNull(fbCrDet.get("id"))) { fbNewQid = fbCrDet.get("id").toString(); }
+							}
+						}
 						if(fbNewQid == "")
 						{
 							fbReasons.add("quote_create_failed:" + ifnull(fbCreateResp, "").toString());
 						}
 						else
 						{
-							// The Product_Details (reserved inventory) create persists ONLY the standard line
-							// fields (product/quantity/list_price); custom subform fields are dropped. Re-read the
-							// created line and persist the commercial metadata by line id via the subform's own
-							// api_name (Quoted_Items) — the proven update contract. A Quote is NOT counted as
-							// created until this metadata survives readback (matters for the contract ledger,
-							// re-pricing, and audit).
-							fbLineId = "";
-							fbCQLine0 = Map();
-							fbCreatedQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
-							if(!isNull(fbCreatedQ) && !isNull(fbCreatedQ.get("id")))
-							{
-								fbCQLines = fbCreatedQ.get("Quoted_Items");
-								if(!isNull(fbCQLines) && fbCQLines.size() > 0 && !isNull(fbCQLines.get(0).get("id")))
-								{
-									fbCQLine0 = fbCQLines.get(0);
-									fbLineId = fbCQLine0.get("id").toString();
-								}
-							}
+							// Strict readback via REST GET (read-after-write consistent): tier + brands must survive.
 							fbMetaOk = false;
-							if(fbLineId != "")
+							fbGetResp = invokeurl
+							[
+								url: "https://www.zohoapis.eu/crm/v6/Quotes/" + fbNewQid
+								type: GET
+								connection: "zoho_crm"
+							];
+							fbVArr = null;
+							if(!isNull(fbGetResp)) { fbVArr = fbGetResp.get("data"); }
+							if(!isNull(fbVArr) && fbVArr.size() > 0)
 							{
-								fbUpdLine = Map();
-								fbUpdLine.put("id", fbLineId);
-								fbExProd = fbCQLine0.get("Product_Name");
-								if(!isNull(fbExProd) && !isNull(fbExProd.get("id"))) { fbPmMap = Map(); fbPmMap.put("id", fbExProd.get("id").toString()); fbUpdLine.put("Product_Name", fbPmMap); }
-								fbUpdLine.put("Quantity", ifnull(fbCQLine0.get("Quantity"), 1));
-								if(!isNull(fbCQLine0.get("List_Price"))) { fbUpdLine.put("List_Price", fbCQLine0.get("List_Price")); }
-								fbUpdLine.put("Quoted_Item_Pricing_Tier", "Base");
-								if(taskBrands != "") { fbUpdLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
-								fbUpdLines = List();
-								fbUpdLines.add(fbUpdLine);
-								// Custom subform fields can only be persisted via the REST API (native Deluge
-								// createRecord drops them and updateRecord ignores the Quoted_Items key). Use the
-								// zoho_crm Connection to PUT the line by id with the custom fields. trigger:[] suppresses WF020.
-								fbMetaBody = Map();
-								fbMetaRec = Map();
-								fbMetaRec.put("id", fbNewQid);
-								fbMetaRec.put("Quoted_Items", fbUpdLines);
-								fbMetaDataList = List();
-								fbMetaDataList.add(fbMetaRec);
-								fbMetaBody.put("data", fbMetaDataList);
-								fbMetaBody.put("trigger", List());
-								fbMetaHeaders = Map();
-								fbMetaHeaders.put("Content-Type", "application/json");
-								fbMetaResp = invokeurl
-								[
-									url: "https://www.zohoapis.eu/crm/v6/Quotes"
-									type: PUT
-									parameters: fbMetaBody.toString()
-									connection: "zoho_crm"
-									headers: fbMetaHeaders
-								];
-								automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_line_meta_update", {"quote":fbNewQid, "line":fbLineId, "resp":ifnull(fbMetaResp, "").toString()});
-								fbVQ = zoho.crm.getRecordById("Quotes", fbNewQid.toLong());
-								if(!isNull(fbVQ) && !isNull(fbVQ.get("id")))
+								fbVRec = fbVArr.get(0);
+								fbVLines = fbVRec.get("Quoted_Items");
+								if(!isNull(fbVLines) && fbVLines.size() > 0)
 								{
-									fbVLines = fbVQ.get("Quoted_Items");
-									if(!isNull(fbVLines) && fbVLines.size() > 0)
-									{
-										fbVL = fbVLines.get(0);
-										fbTierOk = (ifnull(fbVL.get("Quoted_Item_Pricing_Tier"), "").toString() == "Base");
-										fbBrandsOk = true;
-										if(taskBrands != "") { fbBrandsOk = (ifnull(fbVL.get("Quoted_Item_Plan_Brands"), "").toString() == taskBrands); }
-										if(fbTierOk == true && fbBrandsOk == true) { fbMetaOk = true; }
-									}
+									fbVL = fbVLines.get(0);
+									fbTierOk = (ifnull(fbVL.get("Quoted_Item_Pricing_Tier"), "").toString() == "Base");
+									fbBrandsOk = true;
+									if(taskBrands != "") { fbBrandsOk = (ifnull(fbVL.get("Quoted_Item_Plan_Brands"), "").toString() == taskBrands); }
+									if(fbTierOk == true && fbBrandsOk == true) { fbMetaOk = true; }
 								}
 							}
+							automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_meta_verify", {"quote":fbNewQid, "metaOk":fbMetaOk.toString()});
 							if(fbMetaOk == true)
 							{
 								fbCreated = fbCreated + 1;
@@ -899,7 +867,16 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
-		draftQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", dealId);
+		// REST related-list read: native getRelatedRecords/getRecordById lag on a freshly-REST-created
+		// record in the SAME execution; the REST API is read-after-write consistent.
+		draftQuotes = List();
+		draftQGetResp = invokeurl
+		[
+			url: "https://www.zohoapis.eu/crm/v6/Deals/" + dealId + "/Quotes"
+			type: GET
+			connection: "zoho_crm"
+		];
+		if(!isNull(draftQGetResp) && !isNull(draftQGetResp.get("data"))) { draftQuotes = draftQGetResp.get("data"); }
 		for each draftProdId in draftProductIds
 		{
 			if(!dealProdIds.contains(draftProdId)) { draftReasons.add("deal_product_missing:" + draftProdId); }
@@ -914,7 +891,14 @@ void automation.handleTaskCompletion(string taskIdStr)
 					dqId = "";
 					if(!isNull(dq.get("id"))) { dqId = dq.get("id").toString(); }
 					if(dqId == "") { continue; }
-					dqFull = zoho.crm.getRecordById("Quotes", dqId.toLong());
+					dqFull = Map();
+					dqGetResp = invokeurl
+					[
+						url: "https://www.zohoapis.eu/crm/v6/Quotes/" + dqId
+						type: GET
+						connection: "zoho_crm"
+					];
+					if(!isNull(dqGetResp) && !isNull(dqGetResp.get("data")) && dqGetResp.get("data").size() > 0) { dqFull = dqGetResp.get("data").get(0); }
 					if(isNull(dqFull) || isNull(dqFull.get("id"))) { continue; }
 					dqProdId = "";
 					dqProd = dqFull.get("Quote_Product");
