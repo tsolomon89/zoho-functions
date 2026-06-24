@@ -624,16 +624,46 @@ string automation.processDeal(string deal_id, string contextJson)
 				prodPlanType = ifnull(prod.get("Product_Plan_Type"), "").toString().trim();
 				if(prodPlanType == "Flexible") { prodPlanType = "Flex"; }
 
-				// (a) link Product -> source Contact Products_Linked (junction) + Product_Interest_Staging
+				// (a) link Product -> source Contact Products_Linked via the Contacts_X_Products junction
 				if(sourceContactId != "")
 				{
-					linkCResp = zoho.crm.updateRelatedRecord("Products12", prodId.toLong(), "Contacts", sourceContactId.toLong(), Map());
-					linkCRespText = ifnull(linkCResp, "").toString();
-					if(linkCRespText == "" || linkCRespText.contains("INVALID") || linkCRespText.contains("FAILED") || linkCRespText.contains("error"))
+					contactProductLinked = false;
+					sourceConLinks = zoho.crm.getRelatedRecords("Products12", "Contacts", sourceContactId.toLong());
+					if(!isNull(sourceConLinks) && sourceConLinks.size() > 0 && !sourceConLinks.toString().startsWith("{\"code\""))
 					{
-						linkCResp = zoho.crm.updateRelatedRecord("Products", prodId.toLong(), "Contacts", sourceContactId.toLong(), Map());
+						for each scl in sourceConLinks
+						{
+							sclProdId = "";
+							if(!isNull(scl.get("id"))) { sclProdId = scl.get("id").toString(); }
+							sclProd = scl.get("Product_Details");
+							if(!isNull(sclProd) && !isNull(sclProd.get("id"))) { sclProdId = sclProd.get("id").toString(); }
+							sclPI = scl.get("Product_Interest");
+							if(!isNull(sclPI) && !isNull(sclPI.get("id"))) { sclProdId = sclPI.get("id").toString(); }
+							if(sclProdId == prodId) { contactProductLinked = true; break; }
+						}
 					}
-					info "Linked Product to Contact Products_Linked: prod=" + prodId + " contact=" + sourceContactId + " resp=" + linkCResp;
+					if(!contactProductLinked)
+					{
+						sourceJunctionLinks = zoho.crm.searchRecords("Contacts_X_Products", "(Contacts:equals:" + sourceContactId + ")");
+						if(!isNull(sourceJunctionLinks) && sourceJunctionLinks.size() > 0 && !sourceJunctionLinks.toString().startsWith("{\"code\""))
+						{
+							for each sjl in sourceJunctionLinks
+							{
+								sjlProdId = "";
+								sjlPI = sjl.get("Product_Interest");
+								if(!isNull(sjlPI) && !isNull(sjlPI.get("id"))) { sjlProdId = sjlPI.get("id").toString(); }
+								if(sjlProdId == prodId) { contactProductLinked = true; break; }
+							}
+						}
+					}
+					if(!contactProductLinked)
+					{
+						linkCMap = Map();
+						linkCMap.put("Contacts", sourceContactId);
+						linkCMap.put("Product_Interest", prodId);
+						linkCResp = zoho.crm.createRecord("Contacts_X_Products", linkCMap);
+						info "Linked Product to Contact Products_Linked via Contacts_X_Products: prod=" + prodId + " contact=" + sourceContactId + " resp=" + linkCResp;
+					}
 				}
 				// (b) link Product -> Deal Products related list (idempotent: skip if already present)
 				if(!existingProdIds.contains(prodId))
@@ -1366,7 +1396,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		aggregatedPIStr = aggregatedPIStr + if(aggregatedPIStr != "", ", ", "") + apiItem;
 	}
 	// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it), so
-	// this write was a silent no-op. Product interest is canonical on Contact.Product_Interest_Staging
+	// this write was a silent no-op. Product interest is read from Contact Products_Linked / Product_Interest_Staging
 	// and resolved onto the Deal as Contract_*_Plan_Products via the Quote/Quoted_Items flow above —
 	// not as a Deal staging string. aggregatedPIStr is retained only for logging/diagnostics.
 	automation.logAutomationEvent("processDeal", "Deals", targetDealId.toString(), "product_interest", "resolved_to_contract_products", {"aggregated":aggregatedPIStr});

@@ -3,71 +3,75 @@ string automation.resolveDealPipeline(string dealIdStr)
 	// =========================================================================
 	// _util_resolveDealPipeline   (VERSION: v6-shared-utility)
 	//
-	// F3 FIX (2026-06-24): Deluge `zoho.crm.getRecordById("Deals", id).get("Pipeline")`
-	// returns BLANK for the special Pipeline field. Verified live: across two independent
-	// full-funnel E2E runs EVERY activity had Task_Pipeline / Call_Task_Pipeline null while
-	// Stage (deal.get("Opportunity_Stage")) and Opportunity (deal.get("Stage")) populated
-	// correctly. The REST API returns Pipeline as a plain string when requested with
-	// ?fields=Pipeline, so resolve it explicitly here.
+	// F3: resolve the Deal Pipeline for activity mirror fields (Task_Pipeline /
+	// Call_Task_Pipeline / Meeting_Task_Pipeline). Live runs showed every activity had a
+	// blank pipeline while Stage/Opportunity populated. Two read paths are attempted with
+	// diagnostic logging so the working one is self-evident in the function log:
+	//   (1) Deluge-native deal.get("Pipeline");
+	//   (2) REST full GET (v6) fallback (the external REST record includes Pipeline).
 	//
-	// This is the SINGLE shared normalization path for the Deal Pipeline. Callers:
-	// activation Tasks + email-audit Tasks + continuation Tasks (processContact /
-	// sendSequencedEmail / routeContactSequence), Calls, and Meetings (handleMeetingEvent).
-	//
-	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent. Handles
-	// both the plain-string and map/object record shapes. An unmapped value (not in the live
-	// activity Pipeline picklist) is LOGGED (never silently discarded) and "" is returned so
-	// the caller leaves the field blank rather than writing an invalid picklist value.
+	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent/unmapped.
+	// An unmapped value (not in the live activity Pipeline picklist) is LOGGED (never silently
+	// discarded) and "" is returned so the caller leaves the field blank.
 	// =========================================================================
 	dealId = 0;
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(dealId == 0) { return ""; }
 
 	pipeline = "";
-	resp = null;
-	try
-	{
-		// Fetch the FULL record via the REST API (v6, no ?fields= query param — matching the
-		// working invokeurl pattern used across processDeal / handleTaskCompletion). The REST
-		// full record DOES include Pipeline as a plain string, even though the Deluge-native
-		// zoho.crm.getRecordById omits it. An inline "?fields=Pipeline" query param did NOT work.
-		resp = invokeurl
-		[
-			url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
-			type   : GET
-			connection : "zoho_crm"
-		];
-	}
-	catch (e)
-	{
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "fetch", "invokeurl_failed", {"error":e.toString()});
-		return "";
-	}
 
-	try
+	// (1) Deluge-native read first (cheapest). Diagnostic log records exactly what it returns.
+	nativeDeal = zoho.crm.getRecordById("Deals", dealId);
+	nativePipeline = "";
+	if(!isNull(nativeDeal) && !isNull(nativeDeal.get("id"))) { nativePipeline = ifnull(nativeDeal.get("Pipeline"), "").toString().trim(); }
+	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "native_read", if(nativePipeline != "", "got", "blank"), {"pipeline":nativePipeline});
+	if(nativePipeline != "" && nativePipeline != "null") { pipeline = nativePipeline; }
+
+	// (2) Fallback: REST full GET (v6, no ?fields= — matching the working invokeurl pattern across
+	//     processDeal / handleTaskCompletion). The external REST full record includes Pipeline.
+	if(pipeline == "")
 	{
-		if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
+		resp = null;
+		try
 		{
-			pRaw = resp.get("data").get(0).get("Pipeline");
-			if(!isNull(pRaw))
+			resp = invokeurl
+			[
+				url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
+				type   : GET
+				connection : "zoho_crm"
+			];
+		}
+		catch (e)
+		{
+			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "fetch", "invokeurl_failed", {"error":e.toString()});
+			resp = null;
+		}
+		restPipeline = "";
+		try
+		{
+			if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
 			{
-				// Pipeline may serialize as a plain string ("B2B") or, on some layouts, as a
-				// map carrying name / display_value. Handle both.
-				if(pRaw.toString().startsWith("{")) { pipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
-				else { pipeline = pRaw.toString().trim(); }
+				pRaw = resp.get("data").get(0).get("Pipeline");
+				if(!isNull(pRaw))
+				{
+					// Pipeline may serialize as a plain string ("B2B") or a map (name / display_value).
+					if(pRaw.toString().startsWith("{")) { restPipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
+					else { restPipeline = pRaw.toString().trim(); }
+				}
 			}
 		}
-	}
-	catch (e)
-	{
-		pipeline = "";
+		catch (e)
+		{
+			restPipeline = "";
+		}
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", if(restPipeline != "", "got", "blank"), {"pipeline":restPipeline});
+		if(restPipeline != "" && restPipeline != "null") { pipeline = restPipeline; }
 	}
 
 	if(pipeline == "" || pipeline == "null") { return ""; }
 
-	// Validate against the live activity Pipeline picklist value set. Task_Pipeline
-	// (991103000001702235), Call_Task_Pipeline (991103000001702296) and Meeting_Task_Pipeline
-	// share this set. Do NOT silently discard an unmapped value: log + Manual-Review signal.
+	// Validate against the live activity Pipeline picklist value set (B2B / Partnership). Do NOT
+	// silently discard an unmapped value: log it and return "" so no invalid picklist is written.
 	allowedPipelines = {"B2B", "Partnership"};
 	if(!allowedPipelines.contains(pipeline))
 	{

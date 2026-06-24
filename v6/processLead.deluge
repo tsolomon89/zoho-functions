@@ -4,9 +4,9 @@ void automation.processLead(string lead_id)
 	// processLead  (Contact-centric)
 	//
 	// Constructs/reuses the Contact–Account–Deal graph and maps Lead data, then
-	// delegates ALL reconciliation + activation to processContact (which calls
-	// processDeal, the sole rollup owner). processLead does NOT own Products,
-	// Contact Roles (related list), Primary Contact, Opportunity/Account rollup,
+	// hands off reconciliation + activation to processContact (which calls
+	// processDeal, the sole rollup owner). processLead only preserves Lead Product links;
+	// it does not own Contact Roles (related list), Primary Contact, Opportunity/Account rollup,
 	// or activation.
 	//
 	// Pipeline:
@@ -15,10 +15,10 @@ void automation.processLead(string lead_id)
 	//   3. Convert the Lead (creates Contact + links to canonical Account)
 	//   4. Enrich Contact from Lead (idempotent, never regress Stage)
 	//   5. Resolve / create the Account's canonical Deal; seed Lead-only data
-	//      (Lead_Source, contract fields, Product_Interest_Staging)
+	//      (Lead_Source, contract fields) and Contact Product links
 	//   6. processContact(newContactId) → reconciliation + rollup + activation
 	//
-	// All graph writes use suppressTrigger; the explicit processContact call is the
+	// Graph enrichment writes suppress Contact workflow recursion; Contact create is the
 	// single deterministic downstream step (processLead → processContact → processDeal).
 	//
 	// REQUIRED ZOHO CRM SETTING:
@@ -215,7 +215,7 @@ void automation.processLead(string lead_id)
 	// splitting on comma. This handles get() returning either a real List ("[a, b]") or a
 	// bracketed String, WITHOUT iterating a possibly-String value (which would yield
 	// characters). Replaces the prior fragile munge + phantom "Product_Interest1" read
-	// that left Contact.Product_Interest_Staging empty after conversion.
+	// that left Product Interest links unavailable after conversion.
 	leadPIStr = "";
 	leadPIRaw = leadRecord.get("Product_Interest");
 	if(leadPIRaw != null)
@@ -449,10 +449,8 @@ void automation.processLead(string lead_id)
 	{
 		updCon.put("Lead_Referrer", leadReferrer);
 	}
-	if(leadPIStr != "" && ifnull(contactRecord.get("Product_Interest_Staging"), "") == "")
-	{
-		updCon.put("Product_Interest_Staging", leadPIStr);
-	}
+	// Product_Interest_Staging is a read-only formula. Lead Product Interest is
+	// preserved below by creating Contacts_X_Products junction rows.
 	if(importedRecordType != "" && ifnull(contactRecord.get("Contact_Source_Class"), "") != importedRecordType)
 	{
 		updCon.put("Contact_Source_Class", importedRecordType);
@@ -527,7 +525,7 @@ void automation.processLead(string lead_id)
 		if(contractCurrency != "") { dealMap.put("Contract_Currency", contractCurrency); }
 		// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it),
 		// so this write was a silent no-op. Canonical path: Lead.Product_Interest ->
-		// Contact.Product_Interest_Staging (set in step 5) -> activity Contract_Products ->
+		// Contact Products_Linked junction (step 6b) -> activity Contract_Products ->
 		// Quote/Quoted_Items -> Deal Contract_*_Plan_Products. The Deal has no staging field.
 
 		dRes = zoho.crm.createRecord("Deals", dealMap);
@@ -577,7 +575,20 @@ void automation.processLead(string lead_id)
 				if(!isNull(exl.get("id"))) { exlId = exl.get("id").toString(); }
 				exlProd = exl.get("Product_Details");
 				if(!isNull(exlProd) && !isNull(exlProd.get("id"))) { exlId = exlProd.get("id").toString(); }
+				exlPI = exl.get("Product_Interest");
+				if(!isNull(exlPI) && !isNull(exlPI.get("id"))) { exlId = exlPI.get("id").toString(); }
 				if(exlId != "") { alreadyLinkedIds.add(exlId); }
+			}
+		}
+		exJunctionLinks = zoho.crm.searchRecords("Contacts_X_Products", "(Contacts:equals:" + newContactId + ")");
+		if(!isNull(exJunctionLinks) && exJunctionLinks.size() > 0 && !exJunctionLinks.toString().startsWith("{\"code\""))
+		{
+			for each exj in exJunctionLinks
+			{
+				exjProdId = "";
+				exjPI = exj.get("Product_Interest");
+				if(!isNull(exjPI) && !isNull(exjPI.get("id"))) { exjProdId = exjPI.get("id").toString(); }
+				if(exjProdId != "" && !alreadyLinkedIds.contains(exjProdId)) { alreadyLinkedIds.add(exjProdId); }
 			}
 		}
 		for each piName in leadPIStr.toList(",")
@@ -593,14 +604,12 @@ void automation.processLead(string lead_id)
 				piResolved = true;
 				if(!alreadyLinkedIds.contains(piProdId))
 				{
-					linkPI = zoho.crm.updateRelatedRecord("Products12", piProdId.toLong(), "Contacts", newContactId.toLong(), Map());
-					linkPIText = ifnull(linkPI, "").toString();
-					if(linkPIText == "" || linkPIText.contains("INVALID") || linkPIText.contains("FAILED") || linkPIText.contains("error"))
-					{
-						zoho.crm.updateRelatedRecord("Products", piProdId.toLong(), "Contacts", newContactId.toLong(), Map());
-					}
+					linkPIMap = Map();
+					linkPIMap.put("Contacts", newContactId);
+					linkPIMap.put("Product_Interest", piProdId);
+					linkPI = zoho.crm.createRecord("Contacts_X_Products", linkPIMap);
 					alreadyLinkedIds.add(piProdId);
-					info "F1: linked Product Interest '" + piClean + "' (" + piProdId + ") to Contact " + newContactId;
+					info "F1: linked Product Interest '" + piClean + "' (" + piProdId + ") to Contact " + newContactId + " via Contacts_X_Products resp=" + linkPI;
 				}
 			}
 			if(!piResolved && dealId != "" && dealId != "null")

@@ -611,12 +611,43 @@ void automation.handleTaskCompletion(string taskIdStr)
 							continue;
 						}
 
-						// Link Products while we are here; these are idempotent related-list upserts.
-						fbLinkC = zoho.crm.updateRelatedRecord("Products12", fbProdId.toLong(), "Contacts", contactId, Map());
-						fbLinkCText = ifnull(fbLinkC, "").toString();
-						if(fbLinkCText == "" || fbLinkCText.contains("INVALID") || fbLinkCText.contains("FAILED") || fbLinkCText.contains("error"))
+						// Link Products while we are here; Contacts_X_Products is the canonical
+						// junction behind Contact.Products_Linked / Product_Interest_Staging.
+						fbContactProductLinked = false;
+						fbConLinks = zoho.crm.getRelatedRecords("Products12", "Contacts", contactId);
+						if(!isNull(fbConLinks) && fbConLinks.size() > 0 && !fbConLinks.toString().startsWith("{\"code\""))
 						{
-							fbLinkC = zoho.crm.updateRelatedRecord("Products", fbProdId.toLong(), "Contacts", contactId, Map());
+							for each fcl in fbConLinks
+							{
+								fclProdId = "";
+								if(!isNull(fcl.get("id"))) { fclProdId = fcl.get("id").toString(); }
+								fclProd = fcl.get("Product_Details");
+								if(!isNull(fclProd) && !isNull(fclProd.get("id"))) { fclProdId = fclProd.get("id").toString(); }
+								fclPI = fcl.get("Product_Interest");
+								if(!isNull(fclPI) && !isNull(fclPI.get("id"))) { fclProdId = fclPI.get("id").toString(); }
+								if(fclProdId == fbProdId) { fbContactProductLinked = true; break; }
+							}
+						}
+						if(!fbContactProductLinked)
+						{
+							fbJunctionLinks = zoho.crm.searchRecords("Contacts_X_Products", "(Contacts:equals:" + contactId + ")");
+							if(!isNull(fbJunctionLinks) && fbJunctionLinks.size() > 0 && !fbJunctionLinks.toString().startsWith("{\"code\""))
+							{
+								for each fjl in fbJunctionLinks
+								{
+									fjlProdId = "";
+									fjlPI = fjl.get("Product_Interest");
+									if(!isNull(fjlPI) && !isNull(fjlPI.get("id"))) { fjlProdId = fjlPI.get("id").toString(); }
+									if(fjlProdId == fbProdId) { fbContactProductLinked = true; break; }
+								}
+							}
+						}
+						if(!fbContactProductLinked)
+						{
+							fbLinkCMap = Map();
+							fbLinkCMap.put("Contacts", contactId.toString());
+							fbLinkCMap.put("Product_Interest", fbProdId);
+							fbLinkC = zoho.crm.createRecord("Contacts_X_Products", fbLinkCMap);
 						}
 						zoho.crm.updateRelatedRecord("Products", fbProdId.toLong(), "Deals", dealId, Map());
 
