@@ -888,9 +888,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && ifnull(contact.get(fieldApi), "").toString() == "")
 			{
-				// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
-				// Serialize with literal Z; XXX stored the instant one hour behind in BST.
-				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+				// Pass the DateTime object directly. Formatting it as XXX stored one hour
+				// behind in BST; formatting with literal Z stored one hour ahead.
+				cUpd.put(fieldApi, zoho.currenttime);
 			}
 		}
 	}
@@ -1146,9 +1146,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				}
 				else
 				{
-					// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
-					// Serialize with literal Z; XXX stored the instant one hour behind in BST.
-					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+					callDue = zoho.currenttime;
 				}
 				callMap = Map();
 				callMap.put("Subject", nextStage + " Call " + callStep);
