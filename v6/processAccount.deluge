@@ -21,6 +21,11 @@ void automation.processAccount(string account_id)
 
 	if(account_id == null || account_id == "") { return; }
 	cleanId = account_id.replaceAll("zcrm_", "").trim();
+	if(!cleanId.matches("[0-9]+"))
+	{
+		automation.logAutomationEvent("processAccount", "Accounts", cleanId, "guard", "invalid_account_id_argument", {"raw":account_id});
+		return;
+	}
 
 	noTrigger = Map();
 	noTrigger.put("trigger", List());

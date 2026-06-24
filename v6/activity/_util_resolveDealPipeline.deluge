@@ -5,17 +5,19 @@ string automation.resolveDealPipeline(string dealIdStr)
 	//
 	// F3: resolve the Deal Pipeline for activity mirror fields (Task_Pipeline /
 	// Call_Task_Pipeline / Meeting_Task_Pipeline). Live runs showed every activity had a
-	// blank pipeline while Stage/Opportunity populated. Two read paths are attempted with
+	// blank pipeline while Stage/Opportunity populated. Three read paths are attempted with
 	// diagnostic logging so the working one is self-evident in the function log:
 	//   (1) Deluge-native deal.get("Pipeline");
-	//   (2) REST full GET (v6) fallback (the external REST record includes Pipeline).
+	//   (2) REST full GET (v6) fallback;
+	//   (3) COQL fallback, because external COQL can read Pipeline even when Deluge GET cannot.
 	//
 	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent/unmapped.
 	// An unmapped value (not in the live activity Pipeline picklist) is LOGGED (never silently
 	// discarded) and "" is returned so the caller leaves the field blank.
 	// =========================================================================
 	dealId = 0;
-	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	cleanDealId = ifnull(dealIdStr, "").toString().replaceAll("zcrm_", "").trim();
+	if(cleanDealId != "" && cleanDealId.matches("[0-9]+")) { dealId = cleanDealId.toLong(); }
 	if(dealId == 0) { return ""; }
 
 	pipeline = "";
@@ -66,6 +68,40 @@ string automation.resolveDealPipeline(string dealIdStr)
 		}
 		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", if(restPipeline != "", "got", "blank"), {"pipeline":restPipeline});
 		if(restPipeline != "" && restPipeline != "null") { pipeline = restPipeline; }
+	}
+
+	// (3) Fallback: COQL can read Deals.Pipeline in this org even when Deluge native and
+	// REST full GET both return blank inside the function runtime.
+	if(pipeline == "")
+	{
+		coqlPipeline = "";
+		try
+		{
+			coqlBody = Map();
+			coqlBody.put("select_query", "select id, Pipeline from Deals where id = '" + dealId + "' limit 1");
+			coqlHeaders = Map();
+			coqlHeaders.put("Content-Type", "application/json");
+			coqlResp = invokeurl
+			[
+				url: "https://www.zohoapis.eu/crm/v6/coql"
+				type: POST
+				parameters: coqlBody.toString()
+				connection: "zoho_crm"
+				headers: coqlHeaders
+			];
+			if(!isNull(coqlResp) && coqlResp.toString().startsWith("{") && !isNull(coqlResp.get("data")) && coqlResp.get("data").size() > 0)
+			{
+				cRaw = coqlResp.get("data").get(0).get("Pipeline");
+				if(!isNull(cRaw)) { coqlPipeline = cRaw.toString().trim(); }
+			}
+		}
+		catch (e)
+		{
+			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "failed", {"error":e.toString()});
+			coqlPipeline = "";
+		}
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", if(coqlPipeline != "", "got", "blank"), {"pipeline":coqlPipeline});
+		if(coqlPipeline != "" && coqlPipeline != "null") { pipeline = coqlPipeline; }
 	}
 
 	if(pipeline == "" || pipeline == "null") { return ""; }
