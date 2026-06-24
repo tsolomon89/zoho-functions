@@ -765,7 +765,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				clWho = "";
 				wl = cl.get("Who_Id");
 				if(!isNull(wl) && !isNull(wl.get("id"))) { clWho = wl.get("id").toString(); }
-				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Outcome"), "").toString() == "" && ifnull(cl.get("Stale"), "No").toString() != "Yes")
+				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Task_State"), "").toString() != "Won" && ifnull(cl.get("Call_Task_State"), "").toString() != "Lost" && ifnull(cl.get("Stale"), "No").toString() != "Yes")
 				{
 					zoho.crm.updateRecord("Calls", cl.get("id").toLong(), {"Stale":"Yes", "Status":"Cancelled"}, noTrigger);
 				}
@@ -1066,7 +1066,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 					ecWho = "";
 					ewl = ec.get("Who_Id");
 					if(!isNull(ewl) && !isNull(ewl.get("id"))) { ecWho = ewl.get("id").toString(); }
-					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Outcome"), "").toString() == "" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
+					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Task_State"), "").toString() != "Won" && ifnull(ec.get("Call_Task_State"), "").toString() != "Lost" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
 					{
 						dupCall = true;
 					}

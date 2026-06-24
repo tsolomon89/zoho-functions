@@ -108,6 +108,9 @@ void automation.handleMeetingEvent(string eventIdStr)
 		if(mStart != "") { actx.put("contractDateStart", mStart); }
 		mEnd = ifnull(event.get("Meeting_Task_Contract_Date_End"), "").toString().trim();
 		if(mEnd != "") { actx.put("contractDateEnd", mEnd); }
+		mFreq = ifnull(event.get("Meeting_Task_Contract_Frequency"), "").toString().trim();
+		if(mFreq == "-None-") { mFreq = ""; }
+		if(mFreq != "") { actx.put("frequency", mFreq); }
 		ctxStr = actx.toString();
 	}
 

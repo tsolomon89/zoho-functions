@@ -349,6 +349,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 	taskEnd = ifnull(task.get("Task_Contract_Date_End"), "").toString().trim();
 	if(taskEnd == "-None-") { taskEnd = ""; }
 	if(taskEnd != "") { taskActivityCtx.put("contractDateEnd", taskEnd); }
+	taskFreq = ifnull(task.get("Task_Contract_Frequency"), "").toString().trim();
+	if(taskFreq == "-None-") { taskFreq = ""; }
+	if(taskFreq != "") { taskActivityCtx.put("frequency", taskFreq); }
 	hasTaskProductEvidence = taskProductList.size() > 0;
 
 	// =====================================================================
@@ -638,53 +641,21 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbLine.put("Quantity", 1);
 						fbLine.put("Quoted_Item_Pricing_Tier", "Base");
 						if(taskBrands != "") { fbLine.put("Quoted_Item_Plan_Brands", taskBrands.toLong()); }
+						if(taskFreq != "") { fbLine.put("Quoted_Item_Frequency", taskFreq); }
+						// Central pricing resolver (no inline/UX-only pricing). The resolver reads family + plan type
+						// from the Product. Unpriced results (Cortex / missing brand count / 360 missing frequency)
+						// leave the line unpriced and raise Manual Review; never invent a price.
 						if(taskBrands != "")
 						{
-							fbProdFull = zoho.crm.getRecordById("Products", fbProdId.toLong());
-							fbFamily = "";
-							fbPlanType = "";
-							if(!isNull(fbProdFull) && !isNull(fbProdFull.get("id")))
+							fbPrice = automation.resolveQuoteLinePrice(fbProdId, "", taskBrands, "Base", taskFreq).toMap();
+							if(ifnull(fbPrice.get("valid"), "false").toString() == "true")
 							{
-								fbFamily = ifnull(fbProdFull.get("Product_Plan_Products"), "").toString().trim();
-								if(fbFamily == "Jurnii Cortext") { fbFamily = "Jurnii Cortex"; }
-								fbPlanType = ifnull(fbProdFull.get("Product_Plan_Type"), "").toString().trim();
+								fbLine.put("List_Price", ifnull(fbPrice.get("line_acv"), 0));
 							}
-							if(fbPlanType == "Flexible") { fbPlanType = "Flex"; }
-							fbBrandsNum = taskBrands.toLong();
-							fbPpb = 0.0;
-							if(fbFamily == "Jurnii UX")
+							else
 							{
-								fbBand = 0;
-								if(fbBrandsNum <= 5) { fbBand = 5; }
-								else if(fbBrandsNum <= 7) { fbBand = 7; }
-								else if(fbBrandsNum <= 10) { fbBand = 10; }
-								else if(fbBrandsNum <= 15) { fbBand = 15; }
-								else if(fbBrandsNum <= 20) { fbBand = 20; }
-								else if(fbBrandsNum <= 50) { fbBand = 50; }
-								else if(fbBrandsNum <= 100) { fbBand = 100; }
-								if(fbPlanType == "Fixed")
-								{
-									if(fbBand == 5 || fbBand == 7) { fbPpb = 2100.0; }
-									else if(fbBand == 10) { fbPpb = 1848.0; }
-									else if(fbBand == 15) { fbPpb = 1633.8; }
-									else if(fbBand == 20) { fbPpb = 1470.0; }
-									else if(fbBand == 50) { fbPpb = 1260.0; }
-									else if(fbBand == 100) { fbPpb = 1190.0; }
-								}
-								else if(fbPlanType == "Flex")
-								{
-									if(fbBand == 5 || fbBand == 7) { fbPpb = 1680.0; }
-									else if(fbBand == 10) { fbPpb = 1478.4; }
-									else if(fbBand == 15) { fbPpb = 1307.04; }
-									else if(fbBand == 20) { fbPpb = 1176.0; }
-									else if(fbBand == 50) { fbPpb = 1008.0; }
-									else if(fbBand == 100) { fbPpb = 952.0; }
-								}
-							}
-							if(fbPpb > 0)
-							{
-								fbLineAcv = fbPpb.toDecimal() * fbBrandsNum;
-								fbLine.put("List_Price", fbLineAcv.round(2));
+								automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Draft Commercials Task " + taskId + ": Quote line for Product " + fbProdName + " could not be auto-priced (" + ifnull(fbPrice.get("reason"), "pricing_unavailable").toString() + "). Created unpriced; set the price manually.");
+								automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "line_unpriced", {"product":fbProdId, "reason":ifnull(fbPrice.get("reason"), "pricing_unavailable").toString()});
 							}
 						}
 						fbLines = List();

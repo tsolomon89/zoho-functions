@@ -12,8 +12,8 @@ void automation.handleCallOutcome(string callIdStr)
 	//   Open -> no routing unless an explicit continuation signal exists
 	//           (Next_Follow_Up_Date => reschedule). An Open edit alone must not advance.
 	//
-	// LEGACY back-compat: if Call_Task_State is blank, fall back to the old
-	// Call_Outcome 10-value mapping (unchanged) so nothing breaks mid-transition.
+	// Call_Task_State blank => no actionable signal. The legacy outcome field has been retired;
+	// State/Status/Lost Reasons is the only routing surface.
 	//
 	// Idempotency (WF006 fires on anyaction): act only on an actionable signal, and
 	// mark the processed call Stale=Yes so re-edits skip. Stale + stale-stage +
@@ -63,8 +63,7 @@ void automation.handleCallOutcome(string callIdStr)
 	if(callTaskState == "-None-") { callTaskState = ""; }
 	callTaskReason = ifnull(call.get("Call_Task_Lost_Reasons"), "").toString().trim();
 	if(callTaskReason == "-None-") { callTaskReason = ""; }
-	legacyOutcome = ifnull(call.get("Call_Outcome"), "").toString().trim();
-	if(callTaskState == "" && legacyOutcome == "")
+	if(callTaskState == "")
 	{
 		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "guard", "skip_no_signal", null);
 		return;
@@ -115,7 +114,7 @@ void automation.handleCallOutcome(string callIdStr)
 	}
 
 	// =====================================================================
-	// NEW ACTIVITY-STATE SURFACE (primary). Legacy Call_Outcome only when blank.
+	// ACTIVITY-STATE SURFACE: Call_Task_State drives routing (Won / Open / Lost).
 	// =====================================================================
 	if(callTaskState != "")
 	{
@@ -148,6 +147,9 @@ void automation.handleCallOutcome(string callIdStr)
 			if(cStart != "") { actx.put("contractDateStart", cStart); }
 			cEnd = ifnull(call.get("Call_Task_Contract_Date_End"), "").toString().trim();
 			if(cEnd != "") { actx.put("contractDateEnd", cEnd); }
+			cFreq = ifnull(call.get("Call_Task_Contract_Frequency"), "").toString().trim();
+			if(cFreq == "-None-") { cFreq = ""; }
+			if(cFreq != "") { actx.put("frequency", cFreq); }
 			automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:positive", actx.toString());
 			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_won", "call_positive", {"deal":dealId.toString(), "contact":contactId.toString(), "products":prodList.size().toString()});
@@ -181,6 +183,18 @@ void automation.handleCallOutcome(string callIdStr)
 			if(contactStage != "") { newCall.put("Call_Task_Stage", contactStage); }
 			newCall.put("Call_Task_Status", "New");
 			newCall.put("Call_Task_State", "Open");
+			// Part E: carry the complete commercial evidence bundle onto the rescheduled Call.
+			rsProds = call.get("Call_Task_Contract_Products");
+			if(!isNull(rsProds)) { newCall.put("Call_Task_Contract_Products", rsProds); }
+			rsBrands = ifnull(call.get("Call_Task_Contract_Brands"), "").toString().trim();
+			if(rsBrands != "") { newCall.put("Call_Task_Contract_Brands", rsBrands.toLong()); }
+			rsStart = ifnull(call.get("Call_Task_Contract_Date_Start"), "").toString().trim();
+			if(rsStart != "") { newCall.put("Call_Task_Contract_Date_Start", rsStart); }
+			rsEnd = ifnull(call.get("Call_Task_Contract_Date_End"), "").toString().trim();
+			if(rsEnd != "") { newCall.put("Call_Task_Contract_Date_End", rsEnd); }
+			rsFreq = ifnull(call.get("Call_Task_Contract_Frequency"), "").toString().trim();
+			if(rsFreq == "-None-") { rsFreq = ""; }
+			if(rsFreq != "") { newCall.put("Call_Task_Contract_Frequency", rsFreq); }
 			zoho.crm.createRecord("Calls", newCall);
 			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_open", "rescheduled", {"deal":dealId.toString(), "until":nextFu.toString()});
@@ -238,81 +252,4 @@ void automation.handleCallOutcome(string callIdStr)
 		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "unknown_state", callTaskState, {"deal":dealId.toString()});
 		return;
 	}
-
-	// =====================================================================
-	// LEGACY BACK-COMPAT: Call_Outcome 10-value mapping (used only when Call_Task_State blank)
-	// =====================================================================
-	outcome = legacyOutcome;
-	trigMap = Map();
-	trigMap.put("Positive", "call:positive");
-	trigMap.put("Neutral", "call:neutral");
-	trigMap.put("No Answer", "call:noanswer");
-	trigMap.put("Negative", "call:negative");
-	trigMap.put("Deferred", "call:deferred");
-	trigMap.put("Bad Data", "call:baddata");
-	trigMap.put("Already Handled", "call:alreadyhandled");
-	trigMap.put("Not Relevant", "call:notrelevant");
-	trigMap.put("Manual Only", "call:manualonly");
-	trigMap.put("Do Not Contact", "call:donotcontact");
-	trig = ifnull(trigMap.get(outcome), "").toString();
-	if(trig == "")
-	{
-		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "unknown_outcome", outcome, {"deal":dealId.toString()});
-		return;
-	}
-
-	// ---- Deferred (legacy): reschedule this attempt to the explicit follow-up date ----
-	if(trig == "call:deferred")
-	{
-		nextFu = call.get("Next_Follow_Up_Date");
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), trig, "{}");
-		if(!isNull(nextFu))
-		{
-			newCall = Map();
-			newCall.put("Subject", contactStage + " Call " + callSeqAttempt);
-			newCall.put("What_Id", dealId);
-			newCall.put("$se_module", "Deals");
-			newCall.put("Who_Id", contactId);
-			newCall.put("Sequence_Managed", "Yes");
-			newCall.put("Sequence_Stage", contactStage);
-			newCall.put("Sequence_Attempt", callSeqAttempt);
-			newCall.put("Call_Type", "Outbound");
-			newCall.put("Call_Start_Time", nextFu);
-			newCall.put("Stale", "No");
-			if(dealPipeline != "") { newCall.put("Call_Task_Pipeline", dealPipeline); }
-			if(dealOppType != "")  { newCall.put("Call_Task_Opportunity", dealOppType); }
-			if(contactStage != "") { newCall.put("Call_Task_Stage", contactStage); }
-			newCall.put("Call_Task_Status", "New");
-			newCall.put("Call_Task_State", "Open");
-			zoho.crm.createRecord("Calls", newCall);
-		}
-		automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "outcome_deferred", "rescheduled", {"deal":dealId.toString(), "until":ifnull(nextFu, "").toString()});
-		return;
-	}
-
-	// ---- transition (single router owner) ----
-	automation.routeContactSequence(contactId.toString(), dealId.toString(), trig, "{}");
-
-	// ---- legacy outcome-specific side effects ----
-	if(trig == "call:baddata")
-	{
-		automation.createAuxTask(contactId.toString(), dealId.toString(), "Data Repair", "Bad Data on Call " + callId);
-	}
-	else if(trig == "call:notrelevant")
-	{
-		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Not Relevant call outcome on Call " + callId);
-	}
-	else if(trig == "call:negative" || trig == "call:donotcontact")
-	{
-		if(ifnull(contact.get("Lost_Reasons"), "").toString() == "")
-		{
-			reasonVal = "No Response";
-			if(trig == "call:negative") { reasonVal = "No Fit"; }
-			lostUpd = Map();
-			lostUpd.put("Lost_Reasons", reasonVal);
-			zoho.crm.updateRecord("Contacts", contactId, lostUpd, noTrigger);
-		}
-	}
-
-	automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "routed", trig, {"deal":dealId.toString(), "contact":contactId.toString()});
 }

@@ -479,6 +479,8 @@ string automation.processDeal(string deal_id, string contextJson)
 	ctxBrands = ifnull(ctx.get("numberOfBrands"), "").toString();
 	ctxDateStart = ifnull(ctx.get("contractDateStart"), "").toString();
 	ctxDateEnd = ifnull(ctx.get("contractDateEnd"), "").toString();
+	ctxFreq = ifnull(ctx.get("frequency"), "").toString().trim();
+	if(ctxFreq == "-None-") { ctxFreq = ""; }
 
 	anyBlocked = false;            // any Product hit a BLOCKING anomaly
 	resolvedProductIds = List();   // Products linked this pass (for staging append)
@@ -744,8 +746,15 @@ string automation.processDeal(string deal_id, string contextJson)
 								xlTier = ifnull(xl.get("Quoted_Item_Pricing_Tier"), "Base").toString();
 								if(xlTier == "") { xlTier = "Base"; }
 								lm.put("Quoted_Item_Pricing_Tier", xlTier);
+								// frequency: a nonblank ctx value overrides the existing line value (blanks never erase)
 								xlFreq = ifnull(xl.get("Quoted_Item_Frequency"), "").toString();
-								if(xlFreq != "") { lm.put("Quoted_Item_Frequency", xlFreq); }
+								effFreq = xlFreq;
+								if(ctxFreq != "" && ctxFreq != xlFreq)
+								{
+									effFreq = ctxFreq;
+									lineEdited = true;
+								}
+								if(effFreq != "") { lm.put("Quoted_Item_Frequency", effFreq); }
 
 								xlBrands = ifnull(xl.get("Quoted_Item_Plan_Brands"), "").toString();
 								effBrands = xlBrands;
@@ -756,10 +765,11 @@ string automation.processDeal(string deal_id, string contextJson)
 								}
 								if(effBrands != "" && effBrands != "null") { lm.put("Quoted_Item_Plan_Brands", effBrands.toLong()); }
 
-								// (re)price best-effort when we have a brand count (NONFATAL)
+								// (re)price best-effort when we have a brand count (NONFATAL).
+								// Unpriced results route to the unpriced-quote/Manual Review flow below.
 								if(effBrands != "" && effBrands != "null" && xlProdId != "")
 								{
-									priceResp = automation.resolveQuoteLinePrice(xlProdId, prodPlanType, effBrands, xlTier, xlFreq).toMap();
+									priceResp = automation.resolveQuoteLinePrice(xlProdId, prodPlanType, effBrands, xlTier, effFreq).toMap();
 									if(ifnull(priceResp.get("valid"), "false").toString() == "true")
 									{
 										lm.put("List_Price", ifnull(priceResp.get("line_acv"), 0));
@@ -768,6 +778,7 @@ string automation.processDeal(string deal_id, string contextJson)
 									{
 										result.put("reviewRequired", true);
 										if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); }
+										automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote line for Product " + prodName + " could not be auto-priced (" + ifnull(priceResp.get("reason"), "pricing_unavailable").toString() + "). Left unpriced; set the price manually.");
 									}
 								}
 								newLines.add(lm);
@@ -782,6 +793,21 @@ string automation.processDeal(string deal_id, string contextJson)
 							lm.put("Quantity", 1);
 							lm.put("Quoted_Item_Pricing_Tier", "Base");
 							if(ctxBrands != "" && ctxBrands != "null") { lm.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
+							if(ctxFreq != "") { lm.put("Quoted_Item_Frequency", ctxFreq); }
+							if(ctxBrands != "" && ctxBrands != "null")
+							{
+								priceRespN = automation.resolveQuoteLinePrice(prodId, prodPlanType, ctxBrands, "Base", ctxFreq).toMap();
+								if(ifnull(priceRespN.get("valid"), "false").toString() == "true")
+								{
+									lm.put("List_Price", ifnull(priceRespN.get("line_acv"), 0));
+								}
+								else
+								{
+									result.put("reviewRequired", true);
+									if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); }
+									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "Quote line for Product " + prodName + " could not be auto-priced (" + ifnull(priceRespN.get("reason"), "pricing_unavailable").toString() + "). Left unpriced; set the price manually.");
+								}
+							}
 							newLines.add(lm);
 						}
 						if(newLines.size() > 0) { qUpd.put("Quoted_Items", newLines); }
@@ -803,8 +829,34 @@ string automation.processDeal(string deal_id, string contextJson)
 
 						if(qUpd.size() > 0)
 						{
-							updateResp = zoho.crm.updateRecord("Quotes", upQid.toLong(), qUpd, noTrigger);
-							verifyQ = zoho.crm.getRecordById("Quotes", upQid.toLong());
+							// Update via the REST API (zoho_crm connection) in ONE PUT. Native Deluge updateRecord
+							// uses the reserved Product_Details contract which DROPS custom subform fields; the REST
+							// API persists the Quoted_Items custom fields (Pricing_Tier/Plan_Brands/Frequency) directly.
+							// trigger:[] suppresses WF020 -> handleQuoteStageChange -> processDeal recursion.
+							upBody = Map();
+							upData = List();
+							upData.add(qUpd);
+							upBody.put("data", upData);
+							upBody.put("trigger", List());
+							upHeaders = Map();
+							upHeaders.put("Content-Type", "application/json");
+							updateResp = invokeurl
+							[
+								url: "https://www.zohoapis.eu/crm/v6/Quotes/" + upQid
+								type: PUT
+								parameters: upBody.toString()
+								connection: "zoho_crm"
+								headers: upHeaders
+							];
+							// Strict readback via REST GET (read-after-write consistent): key + product + line must survive.
+							verifyQ = Map();
+							vUpGetResp = invokeurl
+							[
+								url: "https://www.zohoapis.eu/crm/v6/Quotes/" + upQid
+								type: GET
+								connection: "zoho_crm"
+							];
+							if(!isNull(vUpGetResp) && !isNull(vUpGetResp.get("data")) && vUpGetResp.get("data").size() > 0) { verifyQ = vUpGetResp.get("data").get(0); }
 							verifyKeyOk = false;
 							verifyProductOk = false;
 							verifyLineOk = false;
@@ -860,9 +912,10 @@ string automation.processDeal(string deal_id, string contextJson)
 						line.put("Quantity", 1);
 						line.put("Quoted_Item_Pricing_Tier", "Base");
 						if(ctxBrands != "" && ctxBrands != "null") { line.put("Quoted_Item_Plan_Brands", ctxBrands.toLong()); }
+						if(ctxFreq != "") { line.put("Quoted_Item_Frequency", ctxFreq); }
 						if(ctxBrands != "" && ctxBrands != "null")
 						{
-							priceResp = automation.resolveQuoteLinePrice(prodId, prodPlanType, ctxBrands, "Base", "").toMap();
+							priceResp = automation.resolveQuoteLinePrice(prodId, prodPlanType, ctxBrands, "Base", ctxFreq).toMap();
 							if(ifnull(priceResp.get("valid"), "false").toString() == "true")
 							{
 								line.put("List_Price", ifnull(priceResp.get("line_acv"), 0));
