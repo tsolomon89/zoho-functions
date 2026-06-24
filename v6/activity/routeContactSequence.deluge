@@ -824,7 +824,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 
 	// Activity mirror fields (automation-owned) derived from the Deal context; the
 	// process Stage mirror = nextStage. Stamped on created Calls/Tasks for reporting parity.
-	mirrorPipeline = ifnull(deal.get("Pipeline"), "").toString();
+	// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared
+	// REST-backed resolver (never deal.get("Pipeline"), which returns blank).
+	mirrorPipeline = automation.resolveDealPipeline(dealId.toString());
 	mirrorOppType  = ifnull(stageOpportunity.get(nextStage), ifnull(deal.get("Stage"), "")).toString();
 
 	// ---- 2. + 3. Side cadence email + primary action (create_call / create_task /
@@ -886,7 +888,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && ifnull(contact.get(fieldApi), "").toString() == "")
 			{
-				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				// TZ FIX (2026-06-24): zoho.currenttime returns UTC-valued components in this org's
+				// Deluge runtime; the old "...XXX" appended +01:00 to UTC components, storing the
+				// instant 1 hour behind (a completion stamped BEFORE the Contact's own Created_Time
+				// proved this live). Serialize the UTC components as UTC ('Z') so Zoho stores/display
+				// the correct instant. VERIFY LIVE post-deploy with a controlled probe.
+				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
 			}
 		}
 	}
@@ -1142,7 +1149,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				}
 				else
 				{
-					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+					// TZ FIX (2026-06-24): zoho.currenttime returns UTC components; serialize as UTC ('Z')
+					// so the immediate Call_Start_Time is the correct instant (was 1h behind). The
+					// dueOffset>0 branch above builds a local wall-clock target string and is unaffected.
+					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'");
 				}
 				callMap = Map();
 				callMap.put("Subject", nextStage + " Call " + callStep);

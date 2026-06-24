@@ -175,7 +175,9 @@ void automation.processContact(string contact_id)
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && contactRecord.get(fieldApi) == null)
 			{
-				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				// TZ FIX (2026-06-24): zoho.currenttime returns UTC components here; "...XXX" stored
+				// the instant 1h behind. Serialize as UTC ('Z'). VERIFY LIVE post-deploy. See routeContactSequence.
+				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
 			}
 		}
 	}
@@ -316,6 +318,22 @@ void automation.processContact(string contact_id)
 			if(existingSeqType != "") { actTask.put("Task_Sequence_Type", existingSeqType); }
 			actTask.put("Blocks_Sequence", "Yes");
 			actTask.put("Description", actDesc);
+			// F4 FIX (2026-06-24): the activation Task must carry the full inherited commercial
+			// context (parity with email-audit / aux Tasks), not only the sequence stage and not
+			// only in Subject/Description text. Task_Stage = commercial stage (= contactStage, kept
+			// in sync with Deal.Opportunity_Stage); Task_Opportunity = Deal.Stage (opportunity type);
+			// Task_Pipeline via the shared resolver (Deluge getRecordById omits Pipeline).
+			actTask.put("Task_Stage", contactStage);
+			actTask.put("Task_State", "Open");
+			actTask.put("Task_Status", "New");
+			actDealRec = zoho.crm.getRecordById("Deals", dealId.toLong());
+			if(!isNull(actDealRec) && !isNull(actDealRec.get("id")))
+			{
+				actOppType = ifnull(actDealRec.get("Stage"), "").toString();
+				if(actOppType != "") { actTask.put("Task_Opportunity", actOppType); }
+			}
+			actPipeline = automation.resolveDealPipeline(dealId.toString());
+			if(actPipeline != "") { actTask.put("Task_Pipeline", actPipeline); }
 			if(ownerId != "") { actTask.put("Owner", ownerId); }
 			actResp = zoho.crm.createRecord("Tasks", actTask);
 			info "processContact: created Sequence Activation Task resp=" + actResp;

@@ -77,7 +77,8 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 		ownerLookup = deal.get("Owner");
 		if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { tkMap.put("Owner", ownerLookup.get("id").toString()); }
 		// activity mirror fields (automation-owned) from the Deal context
-		auxPipeline = ifnull(deal.get("Pipeline"), "").toString();
+		// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared resolver.
+		auxPipeline = automation.resolveDealPipeline(dealId.toString());
 		auxOppType  = ifnull(deal.get("Stage"), "").toString();
 		auxStage    = ifnull(deal.get("Opportunity_Stage"), "").toString();
 		if(auxPipeline != "") { tkMap.put("Task_Pipeline", auxPipeline); }

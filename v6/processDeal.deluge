@@ -1365,10 +1365,11 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	{
 		aggregatedPIStr = aggregatedPIStr + if(aggregatedPIStr != "", ", ", "") + apiItem;
 	}
-	if(aggregatedPIStr != "" && ifnull(targetDeal.get("Product_Interest_Staging"), "") != aggregatedPIStr)
-	{
-		dUpd.put("Product_Interest_Staging", aggregatedPIStr);
-	}
+	// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it), so
+	// this write was a silent no-op. Product interest is canonical on Contact.Product_Interest_Staging
+	// and resolved onto the Deal as Contract_*_Plan_Products via the Quote/Quoted_Items flow above —
+	// not as a Deal staging string. aggregatedPIStr is retained only for logging/diagnostics.
+	automation.logAutomationEvent("processDeal", "Deals", targetDealId.toString(), "product_interest", "resolved_to_contract_products", {"aggregated":aggregatedPIStr});
 
 	// viability + stage roll-up
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
@@ -1551,7 +1552,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 				pcDateVal = "";
 				if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
 				if(pcDateVal != "") { dUpd.put(fieldApi, pcDateVal.toString()); }
-				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX")); }
+				// TZ FIX (2026-06-24): zoho.currenttime returns UTC components here; "...XXX" stored the
+				// instant 1h behind. Serialize as UTC ('Z'). VERIFY LIVE post-deploy. See routeContactSequence.
+				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'")); }
 			}
 		}
 	}

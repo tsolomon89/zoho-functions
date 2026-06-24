@@ -525,7 +525,10 @@ void automation.processLead(string lead_id)
 		if(contractACVCurrent != 0) { dealMap.put("Contract_ACV_Current", contractACVCurrent); }
 		if(contractType != "") { dealMap.put("Contract_Type", contractType); }
 		if(contractCurrency != "") { dealMap.put("Contract_Currency", contractCurrency); }
-		if(leadPIStr != "") { dealMap.put("Product_Interest_Staging", leadPIStr); }
+		// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it),
+		// so this write was a silent no-op. Canonical path: Lead.Product_Interest ->
+		// Contact.Product_Interest_Staging (set in step 5) -> activity Contract_Products ->
+		// Quote/Quoted_Items -> Deal Contract_*_Plan_Products. The Deal has no staging field.
 
 		dRes = zoho.crm.createRecord("Deals", dealMap);
 		if(dRes.get("id") != null)

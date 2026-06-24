@@ -64,7 +64,8 @@ void automation.handleMeetingEvent(string eventIdStr)
 	if(mReason == "-None-") { mReason = ""; }
 	mStage = ifnull(event.get("Meeting_Task_Stage"), "").toString().trim();
 
-	dealPipeline = ifnull(deal.get("Pipeline"), "").toString();
+	// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared resolver.
+	dealPipeline = automation.resolveDealPipeline(dealId.toString());
 	dealOppType  = ifnull(deal.get("Stage"), "").toString();
 
 	// ---- TYPE inference from Meeting_Task_Stage (fallback to Contact Stage, else demo) ----

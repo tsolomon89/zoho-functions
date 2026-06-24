@@ -1,0 +1,74 @@
+string automation.resolveDealPipeline(string dealIdStr)
+{
+	// =========================================================================
+	// _util_resolveDealPipeline   (VERSION: v6-shared-utility)
+	//
+	// F3 FIX (2026-06-24): Deluge `zoho.crm.getRecordById("Deals", id).get("Pipeline")`
+	// returns BLANK for the special Pipeline field. Verified live: across two independent
+	// full-funnel E2E runs EVERY activity had Task_Pipeline / Call_Task_Pipeline null while
+	// Stage (deal.get("Opportunity_Stage")) and Opportunity (deal.get("Stage")) populated
+	// correctly. The REST API returns Pipeline as a plain string when requested with
+	// ?fields=Pipeline, so resolve it explicitly here.
+	//
+	// This is the SINGLE shared normalization path for the Deal Pipeline. Callers:
+	// activation Tasks + email-audit Tasks + continuation Tasks (processContact /
+	// sendSequencedEmail / routeContactSequence), Calls, and Meetings (handleMeetingEvent).
+	//
+	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent. Handles
+	// both the plain-string and map/object record shapes. An unmapped value (not in the live
+	// activity Pipeline picklist) is LOGGED (never silently discarded) and "" is returned so
+	// the caller leaves the field blank rather than writing an invalid picklist value.
+	// =========================================================================
+	dealId = 0;
+	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
+	if(dealId == 0) { return ""; }
+
+	pipeline = "";
+	resp = null;
+	try
+	{
+		resp = invokeurl
+		[
+			url    : "https://www.zohoapis.eu/crm/v3/Deals/" + dealId + "?fields=Pipeline"
+			type   : GET
+			connection : "zoho_crm"
+		];
+	}
+	catch (e)
+	{
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "fetch", "invokeurl_failed", {"error":e.toString()});
+		return "";
+	}
+
+	try
+	{
+		if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
+		{
+			pRaw = resp.get("data").get(0).get("Pipeline");
+			if(!isNull(pRaw))
+			{
+				// Pipeline may serialize as a plain string ("B2B") or, on some layouts, as a
+				// map carrying name / display_value. Handle both.
+				if(pRaw.toString().startsWith("{")) { pipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
+				else { pipeline = pRaw.toString().trim(); }
+			}
+		}
+	}
+	catch (e)
+	{
+		pipeline = "";
+	}
+
+	if(pipeline == "" || pipeline == "null") { return ""; }
+
+	// Validate against the live activity Pipeline picklist value set. Task_Pipeline
+	// (991103000001702235), Call_Task_Pipeline (991103000001702296) and Meeting_Task_Pipeline
+	// share this set. Do NOT silently discard an unmapped value: log + Manual-Review signal.
+	allowedPipelines = {"B2B", "Partnership"};
+	if(!allowedPipelines.contains(pipeline))
+	{
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_unmapped", "manual_review", {"pipeline":pipeline});
+		return "";
+	}
+	return pipeline;
+}

@@ -109,7 +109,9 @@ void automation.handleCallOutcome(string callIdStr)
 	dealOppType  = "";
 	if(!isNull(dealRec) && !isNull(dealRec.get("id")))
 	{
-		dealPipeline = ifnull(dealRec.get("Pipeline"), "").toString();
+		// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared
+		// resolver so rescheduled / next Calls preserve Pipeline.
+		dealPipeline = automation.resolveDealPipeline(dealId.toString());
 		dealOppType  = ifnull(dealRec.get("Stage"), "").toString();
 	}
 

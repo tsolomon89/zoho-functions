@@ -241,7 +241,9 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	emOpp = "";
 	if(!isNull(emDeal) && !isNull(emDeal.get("id")))
 	{
-		emPipeline = ifnull(emDeal.get("Pipeline"), "").toString();
+		// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared
+		// REST-backed resolver (never emDeal.get("Pipeline"), which returns blank).
+		emPipeline = automation.resolveDealPipeline(dealId.toString());
 		emOpp = ifnull(emDeal.get("Stage"), "").toString();
 	}
 	auditDesc = "SendKey: " + sendKey + "\nMessage ID: " + sentMessageId;
