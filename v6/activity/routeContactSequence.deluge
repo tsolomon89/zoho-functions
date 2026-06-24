@@ -363,6 +363,27 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	progression.put("Onboarding", "Renewal");
 	progression.put("Renewal", "Renewal");
 
+	stagesList = {"Marketing Consent", "Demo Booking", "Demo Confirmation", "Demo Hosted", "Proposal Preparation", "Commercial Agreement", "Onboarding", "Renewal"};
+	stageRanks = Map();
+	stageRanks.put("Marketing Consent", 1);
+	stageRanks.put("Demo Booking", 2);
+	stageRanks.put("Demo Confirmation", 3);
+	stageRanks.put("Demo Hosted", 4);
+	stageRanks.put("Proposal Preparation", 5);
+	stageRanks.put("Commercial Agreement", 6);
+	stageRanks.put("Onboarding", 7);
+	stageRanks.put("Renewal", 8);
+
+	stageOpportunity = Map();
+	stageOpportunity.put("Marketing Consent", "MQL");
+	stageOpportunity.put("Demo Booking", "SQL");
+	stageOpportunity.put("Demo Confirmation", "SQL");
+	stageOpportunity.put("Demo Hosted", "SQL");
+	stageOpportunity.put("Proposal Preparation", "FTP");
+	stageOpportunity.put("Commercial Agreement", "FTP");
+	stageOpportunity.put("Onboarding", "RTP");
+	stageOpportunity.put("Renewal", "RTP");
+
 	// ---- action/state result locals (keep current state unless changed) ----
 	action       = "none";
 	nextStage    = st;
@@ -804,7 +825,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// Activity mirror fields (automation-owned) derived from the Deal context; the
 	// process Stage mirror = nextStage. Stamped on created Calls/Tasks for reporting parity.
 	mirrorPipeline = ifnull(deal.get("Pipeline"), "").toString();
-	mirrorOppType  = ifnull(deal.get("Stage"), "").toString();
+	mirrorOppType  = ifnull(stageOpportunity.get(nextStage), ifnull(deal.get("Stage"), "")).toString();
 
 	// ---- 2. + 3. Side cadence email + primary action (create_call / create_task /
 	//         schedule_email) — DEFERRED. The state-machine DECISION above resolved the
@@ -847,6 +868,28 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	cUpd.put("Sequence_State", nextSeqState);
 	cUpd.put("Sequence_Stage", nextSeqStage);
 	cUpd.put("Sequence_Step", nextStep);
+	contactStageFields = Map();
+	contactStageFields.put("Marketing Consent", "Contact_Completed_Marketing_Qualification_At");
+	contactStageFields.put("Demo Booking", "Contact_Completed_Demo_Booking_At");
+	contactStageFields.put("Demo Confirmation", "Contact_Completed_Demo_Confirmation_At");
+	contactStageFields.put("Demo Hosted", "Contact_Completed_Demo_Hosted_At");
+	contactStageFields.put("Proposal Preparation", "Contact_Completed_Proposal_Preparation_At");
+	contactStageFields.put("Commercial Agreement", "Contact_Completed_Commercial_Agreement_At");
+	contactStageFields.put("Onboarding", "Contact_Completed_Onboarding_At");
+	contactStageFields.put("Renewal", "Contact_Completed_Renewal_At");
+	nextRank = ifnull(stageRanks.get(nextStage), 1).toLong();
+	for each stageItem in stagesList
+	{
+		stageItemRank = ifnull(stageRanks.get(stageItem), 0).toLong();
+		if(stageItemRank <= nextRank)
+		{
+			fieldApi = contactStageFields.get(stageItem);
+			if(fieldApi != null && ifnull(contact.get(fieldApi), "").toString() == "")
+			{
+				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+			}
+		}
+	}
 	if(setContactLost == "true")
 	{
 		cUpd.put("State", "Lost");
