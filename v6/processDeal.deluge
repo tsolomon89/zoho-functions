@@ -1582,9 +1582,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 				pcDateVal = "";
 				if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
 				if(pcDateVal != "") { dUpd.put(fieldApi, pcDateVal.toString()); }
-				// Pass the DateTime object directly. Formatting it as XXX stored one hour
-				// behind in BST; formatting with literal Z stored one hour ahead.
-				else { dUpd.put(fieldApi, zoho.currenttime); }
+				// Store local CRM time without an explicit timezone. XXX stored one hour
+				// behind in BST; literal Z stored one hour ahead; raw DateTime was ignored.
+				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss")); }
 			}
 		}
 	}

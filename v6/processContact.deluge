@@ -175,9 +175,9 @@ void automation.processContact(string contact_id)
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && contactRecord.get(fieldApi) == null)
 			{
-				// Pass the DateTime object directly. Formatting it as XXX stored one hour
-				// behind in BST; formatting with literal Z stored one hour ahead.
-				updConInit.put(fieldApi, zoho.currenttime);
+				// Store local CRM time without an explicit timezone. XXX stored one hour
+				// behind in BST; literal Z stored one hour ahead; raw DateTime was ignored.
+				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss"));
 			}
 		}
 	}

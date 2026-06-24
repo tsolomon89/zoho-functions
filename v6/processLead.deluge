@@ -618,6 +618,14 @@ void automation.processLead(string lead_id)
 				automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_interest", "unresolved_sku", {"sku":piClean});
 			}
 		}
+		if(dealId != "" && dealId != "null")
+		{
+			// Contact-create workflow can race ahead of this product-link block and run
+			// processDeal before Products_Linked exists. Reconcile once more after the
+			// junction writes; processDeal is idempotent and does not create activation tasks.
+			postPIReconcile = automation.processDeal(dealId, "{}");
+			info "F1: post Product Interest processDeal reconcile resp=" + postPIReconcile;
+		}
 	}
 
 	// ---- 7. Contact pipeline handoff ----
