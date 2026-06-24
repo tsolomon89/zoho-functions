@@ -556,6 +556,61 @@ void automation.processLead(string lead_id)
 		}
 	}
 
+	// ---- 6b. F1 (2026-06-24): preserve Lead Product Interest on the Contact by linking each
+	//          resolved SKU to the WRITABLE Products_Linked junction (Products12). The Contact
+	//          field Product_Interest_Staging is a READ-ONLY FORMULA that mirrors these links and
+	//          must NEVER be written directly. Idempotent (no duplicate links); unresolved SKUs ->
+	//          Manual Review (never discarded); supports one or many values. ----
+	if(leadPIStr != "" && newContactId != "" && newContactId != "null")
+	{
+		alreadyLinkedIds = List();
+		exConLinks = zoho.crm.getRelatedRecords("Products12", "Contacts", newContactId.toLong());
+		if(isNull(exConLinks) || exConLinks.size() == 0 || exConLinks.toString().startsWith("{\"code\""))
+		{
+			exConLinks = zoho.crm.getRelatedRecords("Products", "Contacts", newContactId.toLong());
+		}
+		if(!isNull(exConLinks) && exConLinks.size() > 0 && !exConLinks.toString().startsWith("{\"code\""))
+		{
+			for each exl in exConLinks
+			{
+				exlId = "";
+				if(!isNull(exl.get("id"))) { exlId = exl.get("id").toString(); }
+				exlProd = exl.get("Product_Details");
+				if(!isNull(exlProd) && !isNull(exlProd.get("id"))) { exlId = exlProd.get("id").toString(); }
+				if(exlId != "") { alreadyLinkedIds.add(exlId); }
+			}
+		}
+		for each piName in leadPIStr.toList(",")
+		{
+			piClean = piName.trim();
+			if(piClean == "" || piClean == "-None-") { continue; }
+			safePiName = piClean.replaceAll("[\\(\\)\\:\\,]", "").trim();
+			piResolved = false;
+			sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safePiName + ")");
+			if(!isNull(sProd) && sProd.size() > 0 && !sProd.toString().startsWith("{\"code\""))
+			{
+				piProdId = sProd.get(0).get("id").toString();
+				piResolved = true;
+				if(!alreadyLinkedIds.contains(piProdId))
+				{
+					linkPI = zoho.crm.updateRelatedRecord("Products12", piProdId.toLong(), "Contacts", newContactId.toLong(), Map());
+					linkPIText = ifnull(linkPI, "").toString();
+					if(linkPIText == "" || linkPIText.contains("INVALID") || linkPIText.contains("FAILED") || linkPIText.contains("error"))
+					{
+						zoho.crm.updateRelatedRecord("Products", piProdId.toLong(), "Contacts", newContactId.toLong(), Map());
+					}
+					alreadyLinkedIds.add(piProdId);
+					info "F1: linked Product Interest '" + piClean + "' (" + piProdId + ") to Contact " + newContactId;
+				}
+			}
+			if(!piResolved && dealId != "" && dealId != "null")
+			{
+				automation.createAuxTask(newContactId, dealId, "Manual Review", "[product_unresolved] Lead Product Interest '" + piClean + "' could not be resolved to a Products record at conversion; link it manually to the Contact's Products Linked.");
+				automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_interest", "unresolved_sku", {"sku":piClean});
+			}
+		}
+	}
+
 	// ---- 7. Contact pipeline handoff ----
 	// processLead constructs/reuses the Contact-Account-Deal graph and maps Lead data.
 	// WF001b2 Contacts-create invokes processContact after conversion; do not call it

@@ -27,9 +27,13 @@ string automation.resolveDealPipeline(string dealIdStr)
 	resp = null;
 	try
 	{
+		// Fetch the FULL record via the REST API (v6, no ?fields= query param — matching the
+		// working invokeurl pattern used across processDeal / handleTaskCompletion). The REST
+		// full record DOES include Pipeline as a plain string, even though the Deluge-native
+		// zoho.crm.getRecordById omits it. An inline "?fields=Pipeline" query param did NOT work.
 		resp = invokeurl
 		[
-			url    : "https://www.zohoapis.eu/crm/v3/Deals/" + dealId + "?fields=Pipeline"
+			url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
 			type   : GET
 			connection : "zoho_crm"
 		];

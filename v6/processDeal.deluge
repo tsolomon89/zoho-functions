@@ -1552,9 +1552,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 				pcDateVal = "";
 				if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
 				if(pcDateVal != "") { dUpd.put(fieldApi, pcDateVal.toString()); }
-				// TZ FIX (2026-06-24): zoho.currenttime returns UTC components here; "...XXX" stored the
-				// instant 1h behind. Serialize as UTC ('Z'). VERIFY LIVE post-deploy. See routeContactSequence.
-				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'")); }
+				// TZ (2026-06-24, REVERTED): zoho.currenttime returns LOCAL components here; XXX is
+				// correct ('Z' over-corrected +1h — proven live). See routeContactSequence.
+				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX")); }
 			}
 		}
 	}
