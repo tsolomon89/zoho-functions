@@ -1582,9 +1582,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 				pcDateVal = "";
 				if(dealPcDates != null) { pcDateVal = ifnull(dealPcDates.get(stageItem), ""); }
 				if(pcDateVal != "") { dUpd.put(fieldApi, pcDateVal.toString()); }
-				// TZ (2026-06-24, REVERTED): zoho.currenttime returns LOCAL components here; XXX is
-				// correct ('Z' over-corrected +1h — proven live). See routeContactSequence.
-				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX")); }
+				// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
+				// Serialize with literal Z; XXX stored the instant one hour behind in BST.
+				else { dUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'")); }
 			}
 		}
 	}

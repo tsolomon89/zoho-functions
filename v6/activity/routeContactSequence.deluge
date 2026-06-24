@@ -888,11 +888,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && ifnull(contact.get(fieldApi), "").toString() == "")
 			{
-				// TZ (2026-06-24, REVERTED): a same-moment live test (native Call Created_Time vs the
-				// 'Z'-stamped Call_Start_Time) proved zoho.currenttime returns LOCAL (org-TZ) components
-				// here, so "...XXX" yields the CORRECT instant; 'Z' over-corrected +1h. Keep XXX. The
-				// original "1h behind" finding was pre-set Lead completion dates copied at conversion.
-				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
+				// Serialize with literal Z; XXX stored the instant one hour behind in BST.
+				cUpd.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
 			}
 		}
 	}
@@ -1148,9 +1146,9 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				}
 				else
 				{
-					// TZ (2026-06-24, REVERTED): zoho.currenttime returns LOCAL components here; XXX is
-					// correct ('Z' over-corrected +1h — proven by native Created_Time vs Call_Start_Time).
-					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+					// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
+					// Serialize with literal Z; XXX stored the instant one hour behind in BST.
+					callDue = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'");
 				}
 				callMap = Map();
 				callMap.put("Subject", nextStage + " Call " + callStep);

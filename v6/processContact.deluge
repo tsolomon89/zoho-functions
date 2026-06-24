@@ -175,9 +175,9 @@ void automation.processContact(string contact_id)
 			fieldApi = contactStageFields.get(stageItem);
 			if(fieldApi != null && contactRecord.get(fieldApi) == null)
 			{
-				// TZ (2026-06-24, REVERTED): zoho.currenttime returns LOCAL components here; XXX is
-				// correct ('Z' over-corrected +1h — proven live). See routeContactSequence.
-				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
+				// TZ (2026-06-24 R2B live): zoho.currenttime returns UTC components here.
+				// Serialize with literal Z; XXX stored the instant one hour behind in BST.
+				updConInit.put(fieldApi, zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
 			}
 		}
 	}
