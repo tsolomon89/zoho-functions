@@ -553,14 +553,8 @@ void automation.processLead(string lead_id)
 		}
 	}
 
-	// ---- 7. Reconcile + activate via the Contact pipeline ----
-	// processLead constructs/reuses the Contact–Account–Deal graph and maps Lead data
-	// (sections 1–6). It does NOT own reconciliation, Products, Contact Roles, Primary
-	// Contact, Opportunity/Account rollup, or activation. Delegate to processContact,
-	// which reconciles through processDeal (sole rollup owner) and creates the Activation
-	// Task. Deterministic order: processLead → processContact → processDeal.
-	if(newContactId != "" && newContactId != "null")
-	{
-		automation.processContact(newContactId.toString());
-	}
+	// ---- 7. Contact pipeline handoff ----
+	// processLead constructs/reuses the Contact-Account-Deal graph and maps Lead data.
+	// WF001b2 Contacts-create invokes processContact after conversion; do not call it
+	// inline here or conversion creates duplicate Sequence Activation Tasks.
 }

@@ -1006,6 +1006,15 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 	}
 
+	// The signed confirmation is part of the commercial term-complete transition, not a
+	// cadence follow-up. Send it before the generic dispatch gate; sendSequencedEmail
+	// owns SendKey idempotency, so a replay cannot duplicate it.
+	if(trigLc == "commercial:signed" && sideEmailKind == "commercials_signed_confirmation")
+	{
+		automation.sendSequencedEmail(contactId.toString(), dealId.toString(), "Onboarding", 0, "commercials_signed_confirmation", "");
+		sideEmailKind = "";
+	}
+
 	// =====================================================================
 	// 6. POST-RECONCILIATION NEXT-ACTION DISPATCH GATE.
 	// For an ACTIVITY Won, the next Call/Task/email dispatch (done above as part of
