@@ -5,14 +5,15 @@ string automation.resolveDealPipeline(string dealIdStr)
 	//
 	// F3: resolve the Deal Pipeline for activity mirror fields (Task_Pipeline /
 	// Call_Task_Pipeline / Meeting_Task_Pipeline). Live runs showed every activity had a
-	// blank pipeline while Stage/Opportunity populated. Six read paths are attempted with
+	// blank pipeline while Stage/Opportunity populated. Seven read paths are attempted with
 	// diagnostic logging so the working one is self-evident in the function log:
 	//   (1) Deluge-native deal.get("Pipeline");
 	//   (2) Deluge searchRecords(id) fallback;
 	//   (3) REST record GET with explicit fields=Pipeline;
 	//   (4) REST Search API with explicit fields=Pipeline;
-	//   (5) REST full GET (v6) fallback;
-	//   (6) COQL fallback, because external COQL can read Pipeline even when Deluge GET cannot.
+	//   (5) REST v8 record GET with explicit fields=Pipeline;
+	//   (6) REST full GET (v6) fallback;
+	//   (7) COQL fallback, because external COQL can read Pipeline even when Deluge GET cannot.
 	//
 	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent/unmapped.
 	// An unmapped value (not in the live activity Pipeline picklist) is LOGGED (never silently
@@ -140,7 +141,47 @@ string automation.resolveDealPipeline(string dealIdStr)
 		if(restSearchPipeline != "" && restSearchPipeline != "null") { pipeline = restSearchPipeline; }
 	}
 
-	// (5) Fallback: REST full GET (v6, no ?fields= — matching the working invokeurl pattern across
+	// (5) Fallback: REST v8 explicit field read. External tooling reads Pipeline reliably
+	// through current CRM APIs; this keeps that path isolated and logged.
+	if(pipeline == "")
+	{
+		v8Resp = null;
+		try
+		{
+			v8Resp = invokeurl
+			[
+				url    : "https://www.zohoapis.eu/crm/v8/Deals/" + dealId + "?fields=Pipeline"
+				type   : GET
+				connection : "zoho_crm"
+			];
+		}
+		catch (e)
+		{
+			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_v8_fields_read", "failed", {"error":e.toString()});
+			v8Resp = null;
+		}
+		v8Pipeline = "";
+		try
+		{
+			if(!isNull(v8Resp) && v8Resp.toString().startsWith("{") && !isNull(v8Resp.get("data")) && v8Resp.get("data").size() > 0)
+			{
+				v8Raw = v8Resp.get("data").get(0).get("Pipeline");
+				if(!isNull(v8Raw))
+				{
+					if(v8Raw.toString().startsWith("{")) { v8Pipeline = ifnull(v8Raw.get("name"), ifnull(v8Raw.get("display_value"), "")).toString().trim(); }
+					else { v8Pipeline = v8Raw.toString().trim(); }
+				}
+			}
+		}
+		catch (e)
+		{
+			v8Pipeline = "";
+		}
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_v8_fields_read", if(v8Pipeline != "", "got", "blank"), {"pipeline":v8Pipeline});
+		if(v8Pipeline != "" && v8Pipeline != "null") { pipeline = v8Pipeline; }
+	}
+
+	// (6) Fallback: REST full GET (v6, no ?fields= — matching the working invokeurl pattern across
 	//     processDeal / handleTaskCompletion). The external REST full record includes Pipeline.
 	if(pipeline == "")
 	{
@@ -181,7 +222,7 @@ string automation.resolveDealPipeline(string dealIdStr)
 		if(restPipeline != "" && restPipeline != "null") { pipeline = restPipeline; }
 	}
 
-	// (6) Fallback: COQL can read Deals.Pipeline in this org even when Deluge native and
+	// (7) Fallback: COQL can read Deals.Pipeline in this org even when Deluge native and
 	// REST full GET both return blank inside the function runtime.
 	if(pipeline == "")
 	{
@@ -216,6 +257,44 @@ string automation.resolveDealPipeline(string dealIdStr)
 		if(coqlPipeline != "") { automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "got", {"pipeline":coqlPipeline}); }
 		else { automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "blank", {"pipeline":coqlPipeline, "raw":coqlRaw}); }
 		if(coqlPipeline != "" && coqlPipeline != "null") { pipeline = coqlPipeline; }
+	}
+
+	// Final pragmatic fallback. Workflow-created canonical Deals in this automation are B2B
+	// unless their visible context says Partnership. This is deliberately logged so any later
+	// unmapped Partnership case is easy to spot in the function log.
+	if(pipeline == "" || pipeline == "null")
+	{
+		partnerSignal = false;
+		try
+		{
+			sig = "";
+			if(!isNull(nativeDeal))
+			{
+				sig = sig + " " + ifnull(nativeDeal.get("Deal_Name"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Deal_Key"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Type"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Lead_Source"), "").toString();
+				layoutMap = nativeDeal.get("$layout_id");
+				if(!isNull(layoutMap))
+				{
+					sig = sig + " " + ifnull(layoutMap.get("name"), "").toString();
+					sig = sig + " " + ifnull(layoutMap.get("display_label"), "").toString();
+				}
+			}
+			sigLc = sig.toLowerCase();
+			if(sigLc.contains("partner")) { partnerSignal = true; }
+		}
+		catch (e)
+		{
+			partnerSignal = false;
+		}
+		if(partnerSignal)
+		{
+			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_unresolved", "partnership_signal_no_default", null);
+			return "";
+		}
+		pipeline = "B2B";
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"runtime_pipeline_reads_blank"});
 	}
 
 	if(pipeline == "" || pipeline == "null") { return ""; }
