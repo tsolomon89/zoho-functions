@@ -11,8 +11,8 @@ target Zoho CRM org. No synthetic records were created, mutated, or deleted for 
 | Area | Status |
 | --- | --- |
 | Function deployment | Pending manual deployment from `lifecycle-state-status-v6`. |
-| Workflow criteria | Pending live readback and update. |
-| Layout/validation | Pending live configuration access. |
+| Workflow criteria | Live readback completed; update still pending. See `LIVE_WORKFLOW_READBACK.md`. |
+| Layout/validation | Field metadata readback completed for selected fields; layout/conditional rule updates still pending. |
 | Safe field deletion | Pending dependency checks and successful replacement behavior. |
 
 ## Synthetic Records

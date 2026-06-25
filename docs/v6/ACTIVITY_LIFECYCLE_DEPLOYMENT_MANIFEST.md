@@ -24,6 +24,7 @@ verification row below is updated with record IDs or CRM metadata evidence.
 | `docs/v6/SINGLE_FIELD_E2E_TEST_PLAN.md` | Rewritten around canonical activity lifecycle command tests and negative legacy-field tests. |
 | `docs/v6/FINAL_CANONICAL_FIELD_MATRIX.md` | Added final canonical field matrix and field disposition list. |
 | `docs/v6/ACTIVITY_LIFECYCLE_E2E_REPORT.md` | Added end-to-end test report placeholder with blocked/not-run status. |
+| `docs/v6/LIVE_WORKFLOW_READBACK.md` | Added read-only live workflow and field metadata evidence for WF006/WF007/WF008, WF004, native Task Status, `Call_Task_State`, and `Commercials_Status`. |
 
 ## Live CRM Changes
 
@@ -32,8 +33,8 @@ No live CRM changes have been applied in this work session.
 | Area | Status | Evidence / blocker |
 | --- | --- | --- |
 | Function deployment | Not deployed | No deployment action has been executed from this branch. Function association readback is available, but the endpoint does not expose or update Deluge source bodies. |
-| Workflow criteria update | Not updated | Connector exposure in this session did not provide workflow rule read/update tools beyond field-update creation. Existing workflow state must be read in Zoho before changing criteria. |
-| Layout/conditional rules | Not updated | No layout edit/read endpoint was exposed for validating visibility, read-only status, or conditional Lost Reason behavior. |
+| Workflow criteria update | Not updated | Live readback completed; see `docs/v6/LIVE_WORKFLOW_READBACK.md`. WF008 still has a native `Status = Completed` condition branch and legacy `Task_Outcome` description; WF007 still has a legacy `Meeting_Status`/`Meeting_Outcome` description; WF006 is aligned to `Call_Task_State`. |
+| Layout/conditional rules | Not updated | Field metadata readback shows native Task `Status` and deprecated `Commercials_Status` are still visible/read-write for standard profiles. No conditional layout rule editor was exposed. |
 | Field deletion | Not deleted | Safe deletion requires live dependency checks for workflows, layouts, validation, reports, views, blueprints, and history. Those checks are not complete. |
 | End-to-end tests | Not run | Requires deployed functions and synthetic records in the target org. |
 
@@ -47,9 +48,9 @@ No live CRM changes have been applied in this work session.
    - `processContact`
 2. Verify each deployed function body matches this branch before enabling tests.
 3. Update workflow criteria and function associations:
-   - Tasks: trigger `handleTaskCompletion` when `Task_State` changes and when `Task_Sequence_Type` changes for Sequence Activation Tasks. Do not require native `Status` and do not trigger from `Task_Outcome`.
-   - Calls: trigger `handleCallOutcome` when `Call_Task_State` changes and when `Next_Follow_Up_Date` changes for rescheduling. Do not trigger from `Call_Outcome`.
-   - Events: trigger `handleMeetingEvent` on create, `Start_DateTime` change, and `Meeting_Task_State` change. Do not trigger from `Meeting_Outcome`.
+   - Tasks: current live rule `WF008` is `create_or_edit` and has two conditions, including a duplicate `Status = Completed` branch. After deploying the new handler, remove the native-Status branch or replace the rule so `handleTaskCompletion` fires from `Task_State` and `Task_Sequence_Type` without requiring native `Status`. Do not trigger from `Task_Outcome`.
+   - Calls: current live rule `WF006` is active with criteria `Call_Task_State != ${EMPTY}` and `Sequence_Managed = Yes`. Verify `Next_Follow_Up_Date` edits still fire for rescheduling. Do not trigger from `Call_Outcome`.
+   - Events: current live rule `WF007` is broad `create_or_edit` with no criteria and a legacy description. After deploying the new handler, update the description and narrow where possible to creation, `Start_DateTime`, and `Meeting_Task_State` changes. Do not trigger from `Meeting_Outcome`.
    - Retire Deal `Demo_Outcome` workflow only after Event-driven booking/result behavior is deployed and verified.
    - Retire Deal `Commercials_Status` workflow only after Quote/activity commercial evidence behavior is deployed and verified.
 4. Update layouts and validation:
@@ -78,6 +79,17 @@ matches this branch.
 | `handleTaskCompletion` | Tasks | `991103000000780448` | `991103000000780337` | `2026-06-24T17:09:24+01:00` |
 | `handleMeetingEvent` | Events | `991103000000780415` | `991103000000780334` | `2026-06-24T12:08:18+01:00` |
 | `handleCallOutcome` | Calls | `991103000000780459` | `991103000000780322` | `2026-06-24T12:08:06+01:00` |
+
+## Live Workflow Readback
+
+See `docs/v6/LIVE_WORKFLOW_READBACK.md` for detailed readback. Summary:
+
+| Rule | Current live state | Required next action |
+| --- | --- | --- |
+| `WF008 Task Completion Handler` | Active `create_or_edit`; condition 1 has no criteria; condition 2 gates on native `Status = Completed`; description still references `Task_Outcome`. | After function deployment, remove native Status gate/duplicate invocation and update description to `Task_State`/`Task_Sequence_Type`. |
+| `WF006 Handle Call Outcome` | Active `anyaction`; criteria `Call_Task_State != ${EMPTY}` and `Sequence_Managed = Yes`. | Verify reschedule edits on `Next_Follow_Up_Date` fire; keep no `Call_Outcome` dependency. |
+| `WF007 Event Meeting Handler` | Active `create_or_edit`; no criteria; description still references `Meeting_Status`, `Meeting_Outcome`, and `Meeting_Type`. | After function deployment, update description and narrow criteria where safe. |
+| `WF004 Commercials Status Handler` | Active field-update rule on `Commercials_Status`. | Retain until replacement commercial path is deployed and verified, then disable before field deletion. |
 
 ## Undeployed Items
 

@@ -5,7 +5,9 @@ Target org: Jurnii.io, org20114906201
 Target implementation: v6
 
 This audit was written before code changes for the canonical activity lifecycle refactor.
-It records current repository evidence, local metadata exports, and live-access blockers.
+It records the repository evidence, local metadata exports, and live-access blockers known at
+the time of the pre-change audit. Later live workflow readback is captured separately in
+`docs/v6/LIVE_WORKFLOW_READBACK.md`.
 
 ## Evidence Sources
 
@@ -16,11 +18,12 @@ It records current repository evidence, local metadata exports, and live-access 
 | `.agents/context/field_mapping/Jurnii Zoho API - Pick List Values.csv` | Shared picklist vocabulary for Pipeline, Opportunity, Stage, Status, State, Lost Reasons, Task Type, Sequence Type. | Generic vocabulary, not per-field live metadata. |
 | `.agents/context/zoho-backups/20260615T121415Z/README.md` | Historical workflow/function inventory captured 2026-06-15. | Pre-v6 cutover snapshot; not current live state. |
 | `.agents/context/crm_workflow_rules_raw.json` | Intended workflow snapshot path. | Contains only `Connection not authorised`; unusable for workflow detail. |
-| Zoho MCP module metadata | Attempted live metadata read. | Blocked by `CRMPLUS_TRIAL_EXPIRED`; no live field/layout/workflow verification available in this run. |
+| Zoho MCP module metadata | Attempted live metadata read during the pre-change audit. | Blocked in that pre-change run; later workflow/field readback is documented in `docs/v6/LIVE_WORKFLOW_READBACK.md`. |
 | `mcp__control_plane.analytics_semantic_audit` | Attempted semantic shortcut. | Blocked by missing `public.Account` table. |
 
-Live deletion, layout edits, workflow criteria edits, and deployed behavior claims are therefore
-unverified and must remain manual/deployment checklist items until CRM access is restored.
+Live deletion, layout edits, workflow criteria edits, and deployed behavior claims were therefore
+unverified at the pre-change audit point. Later read-only workflow/field evidence does not change
+the fact that no live edits or deployed behavior verification were completed in this branch.
 
 ## Canonical Value Sets
 
@@ -177,5 +180,5 @@ Historical snapshot only:
 | WF005 Demo | Deals `Demo_Outcome` | Retire after Event-driven meeting lifecycle is deployed and verified. |
 | WF004 Commercials | Deals `Commercials_Status` | Retain only until Quote/activity commercial evidence path is deployed and verified. |
 
-Current live workflow criteria and function associations are blocked by CRM access and must not be
-claimed as changed.
+This pre-change table is superseded for read-only workflow evidence by
+`docs/v6/LIVE_WORKFLOW_READBACK.md`. No live workflow changes should be claimed from this audit.
