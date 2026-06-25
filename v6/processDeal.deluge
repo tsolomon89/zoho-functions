@@ -1425,6 +1425,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	dealCandidateIds = List();
 	dealAnyContactOpen = false;
 	dealAnyContactWorking = false;
+	// Gather role Contacts ONLY when the related-list read resolved...
 	if(dealViabilityResolved)
 	{
 		for each rc in dealRoleContacts
@@ -1433,16 +1434,18 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			if(!isNull(rc.get("id"))) { rcId = rc.get("id").toString(); }
 			if(rcId != "" && rcId != "null" && !dealCandidateIds.contains(rcId)) { dealCandidateIds.add(rcId); }
 		}
-		// fold in the Deal's current Primary Contact (Contact_Name) as a candidate
-		if(currentPrimaryId != "" && currentPrimaryId != "null" && !dealCandidateIds.contains(currentPrimaryId)) { dealCandidateIds.add(currentPrimaryId); }
-		for each candId in dealCandidateIds
+	}
+	// ...but ALWAYS evaluate the Deal's Primary Contact (Contact_Name): its State is known via a
+	// direct read and does NOT depend on the lag-prone role-list. A positively-Open primary proves
+	// viability even when the role-list read failed, so a freshly-created Deal is never falsely flagged.
+	if(currentPrimaryId != "" && currentPrimaryId != "null" && !dealCandidateIds.contains(currentPrimaryId)) { dealCandidateIds.add(currentPrimaryId); }
+	for each candId in dealCandidateIds
+	{
+		candFull = zoho.crm.getRecordById("Contacts", candId.toLong());
+		if(!isNull(candFull) && !isNull(candFull.get("id")) && ifnull(candFull.get("State"), "").toString() == "Open")
 		{
-			candFull = zoho.crm.getRecordById("Contacts", candId.toLong());
-			if(!isNull(candFull) && !isNull(candFull.get("id")) && ifnull(candFull.get("State"), "").toString() == "Open")
-			{
-				dealAnyContactOpen = true;
-				if(ifnull(candFull.get("Status"), "").toString() == "Working") { dealAnyContactWorking = true; }
-			}
+			dealAnyContactOpen = true;
+			if(ifnull(candFull.get("Status"), "").toString() == "Working") { dealAnyContactWorking = true; }
 		}
 	}
 	dealHasContacts = dealCandidateIds.size() > 0;
@@ -1462,17 +1465,10 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Lost") { dUpd.put("Opportunity_State", "Lost"); }
 		if(ifnull(targetDeal.get("Opportunity_Status"), "") != "Closed") { dUpd.put("Opportunity_Status", "Closed"); }
 	}
-	else if(!dealViabilityResolved)
-	{
-		// COM-3 fail-safe: an API hiccup must not silently close a Deal. Leave Opportunity_State
-		// unchanged, log, and raise a Manual Review (mirrors routeContactSequence ~978-983).
-		result.put("reviewRequired", true);
-		if(!reviewReasons.contains("deal_viability_unresolved")) { reviewReasons.add("deal_viability_unresolved"); }
-		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Deal Contact Roles viability could not be resolved (related-list read failed). Opportunity_State left unchanged. Review whether any viable Contact remains before closing the Deal.");
-		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "viability_check_unresolved", "opportunity_state_unchanged", null);
-	}
 	else if(dealAnyContactOpen)
 	{
+		// Positive viability WINS — at least one candidate (often the Primary) is Open — so keep the
+		// Deal Open even if the role-list read failed. No Manual Review on the fresh/healthy path.
 		targetOppStatus = if(dealAnyContactWorking, "Working", "New");
 		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Open") { dUpd.put("Opportunity_State", "Open"); }
 		if(ifnull(targetDeal.get("Opportunity_Status"), "") != targetOppStatus) { dUpd.put("Opportunity_Status", targetOppStatus); }
@@ -1491,6 +1487,16 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			// keep Opportunity Type aligned to the RTP floor even if the 8-stage didn't change
 			dUpd.put("Stage", effectiveOppType);
 		}
+	}
+	else if(!dealViabilityResolved)
+	{
+		// COM-3 fail-safe: reached ONLY when no positively-Open Contact (not even the Primary) was
+		// found AND the role-list read failed -> viability is genuinely indeterminate. Never silently
+		// close: leave Opportunity_State unchanged, log, raise Manual Review (mirrors routeContactSequence).
+		result.put("reviewRequired", true);
+		if(!reviewReasons.contains("deal_viability_unresolved")) { reviewReasons.add("deal_viability_unresolved"); }
+		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Deal Contact Roles viability could not be resolved (related-list read failed) and no Open Contact was found. Opportunity_State left unchanged. Review whether any viable Contact remains before closing the Deal.");
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "viability_check_unresolved", "opportunity_state_unchanged", null);
 	}
 
 	// ---- ledger fields onto the Deal ----
