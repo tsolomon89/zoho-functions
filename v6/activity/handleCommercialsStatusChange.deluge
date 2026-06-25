@@ -17,6 +17,16 @@ void automation.handleCommercialsStatusChange(string dealIdStr)
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	if(isNull(deal) || isNull(deal.get("id"))) { return; }
 
+	// COM-1: terminal-idempotency guard. A stray Commercials_Status edit on an
+	// already-Lost Deal must NOT re-open it or re-drive the canonical processDeal
+	// commercial gate (Delivered->commercial:sent, term Confirmed->commercial:signed).
+	// Deal viability = Opportunity_State (Deals have NO bare State). If Lost, log + return.
+	if(ifnull(deal.get("Opportunity_State"), "").toString() == "Lost")
+	{
+		automation.logAutomationEvent("handleCommercialsStatusChange", "Deals", dealId.toString(), "guard", "skip_deal_lost", {"opp_state":"Lost"});
+		return;
+	}
+
 	cStatus = ifnull(deal.get("Commercials_Status"), "").toString();
 	tr = "";
 	if(cStatus == "Sent") { tr = "sent"; }

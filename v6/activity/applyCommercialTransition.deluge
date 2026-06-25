@@ -10,7 +10,7 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 	//
 	// Routed transitions:
 	//   "sent"      -> route commercial:sent
-	//   "signed"    -> keep Opportunity_State Open, route commercial:signed
+	//   "signed"    -> route commercial:signed (no Opportunity_State write; see COM-1/4)
 	//   "rejected"  -> route commercial:rejected
 	//   "rejected_final" -> close the Deal as a final opportunity loss
 	//
@@ -80,9 +80,10 @@ void automation.applyCommercialTransition(string dealIdStr, string transition)
 	else if(tr == "signed")
 	{
 		token = "commercial:signed";
-		dUpd = Map();
-		if(ifnull(deal.get("Opportunity_State"), "").toString() != "Open") { dUpd.put("Opportunity_State", "Open"); }
-		if(dUpd.size() > 0) { zoho.crm.updateRecord("Deals", dealId, dUpd, noTrigger); }
+		// COM-1/4: do NOT force Opportunity_State=Open here. A signed transition
+		// arriving on a deliberately Lost Deal must not silently re-open it.
+		// processDeal / routeContactSequence own Deal viability and state; the
+		// commercial:signed routing below carries the lifecycle forward.
 	}
 	else if(tr == "rejected")
 	{

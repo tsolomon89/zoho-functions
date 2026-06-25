@@ -64,6 +64,17 @@ void automation.handleMeetingEvent(string eventIdStr)
 	if(mReason == "-None-") { mReason = ""; }
 	mStage = ifnull(event.get("Meeting_Task_Stage"), "").toString().trim();
 
+	// MTG-4 idempotency: a terminal Meeting_Task_State already processed (Meeting_Task_Status
+	// mirror = Closed) must not re-route on a later edit (WF007 fires on create_or_edit). A
+	// later unrelated edit on a Won/Lost+Closed meeting must not rerun
+	// routing/processDeal/createAuxTask. Mirrors handleTaskCompletion.
+	mStatus = ifnull(event.get("Meeting_Task_Status"), "").toString().trim();
+	if((mState == "Won" || mState == "Lost") && mStatus == "Closed")
+	{
+		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "guard", "skip_state_already_processed", {"meeting_state":mState});
+		return;
+	}
+
 	// F3 FIX: Deluge getRecordById omits the special Pipeline field; resolve via the shared resolver.
 	dealPipeline = automation.resolveDealPipeline(dealId.toString());
 	dealOppType  = ifnull(deal.get("Stage"), "").toString();
@@ -71,11 +82,20 @@ void automation.handleMeetingEvent(string eventIdStr)
 	// ---- TYPE inference from Meeting_Task_Stage (fallback to Contact Stage, else demo) ----
 	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 	contactStage = "";
+	seqState = "";
 	if(contactId != "")
 	{
 		cFull = zoho.crm.getRecordById("Contacts", contactId.toLong());
-		if(!isNull(cFull) && !isNull(cFull.get("id"))) { contactStage = ifnull(cFull.get("Stage"), "").toString(); }
+		if(!isNull(cFull) && !isNull(cFull.get("id")))
+		{
+			contactStage = ifnull(cFull.get("Stage"), "").toString();
+			seqState = ifnull(cFull.get("Sequence_State"), "").toString().trim();
+		}
 	}
+	// MTG-1: hasNextStep must reflect ACTUAL Contact sequence exhaustion, not a hard-coded "false".
+	// Only genuine recovery exhaustion (Sequence_State == 'Complete') escalates No Response to Contact Lost.
+	hasNext = "true";
+	if(seqState == "Complete") { hasNext = "false"; }
 	if(mStage == "") { mStage = contactStage; }
 	mRank = ifnull(stageRanks.get(mStage), 0).toLong();
 	isCommercial = (mRank == 5 || mRank == 6);
@@ -151,7 +171,9 @@ void automation.handleMeetingEvent(string eventIdStr)
 			// A single Lost commercial meeting does NOT auto-close the Deal. Terms
 			// Rejected/Churned surfaces Manual Review; actual Deal closure requires an
 			// explicit Deal-level loss decision or Quote Closed Lost rollup.
-			lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "false");
+			// MTG-1: hasNext (from Sequence_State) goes in the hasNextStep (3rd) slot;
+			// meetingContext stays "false" for the commercial-meeting path.
+			lossRaw = automation.resolveActivityLoss(mReason, "activity", hasNext, "false", "false");
 			loss = Map();
 			if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
 			act = ifnull(loss.get("action"), "manual_review").toString();
@@ -209,7 +231,9 @@ void automation.handleMeetingEvent(string eventIdStr)
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", "missing_reason_reopened", {"deal":dealId.toString()});
 			return;
 		}
-		lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "true");
+		// MTG-1: hasNext (from Sequence_State) goes in the hasNextStep (3rd) slot;
+		// meetingContext stays "true" for the demo path so 'No Meeting / Demo' -> continue_cadence -> demo:followup.
+		lossRaw = automation.resolveActivityLoss(mReason, "activity", hasNext, "false", "true");
 		loss = Map();
 		if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
 		act = ifnull(loss.get("action"), "manual_review").toString();
@@ -218,8 +242,14 @@ void automation.handleMeetingEvent(string eventIdStr)
 		zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Status":"Closed"}, noTrigger);
 		if(act == "continue_cadence")
 		{
-			// No Meeting / Demo -> reschedule: revert to Demo Booking and recover with a call
-			automation.routeContactSequence(contactId, dealId.toString(), "demo:noshow", "{}");
+			// SEQ-1: No Meeting / Demo (missed/lost demo) -> keep the Contact at Demo Hosted
+			// (State=Open, Status=Working) and run the 5-step Demo Hosted RECOVERY cadence
+			// (demo-hosted:1..5). Routed via 'demo:followup'. The recovery's sole immediate
+			// opener email is demo-hosted:1:initial; do NOT send a one-off no-show email from
+			// here (routeContactSequence suppresses demo_no_show on this path).
+			// 'demo:noshow' is reserved ONLY for a genuine confirmed-meeting no-show that should
+			// rebook (reverts to Demo Booking); it must NOT be used for No Meeting/Demo recovery.
+			automation.routeContactSequence(contactId, dealId.toString(), "demo:followup", "{}");
 		}
 		else if(act == "contact_lost")
 		{
