@@ -72,6 +72,8 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	tkMap.put("Task_Type", taskType);
 	tkMap.put("Blocks_Sequence", "Yes");
 	tkMap.put("Description", ifnull(note, "").toString());
+	tkMap.put("Task_Status", "New");
+	tkMap.put("Task_State", "Open");
 	if(!isNull(deal) && !isNull(deal.get("id")))
 	{
 		ownerLookup = deal.get("Owner");
@@ -84,8 +86,6 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 		if(auxPipeline != "") { tkMap.put("Task_Pipeline", auxPipeline); }
 		if(auxOppType != "")  { tkMap.put("Task_Opportunity", auxOppType); }
 		if(auxStage != "")    { tkMap.put("Task_Stage", auxStage); }
-		tkMap.put("Task_Status", "New");
-		tkMap.put("Task_State", "Open");
 	}
 	createResp = zoho.crm.createRecord("Tasks", tkMap);
 	newId = "";

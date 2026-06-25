@@ -153,7 +153,7 @@ void automation.handleCallOutcome(string callIdStr)
 			if(cFreq == "-None-") { cFreq = ""; }
 			if(cFreq != "") { actx.put("frequency", cFreq); }
 			automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:positive", actx.toString());
-			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_won", "call_positive", {"deal":dealId.toString(), "contact":contactId.toString(), "products":prodList.size().toString()});
 			return;
 		}
@@ -206,6 +206,13 @@ void automation.handleCallOutcome(string callIdStr)
 		// ---- LOST: activity-local by default; resolveActivityLoss branches on reason ----
 		if(callTaskState == "Lost")
 		{
+			if(callTaskReason == "")
+			{
+				zoho.crm.updateRecord("Calls", callId, {"Call_Task_State":"Open", "Call_Task_Status":"Working"}, noTrigger);
+				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Call " + callId + " was marked Lost without Call Lost Reasons. Add a canonical Lost Reason, then set Call_Task_State=Lost again.");
+				automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_lost", "missing_reason_reopened", {"deal":dealId.toString(), "contact":contactId.toString()});
+				return;
+			}
 			// hasNextStep = the Contact sequence is still active (NOT exhausted). Do NOT equate
 			// "call attempt 5" with exhaustion — the existing call:neutral cadence escalates attempt 5
 			// into the post-call email; only a Complete sequence escalates No Response to Contact Lost.
@@ -219,33 +226,33 @@ void automation.handleCallOutcome(string callIdStr)
 			if(act == "continue_cadence")
 			{
 				automation.routeContactSequence(contactId.toString(), dealId.toString(), "call:neutral", "{}");
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			else if(act == "contact_lost")
 			{
 				clr = ifnull(loss.get("contactLostReason"), "No Response").toString();
 				automation.routeContactSequence(contactId.toString(), dealId.toString(), "contactlost:" + clr, "{}");
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			else if(act == "find_decision_maker")
 			{
 				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Find Decision Maker (No Authority on Call " + callId + ") - reassign the buyer/decision maker for this Deal. Deal stays Open.");
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			else if(act == "data_repair")
 			{
 				automation.createAuxTask(contactId.toString(), dealId.toString(), "Data Repair", "Bad data on Call " + callId + " - repair before the sequence continues.");
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			else if(act == "suppress")
 			{
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Status":"Cancelled"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			else
 			{
 				// manual_review / none / deal_lost-unexpected -> surface for a human, stay local
 				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Call " + callId + " marked Lost (" + callTaskReason + ") - review next step (continue, find another contact, or close the Contact). Deal stays Open.");
-				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes", "Call_Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			}
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_lost", act, {"deal":dealId.toString(), "contact":contactId.toString(), "reason":callTaskReason});
 			return;

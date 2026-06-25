@@ -3,33 +3,29 @@ void automation.handleTaskCompletion(string taskIdStr)
 	// =========================================================================
 	// handleTaskCompletion  (Contact-centric)
 	//
-	// WF008: fires when a sequence-managed Task is Completed or gets a Task_Outcome.
-	// Identifies the Contact (Who_Id) and Deal (What_Id) and applies the outcome.
+	// WF008: fires when the canonical Task command fields change.
+	// Identifies the Contact (Who_Id) and Deal (What_Id) and applies the command.
 	//
 	// AUDIT GUARD: an "Email Sent" Task is the email audit record only -> return
 	// immediately, never advance the sequence.
 	// SCHEDULED-SEND GUARD: a "ScheduledSend|..." wake-up Task is handled by
 	// sendScheduledEmailFromTask -> return.
 	//
-	// Activation (Task_Type = "Sequence Activation"): map Task_Outcome ->
-	//   "Activate Call First"  -> activate:call
-	//   "Activate Email First" -> activate:email
-	//   "Manual Only"          -> activate:manual
-	//   "Suppress"/"Already Handled" -> activate:stop
-	//   "Stage Incorrect"      -> Manual Review Task + activate:stop
-	// Non-activation tasks: Task_Type = the KIND of task; Task_Outcome = what HAPPENED (the command).
-	// Universal outcome layer (overrides the Task_Type success behaviour):
-	//   "Blocked"/"Failed" -> Manual Review Task + hold (no advance, no Type side-effect)
-	//   "Not Relevant"     -> Manual Review Task (skip/loss decision) + hold
-	//   "Needs Follow-Up"  -> resume (recover at current stage, no advance)
-	//   "Already Handled"  -> idempotent no-op
-	// Positive ("Completed") or blank -> Task_Type success behaviour:
+	// Activation (Task_Type = "Sequence Activation"):
+	//   Task_Sequence_Type = Email  -> activate:email
+	//   Task_Sequence_Type = Call   -> activate:call
+	//   Task_Sequence_Type = Manual -> activate:manual
+	// Non-activation tasks:
+	//   Task_State = Won  -> Task_Type success behaviour
+	//   Task_State = Lost -> activity-local loss handling via Task_Lost_Reasons
+	//   Task_State = Open -> no terminal transition
+	// Positive Task_Type success behaviour:
 	//   "Onboarding Setup"  -> Contact Sequence_State = Complete (terminal; Renewal is date-driven)
 	//   "Send Commercials"  -> Quote Delivered + commercial:sent routing
 	//   "Data Repair"/"Review Reply"/"Enrichment" -> resume the Contact sequence
 	//   "Draft Commercials" -> create/surface "Send Commercials" task; stay at Proposal Preparation
-	//   "Manual Review"/"Suppression Review" -> Completed: resume; else no auto action
-	//   generic sequence-managed type + Completed -> task:positive (advance) where completion IS the gate
+	//   "Manual Review"/"Suppression Review" -> resume when Task_State = Won
+	//   generic sequence-managed type -> task:positive (advance) where Task_State = Won is the gate
 	// =========================================================================
 
 	info "VERSION: v6-contact-centric";
@@ -84,8 +80,8 @@ void automation.handleTaskCompletion(string taskIdStr)
 	contactId = whoLookup.get("id").toLong();
 
 	tStatus  = ifnull(task.get("Status"), "").toString();
-	tOutcome = ifnull(task.get("Task_Outcome"), "").toString();
-	// NEW activity-State surface (primary for non-activation tasks); legacy Task_Outcome when blank.
+	taskSeqType = ifnull(task.get("Task_Sequence_Type"), "").toString().trim();
+	if(taskSeqType == "-None-") { taskSeqType = ""; }
 	taskState = ifnull(task.get("Task_State"), "").toString().trim();
 	if(taskState == "-None-") { taskState = ""; }
 	taskReason = ifnull(task.get("Task_Lost_Reasons"), "").toString().trim();
@@ -95,9 +91,9 @@ void automation.handleTaskCompletion(string taskIdStr)
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_deferred", null);
 		return;
 	}
-	if(tStatus != "Completed" && tOutcome == "" && taskState == "")
+	if(tType != "Sequence Activation" && taskState == "")
 	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_not_complete", {"status":tStatus, "outcome":tOutcome});
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "skip_no_task_state", {"status":tStatus});
 		return;
 	}
 
@@ -128,9 +124,10 @@ void automation.handleTaskCompletion(string taskIdStr)
 	// =====================================================================
 	if(tType == "Sequence Activation")
 	{
-		if(tStatus != "Completed")
+		taskStatusMirror = ifnull(task.get("Task_Status"), "").toString().trim();
+		if(taskState == "Won" && taskStatusMirror == "Closed")
 		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "activation_not_completed", {"status":tStatus, "outcome":tOutcome});
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "activation_already_processed", {"status":tStatus});
 			return;
 		}
 		// ---- D1 FIX (2026-06-22): race-proof backstop. processContact §6b tries to defer
@@ -159,46 +156,24 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
-		// ---- 1. Task_Outcome EXCEPTION overrides everything (wins even if Task_Sequence_Type is set) ----
-		if(tOutcome == "Suppress" || tOutcome == "Already Handled")
-		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop", "{}");
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stopped", {"contact":contactId.toString(), "outcome":tOutcome});
-			return;
-		}
-		if(tOutcome == "Stage Incorrect")
-		{
-			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Stage flagged incorrect during activation; correct Contact.Stage then re-activate.");
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "activate:stop", "{}");
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", "stage_incorrect", {"contact":contactId.toString()});
-			return;
-		}
-
-		// ---- 2. Resolve route: Task_Sequence_Type is the primary selector; legacy Task_Outcome
-		//         ("Activate Email First" / "Activate Call First" / "Manual Only") is fallback only. ----
-		taskSeqType = ifnull(task.get("Task_Sequence_Type"), "").toString();
+		// ---- 1. Resolve route: Task_Sequence_Type is the sole activation selector. ----
 		routeType = taskSeqType;
-		if(routeType == "")
-		{
-			if(tOutcome == "Activate Email First") { routeType = "Email"; }
-			else if(tOutcome == "Activate Call First") { routeType = "Call"; }
-			else if(tOutcome == "Manual Only") { routeType = "Manual"; }
-		}
 		if(routeType != "Email" && routeType != "Call" && routeType != "Manual")
 		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_route", "no_type", {"task_sequence_type":taskSeqType, "outcome":tOutcome});
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_route", "no_task_sequence_type", {"task_sequence_type":taskSeqType});
 			return;
 		}
 
-		// ---- 3. Idempotency BEFORE any mutation: Email/Call already Running -> skip (no stage adopt,
-		//         no route). Manual is allowed even when Running (deliberate human stop/manual-control). ----
+		// ---- 2. Idempotency BEFORE any route mutation: Email/Call already Running -> close the
+		//         command task without routing again. Manual is allowed even when Running. ----
 		if((routeType == "Email" || routeType == "Call") && contactSeqState == "Running")
 		{
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Won", "Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "idempotency_skip", routeType, {"contact":contactId.toString()});
 			return;
 		}
 
-		// ---- 4. Stage adoption: the Activation Task's business Stage (Task_Sequence_Stage) wins
+		// ---- 3. Stage adoption: the Activation Task's business Stage (Task_Sequence_Stage) wins
 		//         onto Contact.Stage so the sequence enters at the intended stage. ----
 		if(taskStage != "" && taskStage != contactStage)
 		{
@@ -206,26 +181,24 @@ void automation.handleTaskCompletion(string taskIdStr)
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "stage_adopted", taskStage, {"contact":contactId.toString(), "from":contactStage});
 		}
 
-		// ---- 5. Route exactly once (routeContactSequence owns the Contact.Sequence_* writes) ----
-		routeVia = "legacy_outcome";
-		if(taskSeqType != "") { routeVia = "Task_Sequence_Type"; }
+		// ---- 4. Route exactly once (routeContactSequence owns the Contact.Sequence_* writes) ----
 		actTrig = "activate:email";
 		if(routeType == "Call") { actTrig = "activate:call"; }
 		else if(routeType == "Manual") { actTrig = "activate:manual"; }
 		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig, "{}");
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":routeVia});
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Won", "Task_Status":"Closed", "Status":"Completed"}, noTrigger);
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":"Task_Sequence_Type"});
 		return;
 	}
 
 	// =====================================================================
-	// NEW ACTIVITY-STATE SURFACE (non-activation): Task_State is primary.
+	// ACTIVITY-STATE SURFACE (non-activation): Task_State is primary.
 	//   Won  -> treat as positive completion (runs the Task_Type success behaviour below)
 	//   Lost -> activity-LOCAL via resolveActivityLoss (never closes the Deal from a reason alone)
 	//   Open -> not yet resolved; no terminal action
-	// When Task_State is blank, fall back to the legacy Task_Outcome layer (unchanged).
 	// =====================================================================
 	// idempotency: a terminal Task_State already processed (Task_Status mirror = Closed) must not
-	// re-route on a later edit (WF008 fires on create_or_edit). Native Status stays for Zoho mechanics.
+	// re-route on a later edit (WF008 fires on create_or_edit). Native Status is automation-owned.
 	taskStatusMirror = ifnull(task.get("Task_Status"), "").toString().trim();
 	if((taskState == "Won" || taskState == "Lost") && taskStatusMirror == "Closed")
 	{
@@ -239,6 +212,13 @@ void automation.handleTaskCompletion(string taskIdStr)
 	}
 	if(taskState == "Lost")
 	{
+		if(taskReason == "")
+		{
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + taskId + " was marked Lost without Task Lost Reasons. Add a canonical Lost Reason, then set Task_State=Lost again.");
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_lost", "missing_reason_reopened", {"contact":contactId.toString(), "type":tType});
+			return;
+		}
 		// hasNextStep reflects ACTUAL Contact-sequence exhaustion, not this single task. Only when the
 		// Contact sequence is Complete does No Response escalate to Contact Lost; otherwise stay local.
 		taskHasNext = "true";
@@ -272,48 +252,21 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + taskId + " marked Lost (" + taskReason + ") - review next step (continue, find another contact, or close the Contact). Deal stays Open.");
 		}
-		zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed"}, noTrigger);
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "state_lost", act, {"contact":contactId.toString(), "type":tType, "reason":taskReason});
 		return;
 	}
-	if(taskState == "Won")
+	if(taskState != "Won")
 	{
-		// positive completion -> mark processed (idempotency) then run the Task_Type success behaviour.
-		// Commercial helper tasks close only after their Product/Quote package commits successfully.
-		if(tType != "Draft Commercials" && tType != "Send Commercials")
-		{
-			zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed"}, noTrigger);
-		}
-		tOutcome = "Completed";
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_state", taskState, {"contact":contactId.toString(), "type":tType});
+		return;
 	}
 
-	// =====================================================================
-	// UNIVERSAL OUTCOME LAYER (non-activation tasks) — LEGACY Task_Outcome
-	// Task_Type = kind of task; Task_Outcome = what happened (the command).
-	// Negative/recovery outcomes override the Task_Type success behaviour below.
-	// =====================================================================
-	if(tOutcome == "Blocked" || tOutcome == "Failed")
+	// Positive completion: mark processed, then run the Task_Type success behaviour.
+	// Commercial helper tasks close only after their Product/Quote package commits successfully.
+	if(tType != "Draft Commercials" && tType != "Send Commercials")
 	{
-		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " " + tOutcome + " - review and resolve before the sequence continues.");
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_hold", tOutcome, {"contact":contactId.toString(), "type":tType});
-		return;
-	}
-	if(tOutcome == "Not Relevant")
-	{
-		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", tType + " marked Not Relevant - skip or route loss (manual decision).");
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_not_relevant", "manual_review", {"contact":contactId.toString(), "type":tType});
-		return;
-	}
-	if(tOutcome == "Needs Follow-Up")
-	{
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_needs_followup", "resume_no_advance", {"contact":contactId.toString(), "type":tType});
-		return;
-	}
-	if(tOutcome == "Already Handled")
-	{
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "outcome_already_handled", "idempotent_noop", {"contact":contactId.toString(), "type":tType});
-		return;
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 	}
 
 	// Build commercial evidence context once. Commercial helper Task types
@@ -355,7 +308,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 	hasTaskProductEvidence = taskProductList.size() > 0;
 
 	// =====================================================================
-	// OTHER TASK TYPES — positive ("Completed") or blank outcome runs the Type success behaviour
+	// OTHER TASK TYPES: Task_State = Won runs the Type success behaviour
 	// =====================================================================
 	if(tType == "Onboarding Setup")
 	{
@@ -370,13 +323,6 @@ void automation.handleTaskCompletion(string taskIdStr)
 
 	if(tType == "Send Commercials")
 	{
-		commercialPositive = (tOutcome == "Completed" || tStatus == "Completed");
-		if(!commercialPositive)
-		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "skip_not_positive", {"status":tStatus, "outcome":tOutcome});
-			return;
-		}
-
 		if(hasTaskProductEvidence)
 		{
 			pdRawSend = automation.processDeal(dealId.toString(), taskActivityCtx.toString());
@@ -386,6 +332,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 			{
 				automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Send Commercials Task " + taskId + " could not apply Product evidence before sending. Resolve the Quote/Product issue and re-run.");
 				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdSend.get("outcome"), "").toString()});
+				zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 				return;
 			}
 		}
@@ -462,6 +409,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[send_commercials_package_blocked] Send Commercials Task " + taskId + " blocked: " + sendReasons.toString() + ". Correct the Quote package and re-run.");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "package_blocked", {"deal":dealId.toString(), "reasons":sendReasons.toString()});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
 
@@ -501,6 +449,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[send_commercials_delivery_blocked] Send Commercials Task " + taskId + " left relevant Quotes Draft/Negotiation/On Hold: " + sendPostReasons.toString() + ". Correct the package and re-run.");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "delivery_blocked", {"deal":dealId.toString(), "reasons":sendPostReasons.toString()});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
 
@@ -517,9 +466,10 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[send_commercials_transition_blocked] Send Commercials Task " + taskId + " delivered the Quote package but Commercial Agreement transition was not verified. processDeal outcome=" + ifnull(pdSendGate.get("outcome"), "").toString() + ".");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "transition_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdSendGate.get("outcome"), "").toString(), "contact_stage":sendContactStageV, "deal_stage":sendDealStageV});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
-		zoho.crm.updateRecord("Tasks", taskId, {"Status":"Completed", "Task_Status":"Closed"}, noTrigger);
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Won", "Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "send_commercials", "commercial_sent", {"deal":dealId.toString(), "quotes":sendRelevantQuoteIds.toString()});
 		return;
 	}
@@ -537,16 +487,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 		// Send Commercials task and stay at Proposal Preparation. The advance to Commercial
 		// Agreement happens only at the customer-facing boundary (Send Commercials completion /
 		// Quote_Stage=Delivered -> commercial:sent). createAuxTask dedups on the open task.
-		commercialPositive = (tOutcome == "Completed" || tStatus == "Completed");
-		if(!commercialPositive)
-		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "skip_not_positive", {"status":tStatus, "outcome":tOutcome});
-			return;
-		}
 		if(!hasTaskProductEvidence)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[draft_commercials_missing_products] Draft Commercials Task " + taskId + " has no Product evidence. Select Product(s) and re-run; no Quote or Send Commercials task was created.");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "missing_product_evidence", {"deal":dealId.toString()});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
 		if(hasTaskProductEvidence)
@@ -877,6 +822,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 				{
 					automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Draft Commercials Task " + taskId + " could not apply Product evidence. processDeal outcome=" + ifnull(pdDraft.get("outcome"), "").toString() + " raw=" + ifnull(pdRawDraft, "").toString() + " fallback=" + fbReasons.toString() + ". Resolve the Quote/Product issue and re-run.");
 					automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "product_evidence_blocked", {"deal":dealId.toString(), "outcome":ifnull(pdDraft.get("outcome"), "").toString(), "fallback":fbReasons.toString()});
+					zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 					return;
 				}
 				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "fallback_quote_created", {"deal":dealId.toString(), "count":fbCreated.toString()});
@@ -890,6 +836,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[draft_commercials_incomplete_terms] Draft Commercials Task " + taskId + " created/updated Quote evidence but is missing commercial terms: " + draftEvidenceReasons.toString() + ". Complete the Task evidence and re-run before Send Commercials is surfaced.");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "incomplete_terms_blocked", {"deal":dealId.toString(), "reasons":draftEvidenceReasons.toString()});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
 
@@ -1040,35 +987,24 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[draft_commercials_package_blocked] Draft Commercials Task " + taskId + " blocked: " + draftReasons.toString() + ". Correct Product/Quote evidence and re-run.");
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "package_blocked", {"deal":dealId.toString(), "reasons":draftReasons.toString()});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
 			return;
 		}
 		newSendId = automation.createAuxTask(contactId.toString(), dealId.toString(), "Send Commercials", "Commercials drafted - send to the customer to advance to Commercial Agreement.");
-		zoho.crm.updateRecord("Tasks", taskId, {"Status":"Completed", "Task_Status":"Closed"}, noTrigger);
+		zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Won", "Task_Status":"Closed", "Status":"Completed"}, noTrigger);
 		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "draft_commercials", "send_commercials_surfaced", {"contact":contactId.toString(), "send_task":newSendId});
 		return;
 	}
 	if(tType == "Manual Review" || tType == "Suppression Review")
 	{
-		// A Completed review means resolved -> resume the sequence; otherwise await the human decision.
-		if(tOutcome == "Completed")
-		{
-			automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "review_resolved", "resumed", {"contact":contactId.toString(), "type":tType});
-		}
-		else
-		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "no_auto_action", tType, {"contact":contactId.toString()});
-		}
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), "resume", "{}");
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "review_resolved", "resumed", {"contact":contactId.toString(), "type":tType});
 		return;
 	}
 
-	// Generic sequence-managed stage task: a positive Completed outcome advances the stage, where
-	// task completion genuinely IS the stage gate (routeContactSequence/processDeal own the writes).
-	if(tOutcome == "Completed")
-	{
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive", taskActivityCtx.toString());
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType, "products":taskProductList.size().toString()});
-		return;
-	}
-	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_type", tType, {"contact":contactId.toString()});
+	// Generic sequence-managed stage task: Task_State=Won advances the stage where
+	// task success genuinely is the stage gate (routeContactSequence/processDeal own the writes).
+	automation.routeContactSequence(contactId.toString(), dealId.toString(), "task:positive", taskActivityCtx.toString());
+	automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "task_positive", "advanced", {"contact":contactId.toString(), "type":tType, "products":taskProductList.size().toString()});
+	return;
 }

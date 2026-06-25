@@ -51,7 +51,12 @@ The Deal already uses `Account_Name`, `Contact_Name`, `Amount`, `Deal_Key`, `Clo
 
 ## Calls / Events / Tasks
 
-Org has **no custom fields on these modules today**. Module API names:
+Historical field-design note: the original activity-workflows pack started from an org state with
+no custom fields on these modules. The v6 activity lifecycle now uses canonical per-module State,
+Status, and Lost Reason fields; see `docs/v6/FINAL_CANONICAL_FIELD_MATRIX.md` and
+`docs/v6/LIVE_WORKFLOW_READBACK.md` for the current target and live readback.
+
+Module API names:
 
 - Calls → `Calls`
 - Events (meetings) → `Events`
@@ -76,9 +81,11 @@ Org has **no custom fields on these modules today**. Module API names:
    field lists: `.agents/context/api_field_names/zoho_{tasks,calls,meetings}_api_names.csv` (Tasks CSV
    corrected this session). See `docs/v5/SESSION2_ASBUILT_AND_DEFECTS.md` §3.
 
-4. **Task Type & Outcome additions (v5)**:
-   - `Task_Type` is extended to support `Sequence Activation`.
-   - `Task_Outcome` is extended to support `Activate Call First`, `Activate Email First`, `Manual Only`, `Suppress`, `Already Handled`, and `Stage Incorrect`.
+4. **Task Type & Outcome additions (v5, superseded for v6 lifecycle commands)**:
+   - `Task_Type` remains in use and supports `Sequence Activation`.
+   - `Task_Outcome` was extended in v5, but v6 retires it as a lifecycle command.
+     Sequence Activation now uses `Task_Sequence_Type = Email | Call | Manual`; ordinary Task
+     lifecycle routing uses `Task_State = Won | Lost | Open`.
 
 These modules use the standard fields `Subject`, `Owner`, `Status`, `Description`, plus the per-module lookups (`Who_Id`, `What_Id`, `Se_Module`). For workflow criteria that need to filter on "calls related to a Deal", use `What_Id is not empty AND $se_module equals Deals`.
 
