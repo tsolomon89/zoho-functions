@@ -29,7 +29,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	//   Deal.Automation_Suppressed == true    -> structural kill-switch; processDeal
 	//     returns success=false outcome=automation_suppressed (handled there).
 	//
-	// Callers: activity handlers (specific outcome token + activity contextJson); the
+	// Callers: activity handlers (specific internal route token + activity contextJson); the
 	// public Contact router workflow passes "resume" + "{}"; processDeal routes
 	// commercial:sent / commercial:signed with "{}". Deal-driven handlers resolve the
 	// Primary Contact and call this directly (advancePrimaryContactStage absorbed).
@@ -429,7 +429,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			reason = "activation_entry";
 		}
 	}
-	// ===================== CALL OUTCOMES =====================
+	// ===================== CALL ACTIVITY TOKENS =====================
 	else if(trigLc.startsWith("call:"))
 	{
 		if(trigLc == "call:positive")
@@ -521,7 +521,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		doEntry = true;
 		reason = "task_positive_advance";
 	}
-	// ===================== DEMO OUTCOMES =====================
+	// ===================== DEMO ACTIVITY TOKENS =====================
 	else if(trigLc.startsWith("demo:"))
 	{
 		if(trigLc == "demo:qualified")

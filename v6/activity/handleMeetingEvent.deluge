@@ -19,8 +19,8 @@ void automation.handleMeetingEvent(string eventIdStr)
 	//   Open / blank -> UPCOMING: (re)compute reminder + first-booking advance (demo only).
 	//   Won  -> demo: route demo:qualified (carries Product contextJson); commercial/renewal:
 	//           promote evidence straight to processDeal (Quote upsert + term gate own signing).
-	//   Lost -> resolveActivityLoss (module-relative; only final Terms Rejected/Churned closes
-	//           the Deal, via commercial:rejected). Never closes the Deal from a reason alone.
+	//   Lost -> resolveActivityLoss (module-relative). Activity loss never closes the Deal
+	//           from a reason alone; possible opportunity loss is surfaced for review.
 	// =========================================================================
 
 	info "VERSION: v6-meeting-state";
@@ -127,21 +127,37 @@ void automation.handleMeetingEvent(string eventIdStr)
 			// gate owns any commercial:signed advance (a meeting expresses intent; the Quote
 			// owns the signed ledger). No Deal intent/timestamp phantom fields are stamped.
 			pdRes = automation.processDeal(dealId.toString(), ctxStr);
+			pdMap = Map();
+			if(!isNull(pdRes) && pdRes.toString().trim() != "") { pdMap = pdRes.toString().toMap(); }
+			if(ifnull(pdMap.get("success"), false) != true)
+			{
+				if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " could not apply Product/Quote evidence after Meeting_Task_State=Won. Resolve the validation issue and set Meeting_Task_State=Won again."); }
+				zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_State":"Open", "Meeting_Task_Status":"Working"}, noTrigger);
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "won_reopened_validation_failed", {"deal":dealId.toString(), "products":prodList.size().toString(), "pd":ifnull(pdRes, "").toString()});
+				return;
+			}
+			zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Status":"Closed"}, noTrigger);
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting", "won_evidence_promoted", {"deal":dealId.toString(), "products":prodList.size().toString(), "pd":ifnull(pdRes, "").toString()});
 		}
 		else if(mState == "Lost")
 		{
-			// finalCommercial="false": a single Lost commercial meeting does NOT auto-close the Deal
-			// (loss never auto-cascades). Terms Rejected/Churned -> manual_review; the actual Deal
-			// closure is owned by Quote Closed Lost (no other active Quote) or an explicit human close.
-			lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "true");
+			if(mReason == "")
+			{
+				if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " was marked Lost without Meeting Lost Reasons. Add a canonical Lost Reason, then set Meeting_Task_State=Lost again."); }
+				zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_State":"Open", "Meeting_Task_Status":"Working"}, noTrigger);
+				automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting_lost", "missing_reason_reopened", {"deal":dealId.toString()});
+				return;
+			}
+			// A single Lost commercial meeting does NOT auto-close the Deal. Terms
+			// Rejected/Churned surfaces Manual Review; actual Deal closure requires an
+			// explicit Deal-level loss decision or Quote Closed Lost rollup.
+			lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "false");
 			loss = Map();
 			if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
 			act = ifnull(loss.get("action"), "manual_review").toString();
 			if(act == "deal_lost" && contactId != "")
 			{
-				// only final Terms Rejected / Churned -> opportunity-level loss via the router
-				automation.routeContactSequence(contactId, dealId.toString(), "commercial:rejected", "{}");
+				automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " Lost (" + mReason + ") suggests opportunity loss. Make an explicit Deal-level loss decision; activity loss alone does not close the Deal.");
 			}
 			else if(act == "contact_lost" && contactId != "")
 			{
@@ -161,6 +177,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 				if(contactId != "") { automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Commercial meeting " + eventId + " Lost (" + mReason + ") - review (re-book, find another contact, or close the opportunity). Deal stays Open unless terms finally rejected."); }
 			}
 			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "commercial_meeting_lost", act, {"deal":dealId.toString(), "reason":mReason});
+			zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Status":"Closed"}, noTrigger);
 		}
 		else
 		{
@@ -177,11 +194,19 @@ void automation.handleMeetingEvent(string eventIdStr)
 	{
 		// demo qualified -> advance; carry any Product evidence to processDeal (via the router)
 		automation.routeContactSequence(contactId, dealId.toString(), "demo:qualified", ctxStr);
+		zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Status":"Closed"}, noTrigger);
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_won", "demo:qualified", {"deal":dealId.toString(), "products":prodList.size().toString()});
 		return;
 	}
 	if(mState == "Lost" && contactId != "")
 	{
+		if(mReason == "")
+		{
+			automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + " was marked Lost without Meeting Lost Reasons. Add a canonical Lost Reason, then set Meeting_Task_State=Lost again.");
+			zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_State":"Open", "Meeting_Task_Status":"Working"}, noTrigger);
+			automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", "missing_reason_reopened", {"deal":dealId.toString()});
+			return;
+		}
 		lossRaw = automation.resolveActivityLoss(mReason, "activity", "false", "false", "true");
 		loss = Map();
 		if(!isNull(lossRaw) && lossRaw.toString().trim() != "") { loss = lossRaw.toString().toMap(); }
@@ -213,6 +238,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 			automation.createAuxTask(contactId, dealId.toString(), "Manual Review", "Demo " + eventId + " marked Lost (" + mReason + ") - review (reschedule, find another contact, or close the Contact). Deal stays Open.");
 		}
 		automation.logAutomationEvent("handleMeetingEvent", "Events", eventId.toString(), "result_lost", act, {"deal":dealId.toString(), "reason":mReason});
+		zoho.crm.updateRecord("Events", eventId, {"Meeting_Task_Status":"Closed"}, noTrigger);
 		return;
 	}
 

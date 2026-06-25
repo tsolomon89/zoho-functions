@@ -293,10 +293,9 @@ void automation.processContact(string contact_id)
 
 		if(!activationExists)
 		{
-			// The Activation Task is the HUMAN decision point. Task_Outcome stays blank and
-			// Contact.Sequence_Type stays blank until the owner chooses (handleTaskCompletion
-			// maps the chosen outcome -> Sequence_Type). Lead_Source is CONTEXT only — it must
-			// not preselect or infer the route.
+			// The Activation Task is the human decision point. Task_Sequence_Type is the
+			// only command field; Contact.Sequence_Type stays blank until the owner chooses.
+			// Lead_Source is context only and must not preselect or infer the route.
 			ownerId = "";
 			ownerLookup = contactRecord.get("Owner");
 			if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { ownerId = ownerLookup.get("id").toString(); }
@@ -305,7 +304,7 @@ void automation.processContact(string contact_id)
 			// if the Contact already carries a Sequence_Type (re-activation); otherwise leave blank.
 			existingSeqType = ifnull(contactRecord.get("Sequence_Type"), "").toString();
 
-			actDesc = "Activate the Contact sequence.\nContact: " + cName + "\nStage: " + contactStage + "\nLead Source (context only): " + leadSrc + "\n\nSet Task Sequence Type to choose the route:\n- Email\n- Call\n- Manual\nthen mark the Task Completed.\n\nUse Task Outcome ONLY for exceptions:\n- Suppress\n- Already Handled\n- Stage Incorrect\n";
+			actDesc = "Activate the Contact sequence.\nContact: " + cName + "\nStage: " + contactStage + "\nLead Source (context only): " + leadSrc + "\n\nSet Task Sequence Type to choose the route:\n- Email\n- Call\n- Manual\n\nNo other field update is required.\n";
 			actTask = Map();
 			actTask.put("Subject", "Activate sequence: " + cName + " — " + contactStage);
 			actTask.put("Status", "Not Started");

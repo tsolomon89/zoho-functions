@@ -365,13 +365,14 @@ When the resolved mode is `Manual Review First` or unresolved, sequence automati
 - **Blocks Sequence**: `Yes`
 - **Deal Sequence Status**: Set to `Waiting on Internal Task`
 
-Completing the Activation Task with a specific `Task_Outcome` transitions the Deal's sequence:
-- `Activate Call First` → Sets mode to `Call First`, status to `Not Started`, and executes the sequence router to create Call 1.
-- `Activate Email First` → Sets mode to `Email First`, status to `Not Started`, and executes the sequence router to send Email 1 and create a follow-up Call 1 due in 2 business days.
-- `Manual Only` → Sets status to `Manual Only` and Next Action Type to `Manual Review`.
-- `Suppress` → Sets `Automation_Suppressed = true`, status to `Suppressed`, and clears next action details.
-- `Already Handled` → Sets status to `Completed` and clears next action details.
-- `Stage Incorrect` → Sets status to `Paused`, Next Action Type to `Manual Review`, and creates a correction `Manual Review` task.
+Selecting `Task_Sequence_Type` transitions the Contact sequence without requiring the rep to update native Task Status:
+- `Call` -> executes the call-first route and creates the next Call.
+- `Email` -> executes the email-first route, sends Email 1, and creates the follow-up Call.
+- `Manual` -> stops automated dispatch and places the Contact under manual management.
+
+After a valid activation choice, automation sets the Activation Task to
+`Task_State = Won`, `Task_Status = Closed`, and native `Status = Completed`.
+`Task_Outcome` is not a lifecycle command.
 
 ### Email-First Cadence Semantics
 The `Email First` sequence follows this pattern:
