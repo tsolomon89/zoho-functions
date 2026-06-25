@@ -83,7 +83,7 @@ No custom fields were deleted in this session.
 
 | Field set | Reason deletion was not performed |
 | --- | --- |
-| Legacy activity outcome/status fields | Live workflow, layout, validation, report/view, blueprint, formula, and history dependencies were not fully verified. |
-| Deal `Demo_Outcome`/`Demo_Status` | Local exports show historical workflow dependency and Event replacement is not deployed/verified. |
+| Legacy activity outcome/status fields | Active workflow dependency pass on 2026-06-25 found no active workflow criteria on `Task_Outcome`, `Call_Outcome`, `Meeting_Outcome`, or `Demo_Outcome`; live negative tests showed those fields no longer advance lifecycle. Layout, validation, report/view, blueprint, formula, and history dependencies are still not fully verified. |
+| Deal `Demo_Outcome`/`Demo_Status` | No active `Demo_Outcome` workflow was found in the 2026-06-25 active workflow pass; local exports still show historical dependency and layout/history checks remain pending. |
 | Deal `Commercial_Outcome`/`Commercials_Status` | Legacy handler/workflow path remains until Quote/activity replacement is deployed/verified. |
 | Native fields | Native fields must not be deleted; hide or make automation-owned instead. |

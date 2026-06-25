@@ -168,36 +168,109 @@ void automation.handleCallOutcome(string callIdStr)
 				return;
 			}
 			// reschedule this attempt to the explicit follow-up date
-			newCall = Map();
-			newCall.put("Subject", contactStage + " Call " + callSeqAttempt);
-			newCall.put("What_Id", dealId);
-			newCall.put("$se_module", "Deals");
-			newCall.put("Who_Id", contactId);
-			newCall.put("Sequence_Managed", "Yes");
-			newCall.put("Sequence_Stage", contactStage);
-			newCall.put("Sequence_Attempt", callSeqAttempt);
-			newCall.put("Call_Type", "Outbound");
-			newCall.put("Call_Start_Time", nextFu);
-			newCall.put("Stale", "No");
+			rescheduledCall = Map();
+			rescheduledCall.put("Subject", contactStage + " Call " + callSeqAttempt);
+			rescheduledCall.put("What_Id", dealId);
+			rescheduledCall.put("$se_module", "Deals");
+			rescheduledCall.put("Who_Id", contactId);
+			rescheduledCall.put("Sequence_Managed", "Yes");
+			rescheduledCall.put("Sequence_Stage", contactStage);
+			rescheduledCall.put("Sequence_Attempt", callSeqAttempt);
+			rescheduledCall.put("Call_Type", "Outbound");
+			rescheduledCall.put("Call_Start_Time", nextFu);
+			rescheduledCall.put("Stale", "No");
 			// activity mirror fields
-			if(dealPipeline != "") { newCall.put("Call_Task_Pipeline", dealPipeline); }
-			if(dealOppType != "")  { newCall.put("Call_Task_Opportunity", dealOppType); }
-			if(contactStage != "") { newCall.put("Call_Task_Stage", contactStage); }
-			newCall.put("Call_Task_Status", "New");
-			newCall.put("Call_Task_State", "Open");
+			if(dealPipeline != "") { rescheduledCall.put("Call_Task_Pipeline", dealPipeline); }
+			if(dealOppType != "")  { rescheduledCall.put("Call_Task_Opportunity", dealOppType); }
+			if(contactStage != "") { rescheduledCall.put("Call_Task_Stage", contactStage); }
+			rescheduledCall.put("Call_Task_Status", "New");
+			rescheduledCall.put("Call_Task_State", "Open");
 			// Part E: carry the complete commercial evidence bundle onto the rescheduled Call.
 			rsProds = call.get("Call_Task_Contract_Products");
-			if(!isNull(rsProds)) { newCall.put("Call_Task_Contract_Products", rsProds); }
+			if(!isNull(rsProds)) { rescheduledCall.put("Call_Task_Contract_Products", rsProds); }
 			rsBrands = ifnull(call.get("Call_Task_Contract_Brands"), "").toString().trim();
-			if(rsBrands != "") { newCall.put("Call_Task_Contract_Brands", rsBrands.toLong()); }
+			if(rsBrands != "") { rescheduledCall.put("Call_Task_Contract_Brands", rsBrands.toLong()); }
 			rsStart = ifnull(call.get("Call_Task_Contract_Date_Start"), "").toString().trim();
-			if(rsStart != "") { newCall.put("Call_Task_Contract_Date_Start", rsStart); }
+			if(rsStart != "") { rescheduledCall.put("Call_Task_Contract_Date_Start", rsStart); }
 			rsEnd = ifnull(call.get("Call_Task_Contract_Date_End"), "").toString().trim();
-			if(rsEnd != "") { newCall.put("Call_Task_Contract_Date_End", rsEnd); }
+			if(rsEnd != "") { rescheduledCall.put("Call_Task_Contract_Date_End", rsEnd); }
 			rsFreq = ifnull(call.get("Call_Task_Contract_Frequency"), "").toString().trim();
 			if(rsFreq == "-None-") { rsFreq = ""; }
-			if(rsFreq != "") { newCall.put("Call_Task_Contract_Frequency", rsFreq); }
-			zoho.crm.createRecord("Calls", newCall);
+			if(rsFreq != "") { rescheduledCall.put("Call_Task_Contract_Frequency", rsFreq); }
+
+			// Idempotency: live tests showed Stale may not be returned on subsequent reads, so
+			// repeated edits to the same source Call can otherwise create duplicate replacements.
+			existingRescheduleIds = List();
+			existingRescheduleKeep = 999999999999999999;
+			existingRescheduleCallId = "";
+			try
+			{
+				relatedCalls = zoho.crm.getRelatedRecords("Calls", "Deals", dealId);
+				if(!isNull(relatedCalls) && relatedCalls.size() > 0 && !relatedCalls.toString().startsWith("{\"code\""))
+				{
+					for each ec in relatedCalls
+					{
+						ecId = ifnull(ec.get("id"), "").toString();
+						if(ecId != "" && ecId != callId.toString())
+						{
+							ecWho = "";
+							ecWhoL = ec.get("Who_Id");
+							if(!isNull(ecWhoL) && !isNull(ecWhoL.get("id"))) { ecWho = ecWhoL.get("id").toString(); }
+							ecFollow = ifnull(ec.get("Next_Follow_Up_Date"), "").toString();
+							ecNativeStatus = ifnull(ec.get("Status"), ifnull(ec.get("Outgoing_Call_Status"), "")).toString();
+							if(ecWho == contactId.toString() && ecFollow == "" && ecNativeStatus != "Cancelled" && ecNativeStatus != "Completed" && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == contactStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callSeqAttempt && ifnull(ec.get("Call_Task_State"), "").toString() != "Won" && ifnull(ec.get("Call_Task_State"), "").toString() != "Lost" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
+							{
+								ecLong = ecId.toLong();
+								existingRescheduleIds.add(ecId);
+								if(ecLong < existingRescheduleKeep)
+								{
+									existingRescheduleKeep = ecLong;
+									existingRescheduleCallId = ecId;
+								}
+							}
+						}
+					}
+				}
+			}
+			catch (e)
+			{
+				automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_open", "reschedule_dedupe_scan_failed", {"error":e.toString()});
+				existingRescheduleCallId = "";
+			}
+			if(existingRescheduleCallId != "")
+			{
+				rescheduledUpdate = Map();
+				rescheduledUpdate.put("Call_Start_Time", nextFu);
+				rescheduledUpdate.put("Sequence_Managed", "Yes");
+				rescheduledUpdate.put("Sequence_Stage", contactStage);
+				rescheduledUpdate.put("Sequence_Attempt", callSeqAttempt);
+				rescheduledUpdate.put("Call_Task_State", "Open");
+				rescheduledUpdate.put("Call_Task_Status", "New");
+				rescheduledUpdate.put("Stale", "No");
+				if(dealPipeline != "") { rescheduledUpdate.put("Call_Task_Pipeline", dealPipeline); }
+				if(dealOppType != "")  { rescheduledUpdate.put("Call_Task_Opportunity", dealOppType); }
+				if(contactStage != "") { rescheduledUpdate.put("Call_Task_Stage", contactStage); }
+				if(!isNull(rsProds)) { rescheduledUpdate.put("Call_Task_Contract_Products", rsProds); }
+				if(rsBrands != "") { rescheduledUpdate.put("Call_Task_Contract_Brands", rsBrands.toLong()); }
+				if(rsStart != "") { rescheduledUpdate.put("Call_Task_Contract_Date_Start", rsStart); }
+				if(rsEnd != "") { rescheduledUpdate.put("Call_Task_Contract_Date_End", rsEnd); }
+				if(rsFreq != "") { rescheduledUpdate.put("Call_Task_Contract_Frequency", rsFreq); }
+				zoho.crm.updateRecord("Calls", existingRescheduleCallId.toLong(), rescheduledUpdate, noTrigger);
+				if(existingRescheduleIds.size() > 1)
+				{
+					for each extraRescheduleId in existingRescheduleIds
+					{
+						if(extraRescheduleId != existingRescheduleCallId)
+						{
+							zoho.crm.updateRecord("Calls", extraRescheduleId.toLong(), {"Stale":"Yes", "Status":"Cancelled"}, noTrigger);
+						}
+					}
+				}
+				zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
+				automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_open", "rescheduled_existing", {"deal":dealId.toString(), "rescheduled_call":existingRescheduleCallId, "until":nextFu.toString()});
+				return;
+			}
+			zoho.crm.createRecord("Calls", rescheduledCall);
 			zoho.crm.updateRecord("Calls", callId, {"Stale":"Yes"}, noTrigger);
 			automation.logAutomationEvent("handleCallOutcome", "Calls", callId.toString(), "state_open", "rescheduled", {"deal":dealId.toString(), "until":nextFu.toString()});
 			return;
