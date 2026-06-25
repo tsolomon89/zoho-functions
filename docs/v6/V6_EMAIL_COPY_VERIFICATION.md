@@ -29,19 +29,18 @@ all 31 templates; priority templates fetched in full). The previously MCP-blind 
 
 | # | Item | Template / scope | Live finding | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Demo Hosted - Initial 1 attendance implication | `demo-hosted:1:initial` — id **991103000001476007** | **CONFIRMED DEFECT.** Live body: *"Thank you for making time for the demo. I wanted to follow up on the next steps…"* — asserts the contact attended. Under SEQ-1 (missed demos route into this chain) this opener now goes to non-attendees. **Needs rewrite to missed-demo copy.** | **RESOLVED — rewrite required (proposed, awaiting go-ahead)** |
+| 1 | Demo Hosted - Initial 1 attendance implication | `demo-hosted:1:initial` — id **991103000001476007** | **FIXED.** Reworded live 2026-06-25 to missed-demo copy (subject "Let's find another time for your ${!org.company_name} demo"; body acknowledges the miss, no blame, `${!users.website}` reschedule link). Read back and confirmed live; still active, same folder. | **DONE — applied + read-back confirmed** |
 | 2 | No-show vs demo-hosted:1 single-opener (MTG-5) | `demo_no_show` (id 991103000001476010) vs `demo-hosted:1:initial` (id 991103000001476007) | **DECIDED:** `demo-hosted:1:initial` is the sole missed-demo opener; the one-off `demo_no_show` send is suppressed in code (routeContactSequence). The live `demo_no_show` copy is correctly worded for a miss ("didn't manage to connect") and stays in place as a template but is no longer auto-sent on this path. | **RESOLVED (decision applied in code `cdf722e`)** |
 | 3 | Merge-syntax verification (all templates) | All 31 templates + signature | **PASS.** Every template uses only the verified `${!Module.Field}` form; no rejected tags. | **RESOLVED — no action** |
 | 4 | Folder-name check ('Marketing Consent') | Folder `991103000001471001` + 8-folder set | **PASS.** Live folder is named "Marketing Consent"; all 8 folder names match the registry. | **RESOLVED — no action** |
-| 5 | demo-hosted:2 soft attendance implication | `demo-hosted:2:follow-up` — id **991103000001470002** | Live body: *"…or a second look at any part of it."* softly presumes they already saw the demo. Lower severity than #1; reword for consistency on the recovery path. | **RESOLVED — secondary rewrite proposed** |
+| 5 | demo-hosted:2 soft attendance implication | `demo-hosted:2:follow-up` — id **991103000001470002** | **FIXED.** Reworded live 2026-06-25 (subject "Still keen on a quick ${!org.company_name} demo?"; body asks if still interested + `${!users.website}` reschedule link). Read back and confirmed live; still active, same folder. | **DONE — applied + read-back confirmed** |
 | 6 | demo-hosted:3/4/5 | ids 991103000001477003 / 991103000001471007 / 991103000001488001 | Attendance-neutral; safe for the missed-demo recovery path. | **RESOLVED — no action** |
 
-## Proposed rewrites (awaiting go-ahead before live write)
+## Applied rewrites (2026-06-25 — live, owner-approved, read-back confirmed)
 
-Outward-facing change → the new copy is proposed here and will be applied via
-`updateEmailTemplateById` + read back only on explicit approval. Both preserve the exact merge-tag set and
-sign-off block; both add the `${!users.website}` reschedule link; both avoid attendance/proposal language
-and get progressively shorter (spec §10).
+Both templates were reworded live via `updateEmailTemplateById` and re-fetched to confirm. They preserve the
+exact merge-tag set and sign-off block; both add the `${!users.website}` reschedule link; both avoid
+attendance/proposal language and get progressively shorter (spec §10).
 
 **`demo-hosted:1:initial` (991103000001476007) — Step 1 (acknowledge the miss, no blame, reschedule link)**
 - Subject: `Let's find another time for your ${!org.company_name} demo`
