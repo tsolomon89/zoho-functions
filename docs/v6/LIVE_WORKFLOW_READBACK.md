@@ -179,3 +179,26 @@ presence and current live drift.
 1. Continue the remaining activity matrix: remaining Task Lost reasons, remaining Call Lost reasons, remaining Meeting Lost reasons, and commercial Task/Meeting valid/blocked evidence.
 2. Clean `WF007` only if supported without losing booking/reminder behavior; otherwise document the idempotency guards that make broad create/edit safe.
 3. Keep `WF004` until the Quote/activity commercial replacement path passes E2E; then disable it before deleting `Commercials_Status`.
+
+## 2026-06-25 v6 Lifecycle Closeout Audit Addendum
+
+Source: v6 lifecycle closeout audit + live readback synthesis (see `V6_LIVE_READBACK_CLOSEOUT.md`).
+Read-only; no workflow changes were made.
+
+- **WF006 Call-reschedule defect: FIXED and RETESTED.** Condition 2 (`Next_Follow_Up_Date != EMPTY AND
+  Sequence_Managed=Yes`, id 991103000001977002) is confirmed present live (modified 2026-06-25T11:56), so
+  WF006 now fires on a `Next_Follow_Up_Date`-only change. The idempotency retest PASSED. The earlier
+  "known live defect" (handler not invoked on a Next_Follow_Up_Date-only change) framing is now STALE and
+  should be treated as resolved.
+- **WF006 `anyaction` double-invoke caveat.** Because the trigger is 'anyaction', a single save that
+  populates BOTH `Call_Task_State` and `Next_Follow_Up_Date` invokes handleCallOutcome TWICE. Correctness
+  depends entirely on the function's idempotency, which cannot be body-verified via MCP (GET returns
+  empty). The retest covered the tested path only.
+- **WF008 duplicate-condition deletion CONFIRMED.** WF008 (id 991103000000784145) has a SINGLE condition
+  with `criteria=null` plus one handleTaskCompletion action + assign_owner. The previously-noted duplicate
+  native `Status=Completed` condition (991103000000797003) is DELETED live. The only rule referencing
+  native Tasks.Status is WFC-SchedEmail, gating on `Status='Not Started'` (not 'Completed').
+- **WF007 still broad / no-criteria.** WF007 (id 991103000000782052, Events) invokes handleMeetingEvent on
+  ALL Event create/edit with no criteria. There is no trigger-level guard against re-running terminal
+  Won/Lost progression on a later edit — this is the workflow-side context for defect MTG-4 (the
+  terminal-idempotency guard must live in the handler).
