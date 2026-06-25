@@ -1,36 +1,68 @@
-# v6 Email Copy Verification Tracker (MCP-Blind, Gated)
+# v6 Email Copy Verification Tracker
 
-Date: 2026-06-25
+Date: 2026-06-25 (updated after Email CRUD MCP readback)
 Branch: `codex/v6-lifecycle-closeout`
 Target org: Jurnii.io, `org20114906201`
 
-This tracker captures the email-template verification items that the v6 closeout cannot complete via
-the MCP connector. **True email-template copy and active/published status are NOT readable via MCP** —
-there is no Email Templates GET tool, and `getEmailNotifications` returned only a single 'test' cadences
-action (id 991103000001866043 -> template 991103000001488004). Every item below is therefore **PENDING**
-until a UI / Deluge `zoho.crm.invokeConnector` readback (or a future Email Templates API) can confirm the
-live copy. All such verifications, and any subsequent copy edits, are **gated** (outward-facing,
-write-blind).
+**UPDATE:** The Zoho **Email CRUD MCP is now available**, so template copy, subjects, merge fields, folders
+and active status ARE now live-readable. A full read-only readback was performed on 2026-06-25 (folders +
+all 31 templates; priority templates fetched in full). The previously MCP-blind items below are now
+**RESOLVED** with live evidence. Any live copy *edits* remain outward-facing and are applied + read back.
+
+## Live readback result (2026-06-25)
+
+- **Folders (live, confirmed):** Marketing Consent `991103000001471001`, Demo Booking `991103000001472001`,
+  Demo Confirmation `991103000001471003`, Demo Hosted `991103000001473001`, Proposal Preparation
+  `991103000001474001`, Commercial Agreement `991103000001475001`, Onboarding `991103000001472003`,
+  Renewal `991103000001476001`. No separate "no-show"/"post-demo" folder: the one-off no-show lives in
+  **Demo Confirmation**; post-demo in **Proposal Preparation**.
+- **All 31 lifecycle templates are live and `active: true`**, `content_type: html`, `primary_module: Contacts`.
+- **Merge syntax is clean everywhere** — only the verified `${!Module.Field}` bang form is used
+  (`${!Contacts.First_Name}`, `${!Contacts.Account_Name.Account_Name}`, `${!org.company_name}`,
+  `${!users.first_name}`, `${!users.website}`, `${!userSignature}`). **No** rejected/no-bang syntax exists
+  live (the bad syntax was only ever in the `V5_EMAIL_ARCHITECTURE_REVIEW.md` draft).
+- **No shared signature/footer object:** `email_footer` is `null` on every template; templates end with the
+  `${!userSignature}` merge variable, resolved per sending user at send time. `getEmailSignatures` returned
+  empty for the current user — signature consistency depends on each user configuring their CRM signature.
 
 ## Verification Items
 
-| # | Item | Template / scope | Concern | Required readback | Status |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Demo Hosted - Initial 1 attendance implication | `demo-hosted:1:initial` — id **991103000001476007** | Under the new SEQ-1 routing, missed/lost demos are routed INTO the Demo Hosted recovery cadence, so this opener will be sent to contacts who did NOT attend. The canonical EMAIL_MANIFEST copy implies attendance ('Thank you for making time for the demo'); an older DRAFT in V5_EMAIL_ARCHITECTURE_REVIEW.md (lines 655-664) ALSO implies attendance ('Now that you've had a chance to see how ${Organization.Organization Name} could work...') AND uses rejected merge syntax. Must confirm the LIVE body does not assume attendance for the recovery path. | UI / Deluge readback of live template 991103000001476007 body + subject | **PENDING** (MCP cannot read template copy) |
-| 2 | No-show vs demo-hosted:1 single-opener decision (MTG-5) | `demo-confirmation:0:no-show` (id 991103000001476010) vs `demo-hosted:1:initial` (id 991103000001476007) | A single missed demo must not fire BOTH the one-off no-show email AND the demo-hosted:1 recovery opener. Product must decide which is the canonical single opener; copy of both must be confirmed consistent with that decision (no-show copy must NOT imply attendance; recovery opener copy must match the chosen path). | Product decision (MTG-5) + UI readback of both live bodies | **PENDING** (MCP cannot read template copy; decision unresolved) |
-| 3 | Merge-syntax verification (all templates) | All 31 lifecycle templates + signature block | Only the `${!<Module API>.<Field API>}` form is accepted by Zoho. The architecture-review draft used REJECTED forms (`${Organization.Organization Name}`, `${Contacts.First_Name}` no-bang, `${Users.Website}`, `${User.First_Name}`). Must confirm the LIVE templates use only the verified bang form and that no template carries a rejected merge tag. | UI / Deluge readback of live template bodies (merge tags not exposed via MCP) | **PENDING** (MCP cannot read merge fields) |
-| 4 | Folder-name check ('Marketing Consent') | Folder 991103000001471001 and the 8-folder set | EMAIL_MANIFEST/TEMPLATE_REGISTRY authority = 'Marketing Consent'; an architecture-review draft used 'Marketing Qualification'. MEMORY confirms canonical Stage value is 'Marketing Consent' (no rename). Must confirm the LIVE folder is named 'Marketing Consent' (and the other 7 folder names match the registry). | UI readback of live template-folder names (folders not exposed via getEmailNotifications) | **PENDING** (MCP cannot read folders) |
+| # | Item | Template / scope | Live finding | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Demo Hosted - Initial 1 attendance implication | `demo-hosted:1:initial` — id **991103000001476007** | **CONFIRMED DEFECT.** Live body: *"Thank you for making time for the demo. I wanted to follow up on the next steps…"* — asserts the contact attended. Under SEQ-1 (missed demos route into this chain) this opener now goes to non-attendees. **Needs rewrite to missed-demo copy.** | **RESOLVED — rewrite required (proposed, awaiting go-ahead)** |
+| 2 | No-show vs demo-hosted:1 single-opener (MTG-5) | `demo_no_show` (id 991103000001476010) vs `demo-hosted:1:initial` (id 991103000001476007) | **DECIDED:** `demo-hosted:1:initial` is the sole missed-demo opener; the one-off `demo_no_show` send is suppressed in code (routeContactSequence). The live `demo_no_show` copy is correctly worded for a miss ("didn't manage to connect") and stays in place as a template but is no longer auto-sent on this path. | **RESOLVED (decision applied in code `cdf722e`)** |
+| 3 | Merge-syntax verification (all templates) | All 31 templates + signature | **PASS.** Every template uses only the verified `${!Module.Field}` form; no rejected tags. | **RESOLVED — no action** |
+| 4 | Folder-name check ('Marketing Consent') | Folder `991103000001471001` + 8-folder set | **PASS.** Live folder is named "Marketing Consent"; all 8 folder names match the registry. | **RESOLVED — no action** |
+| 5 | demo-hosted:2 soft attendance implication | `demo-hosted:2:follow-up` — id **991103000001470002** | Live body: *"…or a second look at any part of it."* softly presumes they already saw the demo. Lower severity than #1; reword for consistency on the recovery path. | **RESOLVED — secondary rewrite proposed** |
+| 6 | demo-hosted:3/4/5 | ids 991103000001477003 / 991103000001471007 / 991103000001488001 | Attendance-neutral; safe for the missed-demo recovery path. | **RESOLVED — no action** |
 
-## Notes
+## Proposed rewrites (awaiting go-ahead before live write)
 
-- The only template ID confirmed live today is **991103000001488004 (Onboarding - Agreement
-  Confirmed)**, surfaced because the single live notification action 'test' references it. Its subject/body
-  were still not readable — only the action's `{name,id}` reference.
-- The no-show template (991103000001476010) copy is doc-asserted to correctly avoid implying attendance
-  ("didn't manage to connect"), and Proposal Preparation post-demo (991103000001484010) is doc-asserted to
-  intentionally acknowledge attendance (proven path). These remain doc-asserted, not live-verified.
-- Any correction to live template copy (item 1) or folder names (item 4) is a **gated action** — it is
-  outward-facing and, because copy is not MCP-readable, would be applied blind. Verify via UI before any
-  edit, and re-verify after.
-- **Do not enable SEQ-1 in production** until item 1 is resolved: routing non-attendees into a
-  demo-hosted:1 opener that assumes attendance would send incorrect outward-facing copy.
+Outward-facing change → the new copy is proposed here and will be applied via
+`updateEmailTemplateById` + read back only on explicit approval. Both preserve the exact merge-tag set and
+sign-off block; both add the `${!users.website}` reschedule link; both avoid attendance/proposal language
+and get progressively shorter (spec §10).
+
+**`demo-hosted:1:initial` (991103000001476007) — Step 1 (acknowledge the miss, no blame, reschedule link)**
+- Subject: `Let's find another time for your ${!org.company_name} demo`
+- Body:
+  > Hi ${!Contacts.First_Name},
+  > We had a demo in the diary but didn't manage to connect — no problem at all, schedules shift.
+  > I'd still like to show ${!Contacts.Account_Name.Account_Name} what ${!org.company_name} can do. Whenever it suits, you can pick a new time here: ${!users.website}.
+  > Best regards,
+  > ${!users.first_name} / ${!org.company_name} / ${!userSignature}
+
+**`demo-hosted:2:follow-up` (991103000001470002) — Step 2 (still interested? easy rebooking)**
+- Subject: `Still keen on a quick ${!org.company_name} demo?`
+- Body:
+  > Hi ${!Contacts.First_Name},
+  > Just following up — are you still interested in seeing ${!org.company_name} for ${!Contacts.Account_Name.Account_Name}? No worries if the timing wasn't right before.
+  > If you'd like, grab a slot that works for you here: ${!users.website}.
+  > Best regards,
+  > ${!users.first_name} / ${!org.company_name} / ${!userSignature}
+
+## Gate
+
+- **Do not enable SEQ-1 in production until `demo-hosted:1:initial` (and ideally `:2`) is reworded** — routing
+  non-attendees into an opener that assumes attendance would send incorrect outward-facing copy.
+- Steps 3–5, the no-show, confirmation, reminder, and post-demo templates need **no** change.
