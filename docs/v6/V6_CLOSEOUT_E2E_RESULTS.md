@@ -58,7 +58,8 @@ Root cause of the Deal not auto-closing: `getRelatedRecords("Contacts", "Deals",
 ### Single-Contact exhaustion (run `V6CL0626A`)
 
 - Contact → **`State=Lost`, `Status=Closed`, `Lost_Reasons=No Response`** ✅
-- **Deal close NOT deterministically verified in-test.** The contactlost routing's Deal-viability block ran (primary matched), but the `Contact_Roles` read **lagged on the freshly-created Deal** at evaluation time → `viabilityResolved=false` → the **approved conservative fail-safe** raised a "viability could not be resolved" Manual Review and left the Deal Open. This is now a **fresh-record lag artifact**, not the invalid-relation error (that is fixed). In production a Deal that has run a multi-day recovery cadence is not a fresh record, so the read resolves and the Deal closes; the test environment's seconds-old related-list lag prevents deterministic confirmation here. **Recommended hardening (optional, not applied):** add a `searchRecords` (or Contact-direct) fallback to the Deal-viability reads so a lagging related list doesn't force the fail-safe — mirrors the SEQ-6 pattern in `handleCallOutcome` (note: COQL/search also lag on fresh records, so this mainly helps aged records).
+- **Deal close NOT deterministically verified in-test.** The contactlost routing's Deal-viability block ran (primary matched), but the `Contact_Roles` read **lagged on the freshly-created Deal** at evaluation time → `viabilityResolved=false` → the **intentional conservative fail-safe** raised a "viability could not be resolved" Manual Review and left the Deal Open. This is a **seconds-old synthetic-record relationship-lag artifact**, not the invalid-relation error (that is fixed). In production a Deal that has run a multi-day recovery cadence is not a fresh record, so the read resolves and the Deal closes; the test environment's seconds-old related-list lag prevents deterministic confirmation here.
+- **Owner decision (kept):** the conservative fail-open behaviour stays as-is — a false-open Deal + Manual Review is strictly preferable to a false close. **No `searchRecords` fallback is added**: it would still be subject to Zoho indexing lag and would add another nondeterministic read path without proving viability can be resolved safely.
 
 ### Multi-Contact viability (run `V6CL0626B`, one Deal, two role-linked Contacts)
 
@@ -67,6 +68,22 @@ Root cause of the Deal not auto-closing: `getRelatedRecords("Contacts", "Deals",
 - **Deal remains `Open`** ✅ (not closed — another viable Contact exists). Deal `Status` stayed `New` because neither Contact was activated to Working in this minimal setup (not a regression; "remains Working" applies only when the Deal was already Working). Note: the Deal stayed Open via the same conservative fail-safe (fresh-Deal `Contact_Roles` lag) as well as the correct "another open Contact" semantics — both yield Open, so the safety property (no erroneous close) holds.
 
 - Minor: "Email Sent" audit Task is created `Task_Status=New` (native `Completed`); ontology suggests `Closed`. Pre-existing in `sendSequencedEmail`, not a closeout regression.
+
+## Final closeout status
+
+1. **Invalid relationship-name defect — FIXED.** `getRelatedRecords("Contacts","Deals",id)` (invalid) replaced with the valid `"Contact_Roles"` relation in all three sites; zero invalid reads remain; published and confirmed (no more `INVALID_DATA`).
+2. **Multi-Contact viability — LIVE-VERIFIED.** Losing the exhausted primary kept the Deal Open, left the other viable Contact Open and unmodified.
+3. **Contact exhaustion — LIVE-VERIFIED.** Recovery steps 1–5 ran live and the exhausted Contact became `Lost / Closed` with Lost Reason `No Response` (single- and multi-Contact).
+4. **Single-Contact Deal closure — UNVERIFIED under seconds-old synthetic-record relationship lag.** The viability read could not resolve on the freshly-created Deal at evaluation time, so the Deal was (correctly) left Open with a Manual Review. Not claimed as verified.
+5. **Production behaviour intentionally fails open.** When viability cannot be resolved, the Deal is kept Open and a Manual Review is raised — a false-open Deal is preferable to a false close.
+
+### Canonical Deal-viability behaviour (unchanged)
+- viability resolves AND no viable Contact remains → **close the Deal**;
+- another viable Contact remains → **keep the Deal Open**;
+- viability cannot be resolved → **keep the Deal Open + create Manual Review** (intentional fail-open).
+
+### Deferred hardening recommendation (separate scoped improvement — NOT on this branch)
+Add a **deferred viability recalculation** that re-runs after a *failed* related-list read (once the index has caught up), instead of an immediate `searchRecords` fallback. An immediate fallback would still be subject to Zoho indexing lag and would add another nondeterministic read path without proving viability can be resolved safely. This should be scoped and implemented as its own change, not folded into the lifecycle closeout.
 
 ## Optional / not done
 
