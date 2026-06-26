@@ -1332,12 +1332,25 @@ string automation.processDeal(string deal_id, string contextJson)
 									existingQI = zoho.crm.getRecordById("Quotes", impUpdId.toLong());
 									// IDEMPOTENCY: reuse the existing Quoted_Items line id so the REST PUT
 									// UPDATES the line in place. Without the id, Zoho APPENDS a second subform
-									// row on every replay, doubling the Quote total (Amount inflation).
-									exLinesI = existingQI.get("Quoted_Items");
-									if(!isNull(exLinesI) && exLinesI.size() > 0 && !isNull(exLinesI.get(0)) && !isNull(exLinesI.get(0).get("id")))
+									// row on every replay, doubling the Quote total (Amount inflation). The line
+									// id must come from a REST GET — Deluge getRecordById does NOT return subform
+									// line ids reliably (same limitation that hides the custom subform fields).
+									exLineIdI = "";
+									exGetI = invokeurl
+									[
+										url: "https://www.zohoapis.eu/crm/v6/Quotes/" + impUpdId
+										type: GET
+										connection: "zoho_crm"
+									];
+									if(!isNull(exGetI) && !isNull(exGetI.get("data")) && exGetI.get("data").size() > 0)
 									{
-										impLine.put("id", exLinesI.get(0).get("id").toString());
+										exLinesI = exGetI.get("data").get(0).get("Quoted_Items");
+										if(!isNull(exLinesI) && exLinesI.size() > 0 && !isNull(exLinesI.get(0)) && !isNull(exLinesI.get(0).get("id")))
+										{
+											exLineIdI = exLinesI.get(0).get("id").toString();
+										}
 									}
+									if(exLineIdI != "") { impLine.put("id", exLineIdI); }
 									qUpdI = Map();
 									qpHI = Map(); qpHI.put("id", impProdId); qUpdI.put("Quote_Product", qpHI);
 									qUpdI.put("Opportunity_Type", quoteOppType);

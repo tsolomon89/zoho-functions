@@ -84,6 +84,26 @@ This harness assumes activity Product fields are multi-select picklists containi
 - T49 Quote write proof: create/update writes header, `Quoted_Items`, and `Quote_Applied_Activity_Keys` in one request, then readback verifies all three.
 - T50 Final workflow state: after all gates pass, `WF021` active, `WF020` inactive, and `WF004` inactive.
 
+## Imported-Contract Bootstrap Harness (2026-06-26)
+Validates that imported Lead split-contract fields create the Product-specific Quote/line/pricing/Amount/ledger via `processDeal source="import_bootstrap"`. Seed disposable Leads (unique run key, e.g. `RTPBOOT-YYYYMMDD`, disposable `timothy+<key>@jurnii.io` emails, unique `Website` so each gets its own Account_Key) with `Stage="Renewal"`, exact `Product_Interest`, and `Contract_Current_*`/`Contract_Initial_*` tuples; create with `trigger:["workflow"]`; poll the Deal (Deal_Key `<domain>::active`) until reconcile completes; read back Quotes + Quoted_Items + Deal Amount/ledger; assert; delete by run key (Quotes, Tasks, Contacts_X_Products, Deals, Contacts, Accounts, Leads).
+
+| # | Scenario | Expected |
+| --- | --- | --- |
+| 1/6 | Exact Product Interest only, no tuple | Contact↔Product link; NO Quote; Amount blank/0; Target ACV benchmark only |
+| 2 | Current UX-Flex/5 | Confirmed Quote `Jurnii UX - Flex`, line brands 5, calc £8,400, Amount £8,400, Current+Initial ledger |
+| 3 | Current UX-Fixed/5 | Confirmed £10,500 (distinct from Flex) |
+| 4 | UX-Flex, brands blank | Draft, line `List_Price=0`, Amount 0, `[contract_tuple_incomplete]` |
+| 5 | PI=UX-Fixed vs tuple UX-Flex | `[contract_product_conflict]`, no Quote, Amount 0 |
+| 7 | Target £10,500 vs calc £8,400 | Amount £8,400; Target unchanged £10,500; no overwrite |
+| 8/9 | Initial-only / Current-only | term Quote created; ledger derives; history not fabricated |
+| 10 | Initial == Current | one term Quote; no Amount inflation |
+| 11 | Initial != Current | two Confirmed Quotes; Amount = sum; Initial=earliest, Current=latest; brands ledger Initial vs Current |
+| 12 | Jurnii 360 + frequency | not reachable from Lead import (no Lead frequency field) — schema gap |
+| 13 | Jurnii 360, no frequency | Product resolves, Draft, `List_Price=0`, `[pricing_frequency_missing]` |
+| 14 | Jurnii Cortex | Product resolves, Draft, `List_Price=0`, `[pricing_unavailable]` (no matrix) |
+| 15 | Idempotent replay (re-import same domain) | one Quote, one line, Amount unchanged, both keys recorded |
+| 16 | Multi-family Current | one Quote per family; Amount = sum of active; shared type/brands (schema limit) |
+
 ## Acceptance
 - Every live metadata mutation is read back through Zoho MCP.
 - Every test record created by the harness is isolated by run key and cleaned up or left clearly marked as disposable test data.
