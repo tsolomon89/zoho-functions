@@ -88,7 +88,7 @@ Authority model:
 - **Idempotency key** in `Quote_Applied_Activity_Keys`: `ImportBootstrap:Lead:<leadId>:<term>:<prodId>:<start>:<end>`. Key already present → skip. Else term-match (Deal + `Quote_Product` + `Opportunity_Type` + dates, not Closed) → UPDATE in place (reuse the existing `Quoted_Items` line id, read via REST GET — Deluge `getRecordById` omits subform line ids). Else CREATE. Re-import never duplicates the Quote or the line.
 - Strict REST readback verifies key + product + line + brands; failure raises `[quote_post_write_verification_failed]`.
 
-Multi-family Current term → one Quote per family (shares plan type / brands / dates — a documented schema limitation: a single Lead tuple cannot carry per-product type/brands). Jurnii 360 imports have no Lead frequency field, so they stay unpriced (`[pricing_frequency_missing]`) until frequency is set.
+Multi-family Current term → one Quote per family (shares plan type / brands / dates / frequency — a documented schema limitation: a single Lead tuple cannot carry per-product values). Jurnii 360 frequency is read from the per-term fields `Contract_Initial_Plan_Frequency` / `Contract_Current_Plan_Frequency` (picklist `4x per day` / `2x per day` / `1x per day`) and carried in the encoded term's `frequency` slot; with a valid frequency a 360 term prices and can confirm. If frequency is blank, the 360 line stays unpriced (`[pricing_frequency_missing]`) — never fabricated. Frequency is a per-term contract dimension (it can differ Initial vs Current), not interest evidence, so it lives with the other `Contract_*` fields rather than being tied to Product Interest.
 
 ## Quote Reconciliation
 - `WF021` fires on Quote create/edit after cutover.

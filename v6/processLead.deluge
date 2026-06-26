@@ -287,8 +287,18 @@ void automation.processLead(string lead_id)
 	cEnd = ""; if(cEndV != null) { cEnd = cEndV.toString().trim(); if(cEnd.contains("T")) { cEnd = cEnd.getPrefix("T"); } }
 	cAcv = ifnull(leadRecord.get("Contract_Current_ACV"), "").toString().trim();
 
+	// Per-term contract frequency (drives Jurnii 360 pricing). Per-term picklist fields
+	// Contract_Initial_Plan_Frequency / Contract_Current_Plan_Frequency — values "4x per day" /
+	// "2x per day" / "1x per day"; blank for UX/Cortex. Frequency is a contract-line dimension
+	// (per Initial/Current term), NOT interest evidence, so it lives with the other Contract_*
+	// term fields. Shared across families within a term (same limit as Plan Type / Plan Brands).
+	iFreq = ifnull(leadRecord.get("Contract_Initial_Plan_Frequency"), "").toString().trim();
+	if(iFreq == "-None-") { iFreq = ""; }
+	cFreq = ifnull(leadRecord.get("Contract_Current_Plan_Frequency"), "").toString().trim();
+	if(cFreq == "-None-") { cFreq = ""; }
+
 	// dedupe: identical Initial & Current term (same family set, type, brands, dates) -> only Current
-	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd);
+	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd && iFreq == cFreq);
 
 	// Empty fields are encoded as the sentinel "_" (decoded to "" in processDeal) so toList("~")
 	// always yields exactly 9 tokens. iConflict/cConflict flag a Product-Interest vs contract
@@ -312,7 +322,7 @@ void automation.processLead(string lead_id)
 		else
 		{
 			cAcvEnc = if(cFamList.size() == 1 && cAcv != "", cAcv, "_");
-			enc = "Current~" + fam + "~" + if(cType != "", cType, "_") + "~" + if(cBrands != "", cBrands, "_") + "~" + if(cStart != "", cStart, "_") + "~" + if(cEnd != "", cEnd, "_") + "~" + cAcvEnc + "~_~Base";
+			enc = "Current~" + fam + "~" + if(cType != "", cType, "_") + "~" + if(cBrands != "", cBrands, "_") + "~" + if(cStart != "", cStart, "_") + "~" + if(cEnd != "", cEnd, "_") + "~" + cAcvEnc + "~" + if(cFreq != "", cFreq, "_") + "~Base";
 			if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
 		}
 	}
@@ -334,7 +344,7 @@ void automation.processLead(string lead_id)
 			else
 			{
 				iAcvEnc = if(iFamList.size() == 1 && iAcv != "", iAcv, "_");
-				enc = "Initial~" + fam + "~" + if(iType != "", iType, "_") + "~" + if(iBrands != "", iBrands, "_") + "~" + if(iStart != "", iStart, "_") + "~" + if(iEnd != "", iEnd, "_") + "~" + iAcvEnc + "~_~Base";
+				enc = "Initial~" + fam + "~" + if(iType != "", iType, "_") + "~" + if(iBrands != "", iBrands, "_") + "~" + if(iStart != "", iStart, "_") + "~" + if(iEnd != "", iEnd, "_") + "~" + iAcvEnc + "~" + if(iFreq != "", iFreq, "_") + "~Base";
 				if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
 			}
 		}

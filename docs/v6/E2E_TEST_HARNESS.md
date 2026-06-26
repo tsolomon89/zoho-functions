@@ -98,7 +98,7 @@ Validates that imported Lead split-contract fields create the Product-specific Q
 | 8/9 | Initial-only / Current-only | term Quote created; ledger derives; history not fabricated |
 | 10 | Initial == Current | one term Quote; no Amount inflation |
 | 11 | Initial != Current | two Confirmed Quotes; Amount = sum; Initial=earliest, Current=latest; brands ledger Initial vs Current |
-| 12 | Jurnii 360 + frequency | not reachable from Lead import (no Lead frequency field) — schema gap |
+| 12 | Jurnii 360 + frequency | now reachable via `Contract_*_Plan_Frequency` (4x/2x/1x per day) → Product resolves, priced from the 360 matrix, Confirmed |
 | 13 | Jurnii 360, no frequency | Product resolves, Draft, `List_Price=0`, `[pricing_frequency_missing]` |
 | 14 | Jurnii Cortex | Product resolves, Draft, `List_Price=0`, `[pricing_unavailable]` (no matrix) |
 | 15 | Idempotent replay (re-import same domain) | one Quote, one line, Amount unchanged, both keys recorded |
