@@ -51,6 +51,7 @@ void automation.processLead(string lead_id)
 	personalPhone = ifnull(leadRecord.get("Personal_Phone"), "").toString().trim();
 	leadReferrer = ifnull(leadRecord.get("Lead_Referrer"), "").toString().trim();
 	importedRecordType = ifnull(leadRecord.get("Imported_Record_Type"), "").toString().trim();
+	leadCompanyTier = ifnull(leadRecord.get("Company_Tier"), "").toString().trim();
 	// CONTRACT EVIDENCE (2026-06-26 import-bootstrap fix): read the REAL split-contract Lead
 	// fields. The prior reads (Contract_Start_Date / Contract_ACV_Intial / Contract_Type /
 	// Contract_Currency) targeted fields that DO NOT EXIST on Leads (phantom) and the matching
@@ -626,7 +627,7 @@ void automation.processLead(string lead_id)
 		if(leadSource != "") { dealMap.put("Lead_Source", leadSource); }
 		// Propagate Company Tier so the Deal's Contract_Target_ACV benchmark formula resolves
 		// (tier1=26000/tier2=16500/tier3=10500). Target ACV is a benchmark only — never Deal.Amount.
-		leadCompanyTier = ifnull(leadRecord.get("Company_Tier"), "").toString().trim();
+		// (On REUSE of an existing Deal this is handled by the post-resolution block below.)
 		if(leadCompanyTier != "") { dealMap.put("Company_Tier", leadCompanyTier); }
 		// Contract ledger fields (Contract_Initial_*/Contract_Current_*) are DERIVED on the Deal
 		// from Confirmed Quotes by processDeal — never seeded directly from the Lead here (that would
@@ -660,6 +661,26 @@ void automation.processLead(string lead_id)
 					dealId = pd.get("id").toString();
 				}
 			}
+		}
+	}
+
+	// ---- 6a. Company Tier on the canonical Deal (benchmark Target ACV) ----
+	// Applies to BOTH freshly-created and REUSED Deals. Populate when the Deal tier is blank;
+	// never silently overwrite a conflicting populated tier -> deterministic [company_tier_conflict]
+	// review (the Deal's existing tier, and therefore Contract_Target_ACV, is left unchanged).
+	if(dealId != "" && dealId != "null" && leadCompanyTier != "")
+	{
+		dealTierRec = zoho.crm.getRecordById("Deals", dealId.toLong());
+		dealTierCur = ifnull(dealTierRec.get("Company_Tier"), "").toString().trim();
+		if(dealTierCur == "")
+		{
+			zoho.crm.updateRecord("Deals", dealId.toLong(), {"Company_Tier": leadCompanyTier}, {"trigger": List()});
+			info "6a: set Deal Company_Tier=" + leadCompanyTier + " on " + dealId;
+		}
+		else if(dealTierCur != leadCompanyTier)
+		{
+			automation.createAuxTask(newContactId, dealId, "Manual Review", "[company_tier_conflict] Lead Company Tier '" + leadCompanyTier + "' differs from the existing Deal Company Tier '" + dealTierCur + "'. Deal tier left unchanged (Contract_Target_ACV benchmark derives from it). Reconcile manually.");
+			automation.logAutomationEvent("processLead", "Deals", dealId, "company_tier_conflict", leadCompanyTier, {"dealTier":dealTierCur});
 		}
 	}
 

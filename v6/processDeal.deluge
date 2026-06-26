@@ -756,11 +756,27 @@ string automation.processDeal(string deal_id, string contextJson)
 						if(ctxDateStart != "") { qUpd.put("Contract_Date_Start", ctxDateStart); }
 						if(ctxDateEnd != "") { qUpd.put("Contract_Date_End", ctxDateEnd); }
 
-						// brands -> the single Quoted_Items line; reprice when brands change
+						// brands -> the single Quoted_Items line; reprice when brands change.
+						// Read the existing lines via REST GET, NOT getRecordById: native Deluge
+						// getRecordById omits the subform LINE IDs and the custom subform fields
+						// (Quoted_Item_Pricing_Tier/Frequency/Plan_Brands). Without the line id the
+						// PUT below APPENDS a new line instead of updating in place, inflating the
+						// Quote total / Deal Amount / contract ACV on every activity re-fire.
 						lineEdited = false;
 						newLines = List();
-						existingLines = existingQ.get("Quoted_Items");
-						if(!isNull(existingLines) && existingLines.size() > 0)
+						existingLines = List();
+						exActGet = invokeurl
+						[
+							url: "https://www.zohoapis.eu/crm/v6/Quotes/" + upQid
+							type: GET
+							connection: "zoho_crm"
+						];
+						if(!isNull(exActGet) && !isNull(exActGet.get("data")) && exActGet.get("data").size() > 0)
+						{
+							exActLines = exActGet.get("data").get(0).get("Quoted_Items");
+							if(!isNull(exActLines)) { existingLines = exActLines; }
+						}
+						if(existingLines.size() > 0)
 						{
 							for each xl in existingLines
 							{
@@ -1247,18 +1263,19 @@ string automation.processDeal(string deal_id, string contextJson)
 							}
 							else { impPriceReason = "missing_brand_count"; }
 
-							// imported ACV vs authorised calculated price (benchmark comparison; calculated is canonical)
+							// imported ACV vs authorised calculated price (benchmark comparison; calculated is canonical).
+							// No materiality tolerance is invented: compare EXACT currency values after normal
+							// 2-decimal rounding. Any non-rounding difference raises a review. If a business-
+							// authorised tolerance is later defined, gate it here with that documented value.
 							if(impPriced && impAcvStr != "" && impAcvStr != "0")
 							{
-								impAcvNum = impAcvStr.toDecimal();
-								impCalcNum = impLineAcv.toDecimal();
-								impDiff = impCalcNum - impAcvNum;
-								if(impDiff < 0) { impDiff = impDiff * -1; }
-								if(impDiff > 1.0)
+								impAcvNum = impAcvStr.toDecimal().round(2);
+								impCalcNum = impLineAcv.toDecimal().round(2);
+								if(impCalcNum != impAcvNum)
 								{
 									result.put("reviewRequired", true);
 									if(!reviewReasons.contains("imported_acv_conflict")) { reviewReasons.add("imported_acv_conflict"); }
-									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_conflict] Imported " + impTerm + " ACV " + impAcvStr + " differs from the authorised calculated price " + impLineAcv + " for " + impProdName + " (" + impBrands + " brands, tier " + impTier + ", >GBP1.00). Calculated value used on the Quote; confirm the contract figure. Lead " + impLeadId + ".");
+									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_conflict] Imported " + impTerm + " ACV " + impAcvStr + " differs from the authorised calculated price " + impLineAcv + " for " + impProdName + " (" + impBrands + " brands, tier " + impTier + "). Calculated value used on the Quote; confirm the contract figure. Lead " + impLeadId + ".");
 									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_acv_conflict", impProdName, {"imported":impAcvStr,"calculated":impLineAcv,"term":impTerm});
 								}
 							}
