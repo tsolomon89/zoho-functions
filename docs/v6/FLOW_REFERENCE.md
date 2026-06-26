@@ -69,7 +69,7 @@ Imported Leads carry split-contract evidence in `Contract_Initial_*` / `Contract
 
 Authority model:
 - **Product Interest** (`Leads.Product_Interest`, multiselect of exact SKU names) = Product-interest evidence only. It creates the Contact↔Product link (`Contacts_X_Products`). It NEVER creates a Quote and never defines brands/dates/tier/price.
-- **Contract Target ACV** (`Contract_Target_ACV`, formula from `Company_Tier`: 1=26000, 2=16500, 3=10500) = benchmark only. Never a Quote value, never `Deal.Amount`. `Company_Tier` is now propagated Lead→Deal so the benchmark resolves.
+- **Contract Target ACV** (`Contract_Target_ACV`, formula from `Company_Tier`: 1=26000, 2=16500, 3=10500) = benchmark only. Never a Quote value, never `Deal.Amount`. `Company_Tier` is propagated Lead→Deal on BOTH create and reuse: when the Deal tier is blank it is set; when it is populated and differs from the Lead it is NOT overwritten and a `[company_tier_conflict]` review is raised.
 - **Split contract fields** (`Contract_Initial_*` / `Contract_Current_*`) = the customer's actual contract terms → the Quote-bootstrap input.
 - **Quote** = canonical commercial transaction. **Deal.Amount** = sum of active non-Closed-Lost Quote totals (no Unit_Price/Target fallback). **Deal `Contract_*` ledger** = derived from Confirmed/Closed-Won Quotes only.
 
@@ -83,7 +83,7 @@ Authority model:
 `processDeal` §5b (`source=="import_bootstrap"`), per term:
 - Resolve the exact active Product by `Product_Plan_Products` + `Product_Plan_Type` (0 → `[contract_product_unresolved]`; >1 → `[contract_product_ambiguous]`; variant family with no plan type → `[contract_tuple_incomplete]`).
 - Link Product → Contact junction + Deal Products (idempotent).
-- Price via `resolveQuoteLinePrice` (default tier Base). Authorised calculated price is canonical; imported ACV is compared only and flagged `[imported_acv_conflict]` when `|calc − imported| > £1`. Unpriced lines get `List_Price = 0` (never inherit `Unit_Price`).
+- Price via `resolveQuoteLinePrice` (default tier Base). Authorised calculated price is canonical; imported ACV is compared only and flagged `[imported_acv_conflict]` on any difference after normal 2-decimal currency rounding (no invented materiality tolerance; gate a documented business tolerance here if one is later authorised). Unpriced lines get `List_Price = 0` (never inherit `Unit_Price`).
 - **Stage rule:** Confirmed only when complete + dated + priced (single Product resolved, brands > 0, both dates, pricing resolved). Otherwise Draft + Manual Review (`[pricing_unavailable]` / `[pricing_frequency_missing]` / `[contract_tuple_incomplete]`); the confirmed ledger does not derive.
 - **Idempotency key** in `Quote_Applied_Activity_Keys`: `ImportBootstrap:Lead:<leadId>:<term>:<prodId>:<start>:<end>`. Key already present → skip. Else term-match (Deal + `Quote_Product` + `Opportunity_Type` + dates, not Closed) → UPDATE in place (reuse the existing `Quoted_Items` line id, read via REST GET — Deluge `getRecordById` omits subform line ids). Else CREATE. Re-import never duplicates the Quote or the line.
 - Strict REST readback verifies key + product + line + brands; failure raises `[quote_post_write_verification_failed]`.
@@ -111,6 +111,7 @@ Multi-family Current term → one Quote per family (shares plan type / brands / 
 - Do not write `Commercials_Sent_At`, `Signed_At`, `Commercials_Discussed_At`, or `Intent_To_Sign`.
 - `Meeting_Type` is DEP-labeled and unused. Events use `Meeting_Task_Stage`, `Meeting_Task_State`, and `Meeting_Task_Lost_Reasons`.
 - v6 idempotency is owned by ledger keys, related links, and re-fire guards.
+- Quote-line updates (both the import-bootstrap and the activity `§5` update paths) read existing `Quoted_Items` and the line id via the REST API, not `getRecordById` (which omits subform line ids and custom subform fields). Sending the line WITH its id makes the PUT update in place; without it Zoho appends a duplicate line and inflates the Quote total / Deal Amount / contract ACV on re-fire.
 - The provisional `Product.Unit_Price` sum as `Deal.Amount` (when zero Quotes existed) is REMOVED. With no Quotes, Amount is 0/blank — never fabricated from Unit_Price or Target ACV.
 - `processLead` no longer reads/writes the phantom contract fields `Contract_Start_Date`, `Contract_End_Date`, `Contract_Renewal_Date`, `Contract_ACV_Intial`, `Contract_ACV_Current`, `Contract_Type`, `Contract_Currency` (none exist on Leads or Deals). Use the `Contract_Initial_*`/`Contract_Current_*` fields; `Contract_*_Plan_Products` is multiselect on Leads and Deals.
 
