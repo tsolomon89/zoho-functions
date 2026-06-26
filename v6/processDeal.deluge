@@ -1414,13 +1414,10 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	// (Contacts off Deals, then Contact_Roles); a valid (even empty) list response starts with "[";
 	// an error/NO_CONTENT/null is treated as UNRESOLVED.
 	dealViabilityResolved = false;
-	dealRoleContacts = zoho.crm.getRelatedRecords("Contacts", "Deals", targetDealId.toLong());
+	// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+	// Each entry's id IS the Contact id.
+	dealRoleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", targetDealId.toLong());
 	if(!isNull(dealRoleContacts) && dealRoleContacts.toString().startsWith("[")) { dealViabilityResolved = true; }
-	else
-	{
-		dealRoleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", targetDealId.toLong());
-		if(!isNull(dealRoleContacts) && dealRoleContacts.toString().startsWith("[")) { dealViabilityResolved = true; }
-	}
 
 	dealCandidateIds = List();
 	dealAnyContactOpen = false;

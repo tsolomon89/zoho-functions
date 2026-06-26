@@ -20,16 +20,52 @@ Run keys `V6CL0625` / `V6CL0625B` / `V6CL0625C`. All synthetic records created a
 | **SF-N1/N2/N3** | Legacy `*_Outcome` edits do not route | ✅ Verified structurally (live readback: **no** active `*_Outcome` workflow trigger on any module). `Call_Outcome`/`Meeting_Outcome`/`Demo_Outcome` are absent live; `Task_Outcome` exists but has no trigger. |
 | **SF-N4/N5** | Native `Status` / custom `*_Task_Status` edits do not route | ✅ Verified structurally (WF008 routes only on `Task_State`/`Task_Sequence_Type`; only `WFC-SchedEmail` reads native `Status='Not Started'`, not Completed; `handleTaskCompletion` skips blank `Task_State`). |
 
-## New finding — Calls module has no `Stale` field
+## Resolved — Calls `Stale` (and Calls `Status`) are not live fields
 
-`getFields(Calls)` contains **no field** whose api_name/label includes "stale". So every `{"Stale":"Yes"}` write to Calls — in `handleCallOutcome` (reschedule/CALL-1) and `routeContactSequence` (supersede) — is a **silent no-op** (Zoho drops unknown fields on update). This is pre-existing (the closeout inherited the `Stale` references; CALL-1 only added the `Status:Cancelled` + `Call_Task_Status:Closed` writes alongside it).
+`getFields(Calls)` contains **no** `Stale` field and **no** writable generic `Status` field (the real native status is `Outgoing_Call_Status`, values `Scheduled/Completed/Overdue/Cancelled`). So every `{"Stale":"Yes"}` and `{"Status":"Cancelled"|"Completed"}` write to Calls was a **silent no-op** (Zoho drops unknown fields). The local field export (`docs/zoho_custom_fields_by_module.csv`) and `PRE_CHANGE_FIELD_AUTHORITY_AUDIT.md` listed a Calls `Stale` field that does not actually exist live.
 
-- **Impact:** functional non-actionability of a superseded/rescheduled Call is achieved via `Call_Task_Status=Closed` (verified — the replacement is the only Call in the Deal's actionable list). But `Call_Task_State` stays `Open` on the source and the intended `Stale` marker never lands, so any "open Calls" view that filters on `Call_Task_State=Open` alone (rather than `Call_Task_Status != Closed`) would still show the superseded source.
-- **Recommendation (owner decision — field create not auto-applied):** either (a) create a `Stale` checkbox on Calls and confirm Tasks has the equivalent for scheduled-send supersede, or (b) standardise all "actionable Call/Task" views/COQL to filter on `*_Task_Status != Closed` and drop the dead `Stale` writes from the code. `"Status":"Cancelled"` on Calls is likely also dropped (Calls have no generic `Status` field) — confirm during the same pass.
+**Owner decision (2026-06-25): do NOT create a `Stale` field.** Canonical predicates standardised:
 
-## Deferred (time-gated, cannot complete in one session)
+- **Actionable Call** = `Call_Task_State = Open AND Call_Task_Status = Working`.
+- **Superseded / rescheduled source Call** = keep `Call_Task_State = Open` (it was not Won/Lost), set `Call_Task_Status = Closed`, set native `Outgoing_Call_Status = Cancelled`, clear `Next_Follow_Up_Date`; exactly one replacement remains Open/Working.
 
-- Full Demo Hosted recovery cadence **steps 2–5** and **recovery-exhaustion → Contact Lost** — run on **business-day-scheduled** sends spanning days.
+**Code cleanup applied** (`handleCallOutcome`, `routeContactSequence`, `sendScheduledEmailFromTask`):
+- Removed all dead `Stale = Yes`/`Stale = No` writes from every Call reschedule + supersession path.
+- Replaced dead `"Status"` writes with the real `Outgoing_Call_Status` (`Cancelled` on supersede, `Completed` on worked Won/Lost, `Scheduled` on new/rescheduled).
+- Rewrote the skip guard, reschedule dup-check, SEQ-6 open-call scan, and the routeContactSequence supersede + create_call dup-check to use the canonical `Open + Working` predicate (was `Call_Task_State != Won/Lost AND Stale != Yes`, which treated a Closed-but-Open superseded Call as actionable — and the supersede write previously set neither Stale nor a real field, so it never closed the Call at all).
+- **Tasks** has no `Stale` field either, but has a real native `Status`. `sendScheduledEmailFromTask` now refuses to send when native `Status` ∈ {Completed, Cancelled, Deferred} **or** custom `Task_Status = Closed`.
+- Field inventory `docs/zoho_custom_fields_by_module.csv` annotated (Calls `Stale` not live).
+- **Requires republish:** `handleCallOutcome`, `routeContactSequence`, `sendScheduledEmailFromTask`.
+
+## Recovery cadence steps 1–5 + exhaustion (date-accelerated, run `V6CL0625D`)
+
+Drove the cadence by marking each recovery Call `Lost / No Response` (advances steps without waiting on the business-day clock). Verified after each step:
+
+- **Steps 1→5:** each step created exactly one actionable Call (`Demo Hosted Call N`, Open/Working, `Call_Task_Stage=Demo Hosted`); the prior Call went `Closed` (non-actionable); Contact stayed `Demo Hosted` / Open / Working throughout. ✅
+- **Emails:** `demo-hosted:1:initial, :2, :3, :4, :5:final` — **exactly one each**, each with a unique SendKey + Message ID; the step-1 re-send was correctly **deduped** (SendKey idempotency). No duplicate email/Call/Task. ✅
+- **Postcall:** at step 5 the cadence created the postcall **ScheduledSend Task** (`Due_Date` +2 business days, `kind=postcall`) and moved the Contact to `Sequence_Stage=Email`. ✅ (The date-based WFC-SchedEmail send fires at 09:00 on Due_Date and cannot be triggered synchronously via MCP; its documented effect — Task→Completed, `Sequence_State→Complete` — was simulated to exercise the downstream path.)
+- **Exhaustion → Contact Lost:** with `Sequence_State=Complete` and no open recovery Call / no actionable ScheduledSend / no future Meeting, a final `Lost/No Response` routed `contactlost:No Response` → Contact `State=Lost`, `Status=Closed`, `Lost_Reasons=No Response`, `Sequence_Type` cleared. ✅
+
+### Live vs simulated (explicit, per closeout requirement)
+
+- **Live-executed:** recovery steps 1→5 (all Calls, all `demo-hosted:1..5` emails, postcall ScheduledSend Task creation), the Contact-Lost-on-exhaustion transition, and the multi-Contact viability outcome — all driven by the real published functions on live records.
+- **Simulated (NOT live-verified):** the **date-triggered ScheduledSend execution**. WFC-SchedEmail fires at 09:00 on `Due_Date` and cannot be invoked on-demand via MCP; setting `Due_Date` to a past same-day time does not fire it retroactively. The postcall *send itself is therefore NOT live-verified*. Its documented downstream effect (Task→Completed, `Sequence_State→Complete`) was applied by controlled date-accelerated **state simulation** to exercise the exhaustion transition. Scheduled-send *timing* is not claimed as live-verified.
+
+### Bug found + fixed (E2E) — invalid Deal→Contacts relation name
+
+Root cause of the Deal not auto-closing: `getRelatedRecords("Contacts", "Deals", dealId)` returns **`INVALID_DATA: "the relation name given seems to be invalid"`** — `"Contacts"` is not a valid Deals relation. The valid relation is **`"Contact_Roles"`** (each entry's `id` is the Contact id). **Fixed** in all 3 sites (`processDeal.deluge:1417`, `routeContactSequence.deluge:163`, `:1010`) to use `"Contact_Roles"` directly; **published + confirmed** (no more `INVALID_DATA`; requirement #3: zero `getRelatedRecords("Contacts","Deals")` remain in the repo).
+
+### Single-Contact exhaustion (run `V6CL0626A`)
+
+- Contact → **`State=Lost`, `Status=Closed`, `Lost_Reasons=No Response`** ✅
+- **Deal close NOT deterministically verified in-test.** The contactlost routing's Deal-viability block ran (primary matched), but the `Contact_Roles` read **lagged on the freshly-created Deal** at evaluation time → `viabilityResolved=false` → the **approved conservative fail-safe** raised a "viability could not be resolved" Manual Review and left the Deal Open. This is now a **fresh-record lag artifact**, not the invalid-relation error (that is fixed). In production a Deal that has run a multi-day recovery cadence is not a fresh record, so the read resolves and the Deal closes; the test environment's seconds-old related-list lag prevents deterministic confirmation here. **Recommended hardening (optional, not applied):** add a `searchRecords` (or Contact-direct) fallback to the Deal-viability reads so a lagging related list doesn't force the fail-safe — mirrors the SEQ-6 pattern in `handleCallOutcome` (note: COQL/search also lag on fresh records, so this mainly helps aged records).
+
+### Multi-Contact viability (run `V6CL0626B`, one Deal, two role-linked Contacts)
+
+- Exhausted primary Contact (B1) → **`Lost/Closed/No Response`** ✅
+- Other Contact (B2) → **remains `Open`, completely unmodified** (`Status` unchanged, no sequence/stage change) ✅
+- **Deal remains `Open`** ✅ (not closed — another viable Contact exists). Deal `Status` stayed `New` because neither Contact was activated to Working in this minimal setup (not a regression; "remains Working" applies only when the Deal was already Working). Note: the Deal stayed Open via the same conservative fail-safe (fresh-Deal `Contact_Roles` lag) as well as the correct "another open Contact" semantics — both yield Open, so the safety property (no erroneous close) holds.
+
 - Minor: "Email Sent" audit Task is created `Task_Status=New` (native `Completed`); ontology suggests `Closed`. Pre-existing in `sendSequencedEmail`, not a closeout regression.
 
 ## Optional / not done

@@ -48,7 +48,7 @@ Calls,Next Follow-Up Date,Next_Follow_Up_Date,DateTime,,Yes,CREATED on Calls (sh
 Calls,Email Trigger Template,Email_Trigger_Template,Text,,No,CREATE - resolved template name
 Calls,Call Purpose Detail,Call_Purpose_Detail,Picklist,Data Completion;Book Demo;Confirm Attendance;Post-Demo Follow-Up;Commercial Discussion;Onboarding;Renewal,No,CREATE
 Calls,Block Email Until Done,Block_Email_Until_Done,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (was 'Blocks Email Until Completed' Checkbox; renamed for 25-char limit + Activities disallow Boolean)
-Calls,Stale,Stale,Picklist,Yes;No,Yes,CREATED as Yes/No picklist (Activities disallow Boolean) - set 'Yes' by supersedeOldSequence
+Calls,Stale,Stale,Picklist,Yes;No,Yes,NOT PRESENT in live org (getFields 2026-06-25 returns no Stale field) - dead in v6. Canonical non-actionable marker is Call_Task_Status=Closed; actionable Call = Call_Task_State=Open AND Call_Task_Status=Working. Dead Stale writes removed from code 2026-06-25.
 Events,(use What_Id + $se_module=Deals),What_Id,Lookup: polymorphic,,Yes,REUSE - Activities disallow custom Lookups; use What_Id with $se_module='Deals'
 Events,Sequence Managed,Sequence_Managed,Picklist,Yes;No,No,SHARED from Calls (Activities cross-module field)
 Events,Meeting Type,Meeting_Type,Picklist,Demo;Commercial Discussion;Onboarding;Renewal;Other,Yes,CREATE

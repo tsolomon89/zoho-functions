@@ -21,14 +21,17 @@ void automation.sendScheduledEmailFromTask(string taskIdStr)
 
 	desc = ifnull(task.get("Description"), "").toString();
 	status = ifnull(task.get("Status"), "").toString();
+	taskStatus = ifnull(task.get("Task_Status"), "").toString();
 	if(!desc.contains("ScheduledSend|"))
 	{
 		automation.logAutomationEvent("sendScheduledEmailFromTask", "Tasks", taskId.toString(), "guard", "not_scheduled_send", null);
 		return;
 	}
-	if(status == "Completed" || status == "Cancelled" || status == "Deferred")
+	// Tasks has no Stale field; refuse to send any superseded/terminal scheduled-send Task. A
+	// superseded wake-up is marked native Status Cancelled/Deferred AND/OR custom Task_Status Closed.
+	if(status == "Completed" || status == "Cancelled" || status == "Deferred" || taskStatus == "Closed")
 	{
-		automation.logAutomationEvent("sendScheduledEmailFromTask", "Tasks", taskId.toString(), "guard", "not_actionable_status", {"status":status});
+		automation.logAutomationEvent("sendScheduledEmailFromTask", "Tasks", taskId.toString(), "guard", "not_actionable_status", {"status":status, "task_status":taskStatus});
 		return;
 	}
 

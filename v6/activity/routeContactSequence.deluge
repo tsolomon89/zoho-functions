@@ -160,11 +160,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			// (iii) Contact Roles related list (resolve defensively; a valid list starts with "[")
 			if(!belongs)
 			{
-				roleCs = zoho.crm.getRelatedRecords("Contacts", "Deals", dealId);
-				if(isNull(roleCs) || !roleCs.toString().startsWith("["))
-				{
-					roleCs = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
-				}
+				// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+				roleCs = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
 				if(!isNull(roleCs) && roleCs.toString().startsWith("["))
 				{
 					for each rcx in roleCs
@@ -642,8 +639,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		if(trigLc == "meeting:created" || trigLc == "meeting:booked")
 		{
 			// Rebooking: move to Demo Confirmation AND SUPERSEDE any in-flight Demo Hosted
-			// recovery (recovery Calls -> Stale+Cancelled, ScheduledSend Tasks -> Cancelled)
-			// so a fresh confirmed meeting is not shadowed by an old recovery cadence.
+			// recovery (recovery Calls -> Call_Task_Status Closed + native Cancelled; ScheduledSend
+			// Tasks -> Cancelled) so a fresh confirmed meeting is not shadowed by an old recovery cadence.
 			nextStage = "Demo Confirmation";
 			nextSeqState = "Running";
 			nextSeqStage = "Meeting";
@@ -842,9 +839,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				clWho = "";
 				wl = cl.get("Who_Id");
 				if(!isNull(wl) && !isNull(wl.get("id"))) { clWho = wl.get("id").toString(); }
-				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Task_State"), "").toString() != "Won" && ifnull(cl.get("Call_Task_State"), "").toString() != "Lost" && ifnull(cl.get("Stale"), "No").toString() != "Yes")
+				// Canonical actionable Call = Call_Task_State Open AND Call_Task_Status Working. Supersede =
+				// neutralise so it is no longer actionable: Call_Task_Status=Closed + native Cancelled
+				// (Call_Task_State left unchanged — the Call was not Won/Lost). Calls has no Stale field.
+				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Task_State"), "").toString() == "Open" && ifnull(cl.get("Call_Task_Status"), "").toString() == "Working")
 				{
-					zoho.crm.updateRecord("Calls", cl.get("id").toLong(), {"Stale":"Yes", "Status":"Cancelled"}, noTrigger);
+					zoho.crm.updateRecord("Calls", cl.get("id").toLong(), {"Outgoing_Call_Status":"Cancelled", "Call_Task_Status":"Closed"}, noTrigger);
 				}
 			}
 		}
@@ -1004,13 +1004,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			viabilityResolved = false;
 			anotherOpen = false;
 
-			roleContacts = zoho.crm.getRelatedRecords("Contacts", "Deals", dealId);
+			// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+			// Each entry's id IS the Contact id.
+			roleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
 			if(!isNull(roleContacts) && roleContacts.toString().startsWith("[")) { viabilityResolved = true; }
-			else
-			{
-				roleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
-				if(!isNull(roleContacts) && roleContacts.toString().startsWith("[")) { viabilityResolved = true; }
-			}
 
 			if(viabilityResolved)
 			{
@@ -1198,7 +1195,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 					ecWho = "";
 					ewl = ec.get("Who_Id");
 					if(!isNull(ewl) && !isNull(ewl.get("id"))) { ecWho = ewl.get("id").toString(); }
-					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Task_State"), "").toString() != "Won" && ifnull(ec.get("Call_Task_State"), "").toString() != "Lost" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
+					// Canonical actionable Call = Call_Task_State Open AND Call_Task_Status Working.
+					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Task_State"), "").toString() == "Open" && ifnull(ec.get("Call_Task_Status"), "").toString() == "Working")
 					{
 						dupCall = true;
 					}
@@ -1236,7 +1234,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				callMap.put("Call_Purpose_Detail", ifnull(purposeMap.get(nextStage), "Data Completion").toString());
 				callMap.put("Call_Type", "Outbound");
 				callMap.put("Call_Start_Time", callDue);
-				callMap.put("Stale", "No");
+				callMap.put("Outgoing_Call_Status", "Scheduled");
 				// activity mirror fields (automation-owned)
 				if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
 				if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
