@@ -64,7 +64,7 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	deal = zoho.crm.getRecordById("Deals", dealId);
 	tkMap = Map();
 	tkMap.put("Subject", taskType + ": " + ifnull(note, "").toString());
-	tkMap.put("Status", "Not Started");
+	tkMap.put("Status", "In Progress");
 	tkMap.put("What_Id", dealId);
 	tkMap.put("$se_module", "Deals");
 	tkMap.put("Who_Id", contactId);
@@ -72,7 +72,7 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	tkMap.put("Task_Type", taskType);
 	tkMap.put("Blocks_Sequence", "Yes");
 	tkMap.put("Description", ifnull(note, "").toString());
-	tkMap.put("Task_Status", "New");
+	tkMap.put("Task_Status", "Working");
 	tkMap.put("Task_State", "Open");
 	if(!isNull(deal) && !isNull(deal.get("id")))
 	{

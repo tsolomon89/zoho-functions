@@ -300,10 +300,9 @@ void automation.processContact(string contact_id)
 			ownerLookup = contactRecord.get("Owner");
 			if(!isNull(ownerLookup) && !isNull(ownerLookup.get("id"))) { ownerId = ownerLookup.get("id").toString(); }
 			leadSrc = ifnull(contactRecord.get("Lead_Source"), "").toString();
-			// Route is chosen by the rep on the Activation Task via Task_Sequence_Type. Pre-fill ONLY
-			// if the Contact already carries a Sequence_Type (re-activation); otherwise leave blank.
-			existingSeqType = ifnull(contactRecord.get("Sequence_Type"), "").toString();
-
+			// Route is chosen by the rep on the Activation Task via Task_Sequence_Type. The Task is
+			// ALWAYS created with Task_Sequence_Type blank so the rep explicitly selects Email/Call/Manual;
+			// the Contact's residual Sequence_Type must never auto-activate a route.
 			actDesc = "Activate the Contact sequence.\nContact: " + cName + "\nStage: " + contactStage + "\nLead Source (context only): " + leadSrc + "\n\nSet Task Sequence Type to choose the route:\n- Email\n- Call\n- Manual\n\nNo other field update is required.\n";
 			actTask = Map();
 			actTask.put("Subject", "Activate sequence: " + cName + " — " + contactStage);
@@ -314,7 +313,6 @@ void automation.processContact(string contact_id)
 			actTask.put("Task_Sequence_Managed", true);
 			actTask.put("Task_Type", "Sequence Activation");
 			actTask.put("Task_Sequence_Stage", contactStage);
-			if(existingSeqType != "") { actTask.put("Task_Sequence_Type", existingSeqType); }
 			actTask.put("Blocks_Sequence", "Yes");
 			actTask.put("Description", actDesc);
 			// F4 FIX (2026-06-24): the activation Task must carry the full inherited commercial

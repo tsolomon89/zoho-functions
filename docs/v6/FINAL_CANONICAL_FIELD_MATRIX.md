@@ -87,3 +87,28 @@ No custom fields were deleted in this session.
 | Deal `Demo_Outcome`/`Demo_Status` | No active `Demo_Outcome` workflow was found in the 2026-06-25 active workflow pass; local exports still show historical dependency and layout/history checks remain pending. |
 | Deal `Commercial_Outcome`/`Commercials_Status` | Legacy handler/workflow path remains until Quote/activity replacement is deployed/verified. |
 | Native fields | Native fields must not be deleted; hide or make automation-owned instead. |
+
+## 2026-06-25 v6 Lifecycle Closeout Audit Addendum
+
+Source: v6 lifecycle closeout audit + live readback synthesis (see `V6_CLOSEOUT_PLAN.md`,
+`OBSOLETE_FIELD_AUDIT.md`, `V6_LIVE_READBACK_CLOSEOUT.md`). Read-only; no field changes were made.
+
+- **`Renewall` typo across 5 Stage fields (data-quality defect).** The final picklist value is
+  misspelled `Renewall` (double-L) in `Contacts.Stage`, `Task_Stage`, `Call_Task_Stage`,
+  `Meeting_Task_Stage`, and `Deals.Opportunity_Stage`. `Calls.Sequence_Stage` and `Events.Follow_Up_Stage`
+  spell `Renewal` correctly. Planned correction: a separate, GATED data-quality picklist edit
+  `Renewall -> Renewal` across the five fields (touches live records — not done in this pass).
+- **`Task_Sequence_Stage` divergent vocabulary.** LIVE on Tasks with a stage value set
+  (`Demo Confirmation / Demo Hosted / Proposal Preparation / Commercial Agreement`) that diverges from
+  every other `*_Stage` field (`Demo Booked / Demo Attended / Commercials Sent / Commercials Signed`).
+  Disposition: RETAIN pending reconciliation — either align to the canonical stage vocabulary or confirm
+  intentional. Not a delete.
+- **`Sequence_Stage` cross-module naming collision.** `Contacts.Sequence_Stage` =
+  `Email|Call|Meeting|Task`, but `Calls.Sequence_Stage` reuses the same api_name with the lifecycle-stage
+  vocabulary. Two different fields share the api_name with different meanings — flag for naming clarity;
+  likely retain.
+- **`Commercials_Status` is still LIVE and WF004-bound (retirement NOT executed).** DEP-renamed
+  ('DEP - Commercials Status') and COQL-EMPTY, but still bound to ACTIVE WF004 (id 991103000000800001,
+  field_update trigger -> handleCommercialsStatusChange). The memory-recorded "retirement approved
+  2026-06-20" is not reflected in deployed state. Delete remains BLOCKED until WF004 is deactivated and the
+  wrapper functions retired/guarded.

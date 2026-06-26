@@ -1405,17 +1405,68 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	dealReasonForLoss = ifnull(targetDeal.get("Reason_For_Loss__s"), "").toString();
 	dealLostReasons = ifnull(targetDeal.get("Lost_Reasons"), "").toString();
 	hasLossReason = dealReasonForLoss != "" || dealLostReasons != "";
-	hasContacts = relContacts != null && relContacts.size() > 0;
 
-	if(hasLossReason || (hasContacts && !anyContactOpen))
+	// COM-2: resolve the viable-Contact set from the Deal Contact Roles (per-Deal), NOT all
+	// Account-related Contacts. This mirrors routeContactSequence's canonical definition exactly:
+	// candidate set = Deal role Contacts + Deal.Contact_Name (primary); count only State = Open.
+	// COM-3 fail-safe: a lookup failure must NEVER be read as "zero viable Contacts". The
+	// Deal-Contact-Roles related-list API name can vary by org, so resolve it defensively
+	// (Contacts off Deals, then Contact_Roles); a valid (even empty) list response starts with "[";
+	// an error/NO_CONTENT/null is treated as UNRESOLVED.
+	dealViabilityResolved = false;
+	// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+	// Each entry's id IS the Contact id.
+	dealRoleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", targetDealId.toLong());
+	if(!isNull(dealRoleContacts) && dealRoleContacts.toString().startsWith("[")) { dealViabilityResolved = true; }
+
+	dealCandidateIds = List();
+	dealAnyContactOpen = false;
+	dealAnyContactWorking = false;
+	// Gather role Contacts ONLY when the related-list read resolved...
+	if(dealViabilityResolved)
 	{
+		for each rc in dealRoleContacts
+		{
+			rcId = "";
+			if(!isNull(rc.get("id"))) { rcId = rc.get("id").toString(); }
+			if(rcId != "" && rcId != "null" && !dealCandidateIds.contains(rcId)) { dealCandidateIds.add(rcId); }
+		}
+	}
+	// ...but ALWAYS evaluate the Deal's Primary Contact (Contact_Name): its State is known via a
+	// direct read and does NOT depend on the lag-prone role-list. A positively-Open primary proves
+	// viability even when the role-list read failed, so a freshly-created Deal is never falsely flagged.
+	if(currentPrimaryId != "" && currentPrimaryId != "null" && !dealCandidateIds.contains(currentPrimaryId)) { dealCandidateIds.add(currentPrimaryId); }
+	for each candId in dealCandidateIds
+	{
+		candFull = zoho.crm.getRecordById("Contacts", candId.toLong());
+		if(!isNull(candFull) && !isNull(candFull.get("id")) && ifnull(candFull.get("State"), "").toString() == "Open")
+		{
+			dealAnyContactOpen = true;
+			if(ifnull(candFull.get("Status"), "").toString() == "Working") { dealAnyContactWorking = true; }
+		}
+	}
+	dealHasContacts = dealCandidateIds.size() > 0;
+	info "Deal-Roles viability: resolved=" + dealViabilityResolved + " candidates=" + dealCandidateIds.size() + " anyOpen=" + dealAnyContactOpen + " anyWorking=" + dealAnyContactWorking;
+
+	if(hasLossReason)
+	{
+		// Explicit Deal loss reason is independent confident evidence -> always close.
 		// Deals are never "Won"; no bare State/Status (Contact/Account-only).
 		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Lost") { dUpd.put("Opportunity_State", "Lost"); }
 		if(ifnull(targetDeal.get("Opportunity_Status"), "") != "Closed") { dUpd.put("Opportunity_Status", "Closed"); }
 	}
-	else if(hasContacts)
+	else if(dealViabilityResolved && dealHasContacts && !dealAnyContactOpen)
 	{
-		targetOppStatus = if(anyContactWorking, "Working", "New");
+		// COM-3: close ONLY when the Deal-Contact-Roles viable set was resolved WITH CONFIDENCE
+		// (the related-list read succeeded and was examined) and no role Contact is Open.
+		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Lost") { dUpd.put("Opportunity_State", "Lost"); }
+		if(ifnull(targetDeal.get("Opportunity_Status"), "") != "Closed") { dUpd.put("Opportunity_Status", "Closed"); }
+	}
+	else if(dealAnyContactOpen)
+	{
+		// Positive viability WINS — at least one candidate (often the Primary) is Open — so keep the
+		// Deal Open even if the role-list read failed. No Manual Review on the fresh/healthy path.
+		targetOppStatus = if(dealAnyContactWorking, "Working", "New");
 		if(ifnull(targetDeal.get("Opportunity_State"), "") != "Open") { dUpd.put("Opportunity_State", "Open"); }
 		if(ifnull(targetDeal.get("Opportunity_Status"), "") != targetOppStatus) { dUpd.put("Opportunity_Status", targetOppStatus); }
 		// Never-regress Opportunity_Stage; honour the durable RTP floor (targetStage may exceed bestStage).
@@ -1433,6 +1484,16 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			// keep Opportunity Type aligned to the RTP floor even if the 8-stage didn't change
 			dUpd.put("Stage", effectiveOppType);
 		}
+	}
+	else if(!dealViabilityResolved)
+	{
+		// COM-3 fail-safe: reached ONLY when no positively-Open Contact (not even the Primary) was
+		// found AND the role-list read failed -> viability is genuinely indeterminate. Never silently
+		// close: leave Opportunity_State unchanged, log, raise Manual Review (mirrors routeContactSequence).
+		result.put("reviewRequired", true);
+		if(!reviewReasons.contains("deal_viability_unresolved")) { reviewReasons.add("deal_viability_unresolved"); }
+		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Deal Contact Roles viability could not be resolved (related-list read failed) and no Open Contact was found. Opportunity_State left unchanged. Review whether any viable Contact remains before closing the Deal.");
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "viability_check_unresolved", "opportunity_state_unchanged", null);
 	}
 
 	// ---- ledger fields onto the Deal ----
@@ -1597,11 +1658,17 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	}
 
 	// ---- Account State / Status rollup ----
+	// COM-5: the CLOSE branch may only roll the Account to Lost/Closed when finalDeals was
+	// actually RESOLVED (a valid list response starting with "[" that the loop examined).
+	// An error/NO_CONTENT/null response must NOT be read as "zero open Deals" and silently
+	// close the Account — mirror the viability fail-safe used for the Deal above.
 	finalDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
+	finalDealsResolved = false;
 	anyDealOpen = false;
 	anyDealWorking = false;
-	if(!isNull(finalDeals) && finalDeals.size() > 0 && !finalDeals.toString().startsWith("{\"code\""))
+	if(!isNull(finalDeals) && finalDeals.toString().startsWith("["))
 	{
+		finalDealsResolved = true;
 		for each fd in finalDeals
 		{
 			fdId = "";
@@ -1633,10 +1700,16 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		targetStatus = if(anyDealWorking, "Working", "New");
 		if(currStatus != targetStatus) { accUpd.put("Status", targetStatus); }
 	}
-	else
+	else if(finalDealsResolved)
 	{
+		// CLOSE only with confidence: the Deals related-list resolved and no Deal was Open.
 		if(currState != "Lost") { accUpd.put("State", "Lost"); }
 		if(currStatus != "Closed") { accUpd.put("Status", "Closed"); }
+	}
+	else
+	{
+		// COM-5 fail-safe: Deals related-list unresolved -> skip the Account write, log only.
+		automation.logAutomationEvent("processDeal", "Accounts", accountId, "account_rollup_unresolved", "account_state_unchanged", {"deal":targetDealId});
 	}
 	if(accUpd.size() > 0)
 	{

@@ -160,11 +160,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			// (iii) Contact Roles related list (resolve defensively; a valid list starts with "[")
 			if(!belongs)
 			{
-				roleCs = zoho.crm.getRelatedRecords("Contacts", "Deals", dealId);
-				if(isNull(roleCs) || !roleCs.toString().startsWith("["))
-				{
-					roleCs = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
-				}
+				// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+				roleCs = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
 				if(!isNull(roleCs) && roleCs.toString().startsWith("["))
 				{
 					for each rcx in roleCs
@@ -400,6 +397,11 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	setContactLost = "false";
 	contactLostReason = "";
 	dealLostReason = "";
+	// Manual activation suppresses automated dispatch (Sequence_State stays Stopped) but
+	// must STILL make the Contact Working so processDeal/Account roll up via
+	// anyContactWorking. forceWorking is the explicit "set Working even though the
+	// sequence is not Running" signal; it never re-enables dispatch.
+	forceWorking = "false";
 	reason       = "noop";
 
 	// control flow into the shared entry block
@@ -413,7 +415,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	{
 		if(trigLc == "activate:manual" || trigLc == "activate:stop")
 		{
-			if(trigLc == "activate:manual") { nextSeqType = "Manual"; }
+			if(trigLc == "activate:manual")
+			{
+				nextSeqType = "Manual";
+				// Manual activation: dispatch suppressed (Stopped) but the Contact IS now
+				// being worked manually -> force Status=Working so the Deal/Account roll up.
+				forceWorking = "true";
+			}
 			nextSeqState = "Stopped";
 			nextSeqStage = "None";
 			nextStep = "None";
@@ -532,8 +540,27 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 		else if(trigLc == "demo:followup")
 		{
-			targetStage = "Demo Hosted"; doSupersede = "true"; doEntry = true;
-			reason = "demo_followup";
+			// Missed/lost demo (No Meeting/Demo, continue_cadence): keep the Contact at
+			// Demo Hosted and run the 5-step Demo Hosted RECOVERY cadence. The recovery's
+			// SOLE opener is demo-hosted:1:initial (wired on entry); the one-off
+			// demo_no_show side email is SUPPRESSED on this path. GUARD: a repeat WF007
+			// edit on a Contact already mid-recovery (already at Demo Hosted, Sequence_Stage
+			// =Call, step>=1) must NOT reset the cadence to step 1 — leave it in place and
+			// resume the current step without re-superseding its own in-flight Call.
+			if(st == "Demo Hosted" && sStage == "Call" && stepNum >= 1)
+			{
+				nextSeqState = "Running";
+				nextSeqStage = "Call";
+				nextStep = stepStr;
+				action = "create_call";
+				reason = "demo_followup_recovery_inflight";
+				resolved = true;
+			}
+			else
+			{
+				targetStage = "Demo Hosted"; doSupersede = "true"; doEntry = true;
+				reason = "demo_followup";
+			}
 		}
 		else if(trigLc == "demo:not_qualified")
 		{
@@ -611,19 +638,35 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	{
 		if(trigLc == "meeting:created" || trigLc == "meeting:booked")
 		{
+			// Rebooking: move to Demo Confirmation AND SUPERSEDE any in-flight Demo Hosted
+			// recovery (recovery Calls -> Call_Task_Status Closed + native Cancelled; ScheduledSend
+			// Tasks -> Cancelled) so a fresh confirmed meeting is not shadowed by an old recovery cadence.
 			nextStage = "Demo Confirmation";
 			nextSeqState = "Running";
 			nextSeqStage = "Meeting";
 			nextStep = "None";
 			action = "await_meeting";
+			doSupersede = "true";
 			sideEmailKind = "demo_confirmation";
 			reason = "meeting_created";
 			resolved = true;
 		}
 		else if(trigLc == "meeting:attended")
 		{
-			targetStage = "Demo Hosted"; doSupersede = "true"; doEntry = true;
-			reason = "meeting_attended_advance";
+			// First arrival at Demo Hosted via an attended Meeting = AWAITING Meeting
+			// outcome, NOT the generic Call cadence. Hold at Sequence_Stage='Meeting',
+			// Step='None', await_meeting (the SAME Meeting is retained). Recovery (Call,
+			// Step 1) begins ONLY later via demo:followup on a Meeting Lost/No-Response.
+			// This distinguishes awaiting (Meeting/None) from recovery (Call/1-5) with no
+			// new field. Supersede stale in-flight activities on the stage advance.
+			nextStage = "Demo Hosted";
+			doSupersede = "true";
+			nextSeqState = "Running";
+			nextSeqStage = "Meeting";
+			nextStep = "None";
+			action = "await_meeting";
+			reason = "meeting_attended_awaiting_outcome";
+			resolved = true;
 		}
 		else if(trigLc == "meeting:cancelled")
 		{
@@ -734,6 +777,16 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				emailKind = "opener";
 				emailStep = 1;
 			}
+			else if(targetStage == "Demo Hosted" && trigLc == "demo:followup")
+			{
+				// Demo Hosted RECOVERY entry (missed/lost demo via demo:followup): the SOLE
+				// immediate opener is demo-hosted:1:initial. Send the step-1 cadence email
+				// alongside Call 1 (Call-first 5-step cadence), and explicitly SUPPRESS the
+				// one-off demo_no_show side email on this path.
+				action = "create_call";
+				sideEmailKind = "cadence";
+				sideEmailStep = 1;
+			}
 			else
 			{
 				action = "create_call";
@@ -786,9 +839,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				clWho = "";
 				wl = cl.get("Who_Id");
 				if(!isNull(wl) && !isNull(wl.get("id"))) { clWho = wl.get("id").toString(); }
-				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Task_State"), "").toString() != "Won" && ifnull(cl.get("Call_Task_State"), "").toString() != "Lost" && ifnull(cl.get("Stale"), "No").toString() != "Yes")
+				// Canonical actionable Call = Call_Task_State Open AND Call_Task_Status Working. Supersede =
+				// neutralise so it is no longer actionable: Call_Task_Status=Closed + native Cancelled
+				// (Call_Task_State left unchanged — the Call was not Won/Lost). Calls has no Stale field.
+				if(clWho == contactId.toString() && ifnull(cl.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(cl.get("Call_Task_State"), "").toString() == "Open" && ifnull(cl.get("Call_Task_Status"), "").toString() == "Working")
 				{
-					zoho.crm.updateRecord("Calls", cl.get("id").toLong(), {"Stale":"Yes", "Status":"Cancelled"}, noTrigger);
+					zoho.crm.updateRecord("Calls", cl.get("id").toLong(), {"Outgoing_Call_Status":"Cancelled", "Call_Task_Status":"Closed"}, noTrigger);
 				}
 			}
 		}
@@ -866,7 +922,18 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	//         authoritative Stage/Sequence writes, not a dispatch. ----
 	cUpd = Map();
 	cUpd.put("Stage", nextStage);
-	cUpd.put("Sequence_Type", nextSeqType);
+	// TASK-1 cleanup: when the sequence Stops or Completes, CLEAR Sequence_Type so a
+	// residual Email/Call value cannot pre-arm a future Activation Task. EXCEPT a Manual
+	// type (manual activation / call:manualonly), which is an intentional standing mode,
+	// not a residual pre-arm risk — preserve it.
+	if((nextSeqState == "Stopped" || nextSeqState == "Complete") && nextSeqType != "Manual")
+	{
+		cUpd.put("Sequence_Type", "");
+	}
+	else
+	{
+		cUpd.put("Sequence_Type", nextSeqType);
+	}
 	cUpd.put("Sequence_State", nextSeqState);
 	cUpd.put("Sequence_Stage", nextSeqStage);
 	cUpd.put("Sequence_Step", nextStep);
@@ -900,10 +967,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		cUpd.put("Status", "Closed");
 		if(ifnull(contact.get("Lost_Reasons"), "").toString() == "" && contactLostReason != "") { cUpd.put("Lost_Reasons", contactLostReason); }
 	}
-	else if(nextSeqState == "Running" && ifnull(contact.get("Status"), "").toString() != "Working")
+	else if((nextSeqState == "Running" || forceWorking == "true") && ifnull(contact.get("Status"), "").toString() != "Working")
 	{
 		// Status derives from activity: a running sequence means Working (canonical
-		// "Open implies New or Working"). State stays Open; Lost/Closed handled above.
+		// "Open implies New or Working"). Manual activation (forceWorking) also sets
+		// Working even though Sequence_State is Stopped — dispatch stays suppressed but the
+		// Contact is being worked, so the Deal/Account can roll up via anyContactWorking.
+		// State stays Open; Lost/Closed handled above.
 		cUpd.put("Status", "Working");
 	}
 	zoho.crm.updateRecord("Contacts", contactId, cUpd, noTrigger);
@@ -934,13 +1004,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			viabilityResolved = false;
 			anotherOpen = false;
 
-			roleContacts = zoho.crm.getRelatedRecords("Contacts", "Deals", dealId);
+			// "Contact_Roles" is the valid Deals relation ("Contacts" is NOT and always errors).
+			// Each entry's id IS the Contact id.
+			roleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
 			if(!isNull(roleContacts) && roleContacts.toString().startsWith("[")) { viabilityResolved = true; }
-			else
-			{
-				roleContacts = zoho.crm.getRelatedRecords("Contact_Roles", "Deals", dealId);
-				if(!isNull(roleContacts) && roleContacts.toString().startsWith("[")) { viabilityResolved = true; }
-			}
 
 			if(viabilityResolved)
 			{
@@ -1089,9 +1156,15 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	if(!dispatchSuppressed && !suppressOuter)
 	{
 		// ---- 2. Side cadence email (accompanies the primary action) — DISPATCH ----
+		// A 'cadence' side email keys off the cadence stage actually entered (nextStage):
+		// the Demo Hosted recovery opener resolves to demo-hosted:1:initial even when the
+		// Contact arrived from Demo Confirmation. Non-cadence side emails (demo_qualified,
+		// commercials_terms, demo_confirmation, ...) continue to key off the source stage.
+		sideEmailStage = stage;
+		if(sideEmailKind == "cadence") { sideEmailStage = nextStage; }
 		if(sideEmailKind != "")
 		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), stage, sideEmailStep.toLong(), sideEmailKind, "");
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "");
 		}
 
 		// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail absorbed) ----
@@ -1122,7 +1195,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 					ecWho = "";
 					ewl = ec.get("Who_Id");
 					if(!isNull(ewl) && !isNull(ewl.get("id"))) { ecWho = ewl.get("id").toString(); }
-					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Task_State"), "").toString() != "Won" && ifnull(ec.get("Call_Task_State"), "").toString() != "Lost" && ifnull(ec.get("Stale"), "No").toString() != "Yes")
+					// Canonical actionable Call = Call_Task_State Open AND Call_Task_Status Working.
+					if(ecWho == contactId.toString() && ifnull(ec.get("Sequence_Managed"), "No").toString() == "Yes" && ifnull(ec.get("Sequence_Stage"), "").toString() == nextStage && ifnull(ec.get("Sequence_Attempt"), 0).toLong() == callStep && ifnull(ec.get("Call_Task_State"), "").toString() == "Open" && ifnull(ec.get("Call_Task_Status"), "").toString() == "Working")
 					{
 						dupCall = true;
 					}
@@ -1160,12 +1234,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				callMap.put("Call_Purpose_Detail", ifnull(purposeMap.get(nextStage), "Data Completion").toString());
 				callMap.put("Call_Type", "Outbound");
 				callMap.put("Call_Start_Time", callDue);
-				callMap.put("Stale", "No");
+				callMap.put("Outgoing_Call_Status", "Scheduled");
 				// activity mirror fields (automation-owned)
 				if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
 				if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
 				if(nextStage != "")      { callMap.put("Call_Task_Stage", nextStage); }
-				callMap.put("Call_Task_Status", "New");
+				// User-facing in-flight Call: NEW/WORKING RULE -> Status=Working (State Open).
+				callMap.put("Call_Task_Status", "Working");
 				callMap.put("Call_Task_State", "Open");
 				callResp = zoho.crm.createRecord("Calls", callMap);
 				automation.logAutomationEvent("routeContactSequence", "Calls", "", "create_call", "created", {"contact":contactId.toString(), "deal":dealId.toString(), "stage":nextStage, "attempt":callStep});
@@ -1250,7 +1325,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 			{
 				stTask = Map();
 				stTask.put("Subject", stTaskType + ": " + nextStage);
-				stTask.put("Status", "Not Started");
+				// User-facing post-activation stage Task (Draft Commercials / Onboarding
+				// Setup / Manual Review): NEW/WORKING RULE -> native Status=In Progress +
+				// Task_Status=Working (Task_State stays Open). Not an internal scheduler record.
+				stTask.put("Status", "In Progress");
 				stTask.put("What_Id", dealId);
 				stTask.put("$se_module", "Deals");
 				stTask.put("Who_Id", contactId);
@@ -1263,7 +1341,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				if(mirrorPipeline != "") { stTask.put("Task_Pipeline", mirrorPipeline); }
 				if(mirrorOppType != "")  { stTask.put("Task_Opportunity", mirrorOppType); }
 				if(nextStage != "")      { stTask.put("Task_Stage", nextStage); }
-				stTask.put("Task_Status", "New");
+				stTask.put("Task_Status", "Working");
 				stTask.put("Task_State", "Open");
 				if(dealOwnerId != "") { stTask.put("Owner", dealOwnerId); }
 				zoho.crm.createRecord("Tasks", stTask);

@@ -113,3 +113,46 @@ repository. The following remain unproven:
 | `Demo_Status` | Deals | Not deleted | Candidate legacy lifecycle field; live dependency check pending. |
 | `Commercial_Outcome` | Deals | Not deleted | Candidate legacy commercial outcome field; live dependency check pending. |
 | `Commercials_Status` | Deals | Not deleted | Still has a legacy handler/workflow path; retire only after Quote/activity replacement is verified. |
+
+## 2026-06-25 v6 Lifecycle Closeout Audit Addendum
+
+Source: v6 lifecycle closeout audit + synthesis (see `V6_CLOSEOUT_PLAN.md`). Read-only; no functions
+were redeployed and no live state changed in this pass.
+
+### Requires-redeploy items from the closeout plan (with function-association ids)
+
+| Plan item | Function (repo file) | Function id / assoc id |
+| --- | --- | --- |
+| TASK-1 | processContact (v6/processContact.deluge) | 991103000000774692 / 991103000000774779 |
+| SEQ-1 | handleMeetingEvent (v6/activity/handleMeetingEvent.deluge) + routeContactSequence | 991103000000780334 / 991103000000780415 |
+| SEQ-4 | routeContactSequence (v6/activity/routeContactSequence.deluge) | standalone/invoked — not workflow-bound, no assoc id |
+| MTG-1 | handleMeetingEvent (v6/activity/handleMeetingEvent.deluge) | 991103000000780334 / 991103000000780415 |
+| MTG-4 | handleMeetingEvent (v6/activity/handleMeetingEvent.deluge) | 991103000000780334 / 991103000000780415 |
+| SEQ-6 | handleCallOutcome (v6/activity/handleCallOutcome.deluge) | 991103000000780322 / 991103000000780459 |
+| COM-2 | processDeal (v6/processDeal.deluge) + routeContactSequence | 991103000000774697 / 991103000000774797 |
+| COM-3 | processDeal (v6/processDeal.deluge) | 991103000000774697 / 991103000000774797 |
+| COM-5 | processDeal (v6/processDeal.deluge) | 991103000000774697 / 991103000000774797 |
+| TASK-2 | routeContactSequence (v6/activity/routeContactSequence.deluge) | standalone/invoked — not workflow-bound, no assoc id |
+| COM-1/COM-4 (code) | handleCommercialsStatusChange + applyCommercialTransition | 991103000000780325 / 991103000000780404 |
+
+Repo-only (no redeploy gate, but still requires a function publish for the Deluge files): CALL-1,
+CALL-4-clear, CALL-3 (all in handleCallOutcome 991103000000780322/991103000000780459) and CALL-2/TASK-4
+(handleCallOutcome + routeContactSequence + createAuxTask).
+
+### Deployed-body parity is MCP-unprovable
+
+`getAutomationFunctions(functionId)` returns "Empty response received from API" for every id. The
+connector exposes function METADATA only; the deployed Deluge body cannot be read back, so
+deployed-body == branch `main` is NOT provable via MCP. Name/module/timestamp map 1:1 to repo files, but
+all redeploys are write-without-readback and must be diffed externally (UI) before/after.
+
+### Gated items still pending
+
+- **WF004 deactivation / delete** (id 991103000000800001) — required to complete the Commercials_Status
+  retirement and unblock the Commercials_Status field delete. WF004 is still ACTIVE.
+- **Field deletes** — Commercial_Outcome (safe-after-dependency-check, empty) and Commercials_Status
+  (blocked by WF004, empty). Task_Outcome must NOT be deleted (holds data). Never delete native fields.
+- **Email-template rewrite** — Demo Hosted Initial-1 attendance-implication and merge-syntax/folder-name
+  checks (see `V6_EMAIL_COPY_VERIFICATION.md`); copy is not MCP-readable, so any edit is blind and gated.
+- **handleEmailEvent (991103000000780331) is `associated=FALSE`** — present but unwired; confirm whether
+  v6/activity/handleEmailEvent.deluge is still intended to be live.
