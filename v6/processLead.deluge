@@ -51,13 +51,14 @@ void automation.processLead(string lead_id)
 	personalPhone = ifnull(leadRecord.get("Personal_Phone"), "").toString().trim();
 	leadReferrer = ifnull(leadRecord.get("Lead_Referrer"), "").toString().trim();
 	importedRecordType = ifnull(leadRecord.get("Imported_Record_Type"), "").toString().trim();
-	contractStartDate = leadRecord.get("Contract_Start_Date");
-	contractEndDate = leadRecord.get("Contract_End_Date");
-	contractRenewalDate = leadRecord.get("Contract_Renewal_Date");
-	contractACVInitial = ifnull(leadRecord.get("Contract_ACV_Intial"), "0").toDecimal();
-	contractACVCurrent = ifnull(leadRecord.get("Contract_ACV_Current"), "0").toDecimal();
-	contractType = ifnull(leadRecord.get("Contract_Type"), "").toString().trim();
-	contractCurrency = ifnull(leadRecord.get("Contract_Currency"), "").toString().trim();
+	// CONTRACT EVIDENCE (2026-06-26 import-bootstrap fix): read the REAL split-contract Lead
+	// fields. The prior reads (Contract_Start_Date / Contract_ACV_Intial / Contract_Type /
+	// Contract_Currency) targeted fields that DO NOT EXIST on Leads (phantom) and the matching
+	// Deal writes also hit phantom Deal fields — both silent no-ops. The canonical Deal contract
+	// ledger (Contract_Initial_*/Contract_Current_*) is DERIVED from Confirmed Quotes, so we do
+	// NOT write it directly from the Lead. Instead these tuples feed the import_bootstrap Quote
+	// engine in processDeal (step 6c below). Contract_Target_ACV is a Company-Tier benchmark and
+	// is intentionally NEVER read here.
 	mqCompletedAt = null;
 	mqVal = leadRecord.get("Contact_Completed_Marketing_Qualification_At");
 	if(mqVal != null)
@@ -234,6 +235,113 @@ void automation.processLead(string lead_id)
 		}
 	}
 	info "Lead PI parsed string='" + leadPIStr + "'";
+
+	// ---- 1c. Import-contract tuple extraction (2026-06-26) ----
+	// Read the REAL split-contract fields and build a deterministic encoded payload for the
+	// import_bootstrap Quote engine (processDeal step 6c). Each term is "~"-delimited (9 fields):
+	//   term~family~planType~brands~dateStart~dateEnd~importedACV~frequency~tier
+	// Terms are joined with ";". "~" and ";" are chosen because they never occur in the data and
+	// are literal under both literal- and regex-style toList() splitting. Rules:
+	//   - a tuple asserts a contract only when Plan Products (family) is non-blank;
+	//   - Initial+Current identical (same family/type/brands/dates) -> ONE term (Current);
+	//   - exact Product-Interest vs contract-tuple plan-type conflict -> [contract_product_conflict],
+	//     term skipped (no Quote until resolved).
+	// Frequency lives on no Lead field today (360 imports therefore stay unpriced -> review),
+	// and pricing tier is not an imported field (defaults to Base downstream).
+	// NB: Contract_*_Plan_Products is a MULTI-select on Leads (live), so it is parsed into a family
+	// LIST; one Quote term is emitted per family (Test 16 multi-family). Plan Type / Plan Brands /
+	// dates / ACV are single values shared across families of the same term — a documented schema
+	// limitation: a multi-family term cannot carry per-product type/brands.
+	iFamList = List();
+	iFamRaw = leadRecord.get("Contract_Initial_Plan_Products");
+	if(iFamRaw != null)
+	{
+		iFamS = iFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+		for each ft in iFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { iFamList.add(ftv); } }
+	}
+	iType = ifnull(leadRecord.get("Contract_Initial_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+	if(iType == "Flexible") { iType = "Flex"; }
+	iBrands = ifnull(leadRecord.get("Contract_Initial_Plan_Brands"), "").toString().trim();
+	if(iBrands == "null") { iBrands = ""; }
+	iStartV = leadRecord.get("Contract_Initial_Date_Start");
+	iStart = ""; if(iStartV != null) { iStart = iStartV.toString().trim(); if(iStart.contains("T")) { iStart = iStart.getPrefix("T"); } }
+	iEndV = leadRecord.get("Contract_Initial_Date_End");
+	iEnd = ""; if(iEndV != null) { iEnd = iEndV.toString().trim(); if(iEnd.contains("T")) { iEnd = iEnd.getPrefix("T"); } }
+	iAcv = ifnull(leadRecord.get("Contract_Initial_ACV"), "").toString().trim();
+
+	cFamList = List();
+	cFamRaw = leadRecord.get("Contract_Current_Plan_Products");
+	if(cFamRaw != null)
+	{
+		cFamS = cFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+		for each ft in cFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { cFamList.add(ftv); } }
+	}
+	cType = ifnull(leadRecord.get("Contract_Current_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+	if(cType == "Flexible") { cType = "Flex"; }
+	cBrands = ifnull(leadRecord.get("Contract_Current_Plan_Brands"), "").toString().trim();
+	if(cBrands == "null") { cBrands = ""; }
+	cStartV = leadRecord.get("Contract_Current_Date_Start");
+	cStart = ""; if(cStartV != null) { cStart = cStartV.toString().trim(); if(cStart.contains("T")) { cStart = cStart.getPrefix("T"); } }
+	cEndV = leadRecord.get("Contract_Current_Date_End");
+	cEnd = ""; if(cEndV != null) { cEnd = cEndV.toString().trim(); if(cEnd.contains("T")) { cEnd = cEnd.getPrefix("T"); } }
+	cAcv = ifnull(leadRecord.get("Contract_Current_ACV"), "").toString().trim();
+
+	// dedupe: identical Initial & Current term (same family set, type, brands, dates) -> only Current
+	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd);
+
+	// Empty fields are encoded as the sentinel "_" (decoded to "" in processDeal) so toList("~")
+	// always yields exactly 9 tokens. iConflict/cConflict flag a Product-Interest vs contract
+	// plan-type conflict (same family, different plan type) for [contract_product_conflict] review.
+	iConflict = false;
+	cConflict = false;
+	termsEncoded = "";
+	// Current term(s) (active/latest). Field order: term~family~type~brands~start~end~acv~freq~tier
+	for each fam in cFamList
+	{
+		famConf = false;
+		if(cType != "")
+		{
+			for each pTok in leadPIStr.toList(",")
+			{
+				pt = pTok.trim();
+				if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + cType).toLowerCase()) { famConf = true; }
+			}
+		}
+		if(famConf) { cConflict = true; }
+		else
+		{
+			cAcvEnc = if(cFamList.size() == 1 && cAcv != "", cAcv, "_");
+			enc = "Current~" + fam + "~" + if(cType != "", cType, "_") + "~" + if(cBrands != "", cBrands, "_") + "~" + if(cStart != "", cStart, "_") + "~" + if(cEnd != "", cEnd, "_") + "~" + cAcvEnc + "~_~Base";
+			if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
+		}
+	}
+	// Initial term(s) (earliest identity) — only when the term differs from Current
+	if(!identicalTerms)
+	{
+		for each fam in iFamList
+		{
+			famConf = false;
+			if(iType != "")
+			{
+				for each pTok in leadPIStr.toList(",")
+				{
+					pt = pTok.trim();
+					if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + iType).toLowerCase()) { famConf = true; }
+				}
+			}
+			if(famConf) { iConflict = true; }
+			else
+			{
+				iAcvEnc = if(iFamList.size() == 1 && iAcv != "", iAcv, "_");
+				enc = "Initial~" + fam + "~" + if(iType != "", iType, "_") + "~" + if(iBrands != "", iBrands, "_") + "~" + if(iStart != "", iStart, "_") + "~" + if(iEnd != "", iEnd, "_") + "~" + iAcvEnc + "~_~Base";
+				if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
+			}
+		}
+	}
+	// retained for the conflict-review messages in step 6c
+	iFam = ""; if(iFamList.size() > 0) { iFam = iFamList.get(0); }
+	cFam = ""; if(cFamList.size() > 0) { cFam = cFamList.get(0); }
+	info "Import contract termsEncoded='" + termsEncoded + "' iConflict=" + iConflict + " cConflict=" + cConflict + " identical=" + identicalTerms;
 
 	// ---- 2. Derive Account_Key ----
 	normalizedDomain = "";
@@ -516,13 +624,14 @@ void automation.processLead(string lead_id)
 		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
 		dealMap.put("Contact_Name", newContactId);
 		if(leadSource != "") { dealMap.put("Lead_Source", leadSource); }
-		if(contractStartDate != null) { dealMap.put("Contract_Start_Date", contractStartDate); }
-		if(contractEndDate != null) { dealMap.put("Contract_End_Date", contractEndDate); }
-		if(contractRenewalDate != null) { dealMap.put("Contract_Renewal_Date", contractRenewalDate); }
-		if(contractACVInitial != 0) { dealMap.put("Contract_ACV_Intial", contractACVInitial); }
-		if(contractACVCurrent != 0) { dealMap.put("Contract_ACV_Current", contractACVCurrent); }
-		if(contractType != "") { dealMap.put("Contract_Type", contractType); }
-		if(contractCurrency != "") { dealMap.put("Contract_Currency", contractCurrency); }
+		// Propagate Company Tier so the Deal's Contract_Target_ACV benchmark formula resolves
+		// (tier1=26000/tier2=16500/tier3=10500). Target ACV is a benchmark only — never Deal.Amount.
+		leadCompanyTier = ifnull(leadRecord.get("Company_Tier"), "").toString().trim();
+		if(leadCompanyTier != "") { dealMap.put("Company_Tier", leadCompanyTier); }
+		// Contract ledger fields (Contract_Initial_*/Contract_Current_*) are DERIVED on the Deal
+		// from Confirmed Quotes by processDeal — never seeded directly from the Lead here (that would
+		// be a competing source of truth). The imported split-contract tuples are routed into the
+		// Quote engine via the import_bootstrap context in step 6c.
 		// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it),
 		// so this write was a silent no-op. Canonical path: Lead.Product_Interest ->
 		// Contact Products_Linked junction (step 6b) -> activity Contract_Products ->
@@ -618,13 +727,46 @@ void automation.processLead(string lead_id)
 				automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_interest", "unresolved_sku", {"sku":piClean});
 			}
 		}
-		if(dealId != "" && dealId != "null")
+		if(dealId != "" && dealId != "null" && termsEncoded == "")
 		{
 			// Contact-create workflow can race ahead of this product-link block and run
 			// processDeal before Products_Linked exists. Reconcile once more after the
 			// junction writes; processDeal is idempotent and does not create activation tasks.
+			// When import contract terms exist, the import_bootstrap call (step 6c) performs the
+			// canonical reconcile instead, so we skip this plain pass to avoid double work.
 			postPIReconcile = automation.processDeal(dealId, "{}");
 			info "F1: post Product Interest processDeal reconcile resp=" + postPIReconcile;
+		}
+	}
+
+	// ---- 6c. Imported-contract bootstrap hand-off (2026-06-26) ----
+	// Route the imported split-contract evidence into processDeal (the single commercial owner),
+	// which resolves the exact Product SKU, upserts the idempotent Quote + Quoted Item, prices the
+	// line, recomputes Deal.Amount, and derives the contract ledger. Product-Interest/contract
+	// plan-type conflicts raise [contract_product_conflict] and suppress that term's Quote.
+	if(dealId != "" && dealId != "null")
+	{
+		if(iConflict)
+		{
+			automation.createAuxTask(newContactId, dealId, "Manual Review", "[contract_product_conflict] Lead Product Interest conflicts with the imported Initial contract plan type for '" + iFam + "' (tuple type='" + iType + "'). No Quote was created for this term. Reconcile the exact Product before bootstrapping.");
+			automation.logAutomationEvent("processLead", "Deals", dealId, "contract_product_conflict", iFam, {"term":"Initial","planType":iType});
+		}
+		if(cConflict)
+		{
+			automation.createAuxTask(newContactId, dealId, "Manual Review", "[contract_product_conflict] Lead Product Interest conflicts with the imported Current contract plan type for '" + cFam + "' (tuple type='" + cType + "'). No Quote was created for this term. Reconcile the exact Product before bootstrapping.");
+			automation.logAutomationEvent("processLead", "Deals", dealId, "contract_product_conflict", cFam, {"term":"Current","planType":cType});
+		}
+		if(termsEncoded != "")
+		{
+			importCtx = Map();
+			importCtx.put("source", "import_bootstrap");
+			importCtx.put("sourceModule", "Leads");
+			importCtx.put("sourceRecordId", cleanId);
+			importCtx.put("contactId", newContactId);
+			importCtx.put("opportunityType", "RTP");
+			importCtx.put("termsEncoded", termsEncoded);
+			impReconcile = automation.processDeal(dealId, importCtx.toString());
+			info "6c: import_bootstrap processDeal resp=" + impReconcile;
 		}
 	}
 

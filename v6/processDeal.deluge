@@ -72,6 +72,7 @@ string automation.processDeal(string deal_id, string contextJson)
 	ctxSource = ifnull(ctx.get("source"), "").toString();
 	isActivity = (ctxSource == "activity");
 	isQuoteSrc = (ctxSource == "quote");
+	isImport = (ctxSource == "import_bootstrap");
 
 	dealRecord = zoho.crm.getRecordById("Deals", cleanId.toLong());
 	if(isNull(dealRecord) || isNull(dealRecord.get("id")))
@@ -1062,6 +1063,394 @@ string automation.processDeal(string deal_id, string contextJson)
 		// Won with NO Product -> productNames empty: no Quote created, structural reconciliation continues.
 	}
 
+	// ===================================================================
+	// 5b. IMPORTED-CONTRACT bootstrap  (source=="import_bootstrap")
+	//     One idempotent Quote package per asserted contract term from imported Lead
+	//     split-contract evidence. The exact Product is resolved by
+	//     (Product_Plan_Products + Product_Plan_Type), NOT from Product Interest.
+	//     Pricing uses the central resolver; the imported ACV is a comparison benchmark
+	//     only (flagged on material conflict, never used to value an unpriceable line).
+	//     STAGE RULE (documented): a term is created Confirmed ONLY when it asserts a complete,
+	//     dated, priced existing contract (single active Product resolved; brands>0; both
+	//     contract dates; pricing resolved). Otherwise it is created Draft + Manual Review and
+	//     the confirmed ledger does not derive. Idempotency key (stored in
+	//     Quote_Applied_Activity_Keys): ImportBootstrap:Lead:<leadId>:<term>:<prodId>:<start>:<end>.
+	//     Downstream §9 (Confirmed stamp), §6 (Amount = sum non-Closed-Lost), §7 (ledger) derive
+	//     Deal.Amount and the Contract_Initial_*/Current_* ledger from the resulting Quotes.
+	// ===================================================================
+	if(isImport)
+	{
+		impLeadId = ifnull(ctx.get("sourceRecordId"), "").toString();
+		termsEncoded = ifnull(ctx.get("termsEncoded"), "").toString();
+		if(termsEncoded != "")
+		{
+			// load active Product catalogue once, indexed by (family|planType) lowercase
+			impCatByFamType = Map();
+			impAllProds = zoho.crm.getRecords("Products", 1, 200);
+			if(impAllProds != null && impAllProds.size() > 0 && !impAllProds.toString().startsWith("{\"code\""))
+			{
+				for each p in impAllProds
+				{
+					if(p != null && p.get("Product_Name") != null)
+					{
+						isActivePI = ifnull(p.get("Product_Active"), false);
+						if(isActivePI == true || isActivePI == "true")
+						{
+							pFam = ifnull(p.get("Product_Plan_Products"), "").toString().trim();
+							if(pFam == "Jurnii Cortext") { pFam = "Jurnii Cortex"; }
+							pTyp = ifnull(p.get("Product_Plan_Type"), "").toString().trim();
+							if(pTyp == "Flexible") { pTyp = "Flex"; }
+							ftKey = (pFam + "|" + pTyp).toLowerCase();
+							ftList = impCatByFamType.get(ftKey);
+							if(isNull(ftList)) { ftList = List(); impCatByFamType.put(ftKey, ftList); }
+							ftList.add(p);
+						}
+					}
+				}
+			}
+
+			for each termStr in termsEncoded.toList(";")
+			{
+				termParts = termStr.toList("~");
+				if(termParts.size() >= 9)
+				{
+					// decode: "_" sentinel -> empty string
+					impTerm = termParts.get(0).trim(); if(impTerm == "_") { impTerm = ""; }
+					impFam = termParts.get(1).trim(); if(impFam == "_") { impFam = ""; }
+					if(impFam == "Jurnii Cortext") { impFam = "Jurnii Cortex"; }
+					impType = termParts.get(2).trim(); if(impType == "_") { impType = ""; }
+					if(impType == "Flexible") { impType = "Flex"; }
+					impBrands = termParts.get(3).trim(); if(impBrands == "_" || impBrands == "null") { impBrands = ""; }
+					impStart = termParts.get(4).trim(); if(impStart == "_") { impStart = ""; }
+					impEnd = termParts.get(5).trim(); if(impEnd == "_") { impEnd = ""; }
+					impAcvStr = termParts.get(6).trim(); if(impAcvStr == "_") { impAcvStr = ""; }
+					impFreq = termParts.get(7).trim(); if(impFreq == "_" || impFreq == "-None-") { impFreq = ""; }
+					impTier = termParts.get(8).trim();
+					if(impTier == "" || impTier == "_") { impTier = "Base"; }
+
+					// family is required to assert a contract
+					if(impFam != "")
+					{
+						familyHasVariants = (impFam == "Jurnii UX" || impFam == "Jurnii 360" || impFam == "Jurnii Cortex");
+						termResolved = true;
+						impProd = null;
+
+						if(impType == "" && familyHasVariants)
+						{
+							termResolved = false;
+							result.put("reviewRequired", true);
+							if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); }
+							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_tuple_incomplete] Imported " + impTerm + " contract for family '" + impFam + "' is missing Plan Type (required to resolve the exact Product SKU). Lead " + impLeadId + " brands=" + impBrands + " dates=" + impStart + ".." + impEnd + ".");
+							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_tuple_incomplete", impFam, {"term":impTerm});
+						}
+
+						if(termResolved)
+						{
+							ftKeyT = (impFam + "|" + impType).toLowerCase();
+							candidates = impCatByFamType.get(ftKeyT);
+							impCandCount = 0;
+							if(!isNull(candidates)) { impCandCount = candidates.size(); }
+							if(impCandCount == 1) { impProd = candidates.get(0); }
+							else if(impCandCount > 1)
+							{
+								termResolved = false;
+								result.put("reviewRequired", true);
+								if(!reviewReasons.contains("contract_product_ambiguous")) { reviewReasons.add("contract_product_ambiguous"); }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_product_ambiguous] Imported " + impTerm + " contract (" + impFam + " / " + impType + ") matched " + impCandCount + " active Products. Make Product_Plan_Products+Product_Plan_Type unique. Lead " + impLeadId + ".");
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_product_ambiguous", impFam + "/" + impType, {"term":impTerm});
+							}
+							else
+							{
+								termResolved = false;
+								result.put("reviewRequired", true);
+								if(!reviewReasons.contains("contract_product_unresolved")) { reviewReasons.add("contract_product_unresolved"); }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_product_unresolved] Imported " + impTerm + " contract (" + impFam + " / " + impType + ") did not match any active Product. Lead " + impLeadId + ".");
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_product_unresolved", impFam + "/" + impType, {"term":impTerm});
+							}
+						}
+
+						if(termResolved && !isNull(impProd) && !isNull(impProd.get("id")))
+						{
+							impProdId = impProd.get("id").toString();
+							impProdName = ifnull(impProd.get("Product_Name"), "").toString().trim();
+							impProdPlanType = ifnull(impProd.get("Product_Plan_Type"), "").toString().trim();
+							if(impProdPlanType == "Flexible") { impProdPlanType = "Flex"; }
+
+							// (a) link Product -> source Contact junction (idempotent)
+							if(sourceContactId != "")
+							{
+								impConLinked = false;
+								impConLinks = zoho.crm.getRelatedRecords("Products12", "Contacts", sourceContactId.toLong());
+								if(!isNull(impConLinks) && impConLinks.size() > 0 && !impConLinks.toString().startsWith("{\"code\""))
+								{
+									for each scl in impConLinks
+									{
+										sclProdId = "";
+										if(!isNull(scl.get("id"))) { sclProdId = scl.get("id").toString(); }
+										sclProd = scl.get("Product_Details");
+										if(!isNull(sclProd) && !isNull(sclProd.get("id"))) { sclProdId = sclProd.get("id").toString(); }
+										sclPI = scl.get("Product_Interest");
+										if(!isNull(sclPI) && !isNull(sclPI.get("id"))) { sclProdId = sclPI.get("id").toString(); }
+										if(sclProdId == impProdId) { impConLinked = true; }
+									}
+								}
+								if(!impConLinked)
+								{
+									impJunc = zoho.crm.searchRecords("Contacts_X_Products", "(Contacts:equals:" + sourceContactId + ")");
+									if(!isNull(impJunc) && impJunc.size() > 0 && !impJunc.toString().startsWith("{\"code\""))
+									{
+										for each sjl in impJunc
+										{
+											sjlProdId = "";
+											sjlPI = sjl.get("Product_Interest");
+											if(!isNull(sjlPI) && !isNull(sjlPI.get("id"))) { sjlProdId = sjlPI.get("id").toString(); }
+											if(sjlProdId == impProdId) { impConLinked = true; }
+										}
+									}
+								}
+								if(!impConLinked)
+								{
+									linkIMap = Map();
+									linkIMap.put("Contacts", sourceContactId);
+									linkIMap.put("Product_Interest", impProdId);
+									linkIResp = zoho.crm.createRecord("Contacts_X_Products", linkIMap);
+									info "5b: linked Product to Contact junction prod=" + impProdId + " contact=" + sourceContactId + " resp=" + linkIResp;
+								}
+							}
+							// (b) link Product -> Deal Products (idempotent)
+							if(!existingProdIds.contains(impProdId))
+							{
+								linkIDResp = zoho.crm.updateRelatedRecord("Products", impProdId.toLong(), "Deals", targetDealId.toLong(), Map());
+								existingProdIds.add(impProdId);
+								info "5b: linked Product to Deal prod=" + impProdId + " deal=" + targetDealId + " resp=" + linkIDResp;
+							}
+							// (c) interest aggregation (canonical SKU name)
+							if(impProdName != "" && !lowercasePIList.contains(impProdName.toLowerCase()))
+							{
+								aggregatedPIList.add(impProdName);
+								lowercasePIList.add(impProdName.toLowerCase());
+							}
+
+							// ---- pricing via the central resolver (Base default tier) ----
+							impLineAcv = "";
+							impPriced = false;
+							impPriceReason = "";
+							if(impBrands != "")
+							{
+								impPR = automation.resolveQuoteLinePrice(impProdId, impProdPlanType, impBrands, impTier, impFreq).toMap();
+								if(ifnull(impPR.get("valid"), "false").toString() == "true")
+								{
+									impLineAcv = ifnull(impPR.get("line_acv"), 0).toString();
+									impPriced = true;
+								}
+								else { impPriceReason = ifnull(impPR.get("reason"), "pricing_unavailable").toString(); }
+							}
+							else { impPriceReason = "missing_brand_count"; }
+
+							// imported ACV vs authorised calculated price (benchmark comparison; calculated is canonical)
+							if(impPriced && impAcvStr != "" && impAcvStr != "0")
+							{
+								impAcvNum = impAcvStr.toDecimal();
+								impCalcNum = impLineAcv.toDecimal();
+								impDiff = impCalcNum - impAcvNum;
+								if(impDiff < 0) { impDiff = impDiff * -1; }
+								if(impDiff > 1.0)
+								{
+									result.put("reviewRequired", true);
+									if(!reviewReasons.contains("imported_acv_conflict")) { reviewReasons.add("imported_acv_conflict"); }
+									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_conflict] Imported " + impTerm + " ACV " + impAcvStr + " differs from the authorised calculated price " + impLineAcv + " for " + impProdName + " (" + impBrands + " brands, tier " + impTier + ", >GBP1.00). Calculated value used on the Quote; confirm the contract figure. Lead " + impLeadId + ".");
+									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_acv_conflict", impProdName, {"imported":impAcvStr,"calculated":impLineAcv,"term":impTerm});
+								}
+							}
+
+							// ---- stage rule ----
+							impComplete = (impBrands != "" && impStart != "" && impEnd != "" && impPriced);
+							impStage = "Draft";
+							if(impComplete) { impStage = "Confirmed"; }
+							else
+							{
+								result.put("reviewRequired", true);
+								if(impPriceReason == "360_missing_frequency") { if(!reviewReasons.contains("pricing_frequency_missing")) { reviewReasons.add("pricing_frequency_missing"); } }
+								else if(impBrands == "") { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
+								else if(!impPriced) { if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); } }
+								else { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[import_contract_draft] Imported " + impTerm + " contract for " + impProdName + " created/left as Draft (reason=" + ifnull(impPriceReason, "incomplete") + "; brands=" + impBrands + " start=" + impStart + " end=" + impEnd + "). Complete the tuple/pricing then Confirm. Lead " + impLeadId + ".");
+							}
+
+							// ---- deterministic idempotency key ----
+							impKey = "ImportBootstrap:Lead:" + impLeadId + ":" + impTerm + ":" + impProdId + ":" + impStart + ":" + impEnd;
+
+							// ---- locate existing Quote: key already applied -> skip; else term-match -> update ----
+							impKeyApplied = false;
+							impUpdId = "";
+							impDQ = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
+							if(impDQ != null && impDQ.size() > 0 && !impDQ.toString().startsWith("{\"code\""))
+							{
+								for each dqp in impDQ
+								{
+									dqpId = "";
+									if(!isNull(dqp.get("id"))) { dqpId = dqp.get("id").toString(); }
+									rawKeysI = ifnull(dqp.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									for each kLine in rawKeysI.toList("\n") { if(kLine.trim() == impKey) { impKeyApplied = true; } }
+									qProdIdI = "";
+									qpLookupI = dqp.get("Quote_Product");
+									if(!isNull(qpLookupI) && !isNull(qpLookupI.get("id"))) { qProdIdI = qpLookupI.get("id").toString(); }
+									qOppTI = ifnull(dqp.get("Opportunity_Type"), "").toString();
+									qSI = ifnull(dqp.get("Contract_Date_Start"), "").toString();
+									qEI = ifnull(dqp.get("Contract_Date_End"), "").toString();
+									qStgI = ifnull(dqp.get("Quote_Stage"), "").toString();
+									if(impUpdId == "" && qProdIdI == impProdId && qOppTI == quoteOppType && qSI == impStart && qEI == impEnd && qStgI != "Closed Lost" && qStgI != "Closed Won")
+									{
+										impUpdId = dqpId;
+									}
+								}
+							}
+
+							if(impKeyApplied)
+							{
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_quote_already_applied", impProdName, {"key":impKey, "term":impTerm});
+							}
+							else
+							{
+								// single Quoted_Items line
+								impLine = Map();
+								impLinePm = Map(); impLinePm.put("id", impProdId); impLine.put("Product_Name", impLinePm);
+								impLine.put("Quantity", 1);
+								impLine.put("Quoted_Item_Pricing_Tier", impTier);
+								if(impBrands != "") { impLine.put("Quoted_Item_Plan_Brands", impBrands.toLong()); }
+								if(impFreq != "") { impLine.put("Quoted_Item_Frequency", impFreq); }
+								// Set List_Price explicitly. For an UNPRICED line set 0 — otherwise Zoho
+								// auto-inherits the Product Unit_Price onto the line, fabricating a Quote total
+								// (and Deal Amount) from Unit_Price, which the pricing invariant forbids.
+								if(impPriced) { impLine.put("List_Price", impLineAcv.toDecimal()); }
+								else { impLine.put("List_Price", 0); }
+								impLinesList = List(); impLinesList.add(impLine);
+
+								impWroteId = "";
+								if(impUpdId != "")
+								{
+									existingQI = zoho.crm.getRecordById("Quotes", impUpdId.toLong());
+									qUpdI = Map();
+									qpHI = Map(); qpHI.put("id", impProdId); qUpdI.put("Quote_Product", qpHI);
+									qUpdI.put("Opportunity_Type", quoteOppType);
+									qUpdI.put("Quote_Last_Deal_ID", targetDealId);
+									qUpdI.put("Quote_Stage", impStage);
+									if(impStart != "") { qUpdI.put("Contract_Date_Start", impStart); }
+									if(impEnd != "") { qUpdI.put("Contract_Date_End", impEnd); }
+									if(impPriced) { qUpdI.put("Contract_ACV", impLineAcv.toDecimal()); }
+									qUpdI.put("Quoted_Items", impLinesList);
+									priorKI = ifnull(existingQI.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									newKI = priorKI;
+									if(newKI.trim() != "") { newKI = newKI + "\n" + impKey; } else { newKI = impKey; }
+									qUpdI.put("Quote_Applied_Activity_Keys", newKI);
+									upBodyI = Map(); upDataI = List(); upDataI.add(qUpdI); upBodyI.put("data", upDataI); upBodyI.put("trigger", List());
+									upHdrI = Map(); upHdrI.put("Content-Type", "application/json");
+									updRespI = invokeurl
+									[
+										url: "https://www.zohoapis.eu/crm/v6/Quotes/" + impUpdId
+										type: PUT
+										parameters: upBodyI.toString()
+										connection: "zoho_crm"
+										headers: upHdrI
+									];
+									impWroteId = impUpdId;
+									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_quote_updated", impProdName, {"quote":impUpdId, "term":impTerm, "stage":impStage});
+								}
+								else
+								{
+									qMapI = Map();
+									qMapI.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + impProdName + " (" + impTerm + ")");
+									qMapI.put("Quote_Stage", impStage);
+									accMapI = Map(); accMapI.put("id", accountId); qMapI.put("Account_Name", accMapI);
+									dMapI = Map(); dMapI.put("id", targetDealId); qMapI.put("Deal_Name", dMapI);
+									qpMapI = Map(); qpMapI.put("id", impProdId); qMapI.put("Quote_Product", qpMapI);
+									qMapI.put("Opportunity_Type", quoteOppType);
+									qMapI.put("Quote_Last_Deal_ID", targetDealId);
+									if(sourceContactId != "") { scMapI = Map(); scMapI.put("id", sourceContactId); qMapI.put("Contact_Name", scMapI); }
+									if(impStart != "") { qMapI.put("Contract_Date_Start", impStart); }
+									if(impEnd != "") { qMapI.put("Contract_Date_End", impEnd); }
+									if(impPriced) { qMapI.put("Contract_ACV", impLineAcv.toDecimal()); }
+									qMapI.put("Quoted_Items", impLinesList);
+									qMapI.put("Quote_Applied_Activity_Keys", impKey);
+									crBodyI = Map(); crDataI = List(); crDataI.add(qMapI); crBodyI.put("data", crDataI); crBodyI.put("trigger", List());
+									crHdrI = Map(); crHdrI.put("Content-Type", "application/json");
+									crRespI = invokeurl
+									[
+										url: "https://www.zohoapis.eu/crm/v6/Quotes"
+										type: POST
+										parameters: crBodyI.toString()
+										connection: "zoho_crm"
+										headers: crHdrI
+									];
+									crArrI = null;
+									if(!isNull(crRespI)) { crArrI = crRespI.get("data"); }
+									if(!isNull(crArrI) && crArrI.size() > 0)
+									{
+										cr0I = crArrI.get(0);
+										if(ifnull(cr0I.get("code"), "").toString() == "SUCCESS")
+										{
+											crDetI = cr0I.get("details");
+											if(!isNull(crDetI) && !isNull(crDetI.get("id"))) { impWroteId = crDetI.get("id").toString(); }
+										}
+									}
+									if(impWroteId == "")
+									{
+										anyBlocked = true;
+										result.put("reviewRequired", true);
+										if(!reviewReasons.contains("quote_write_failed")) { reviewReasons.add("quote_write_failed"); }
+										automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[quote_write_failed] Import Quote could not be created for " + impProdName + " (" + impTerm + "). CRM response: " + ifnull(crRespI, "").toString() + ". Lead " + impLeadId + ".");
+										automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_quote_create_failed", impProdName, {"term":impTerm, "resp":crRespI});
+									}
+									else
+									{
+										automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_quote_created", impProdName, {"quote":impWroteId, "term":impTerm, "stage":impStage});
+									}
+								}
+
+								// ---- strict post-write verification (readback) ----
+								if(impWroteId != "")
+								{
+									vGetI = invokeurl
+									[
+										url: "https://www.zohoapis.eu/crm/v6/Quotes/" + impWroteId
+										type: GET
+										connection: "zoho_crm"
+									];
+									vRecI = Map();
+									if(!isNull(vGetI) && !isNull(vGetI.get("data")) && vGetI.get("data").size() > 0) { vRecI = vGetI.get("data").get(0); }
+									vKeyI = false;
+									vKeysRawI = ifnull(vRecI.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									for each vk in vKeysRawI.toList("\n") { if(vk.trim() == impKey) { vKeyI = true; } }
+									vProdI = false;
+									vqpI = vRecI.get("Quote_Product");
+									if(!isNull(vqpI) && !isNull(vqpI.get("id")) && vqpI.get("id").toString() == impProdId) { vProdI = true; }
+									vLineI = false;
+									vBrandsI = true;
+									vLinesI = vRecI.get("Quoted_Items");
+									if(!isNull(vLinesI) && vLinesI.size() > 0)
+									{
+										vL0 = vLinesI.get(0);
+										vlpI = vL0.get("Product_Name");
+										if(!isNull(vlpI) && !isNull(vlpI.get("id")) && vlpI.get("id").toString() == impProdId) { vLineI = true; }
+										if(impBrands != "") { vBrandsI = (ifnull(vL0.get("Quoted_Item_Plan_Brands"), "").toString() == impBrands); }
+									}
+									if(vKeyI != true || vProdI != true || vLineI != true || vBrandsI != true)
+									{
+										anyBlocked = true;
+										result.put("reviewRequired", true);
+										if(!reviewReasons.contains("quote_post_write_verification_failed")) { reviewReasons.add("quote_post_write_verification_failed"); }
+										automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[quote_post_write_verification_failed] Import Quote " + impWroteId + " for " + impProdName + " (" + impTerm + ") failed readback (key/product/line/brands). Lead " + impLeadId + ".");
+										automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_quote_verify_failed", impProdName, {"quote":impWroteId, "term":impTerm});
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// If any Product/Quote write BLOCKED -> stop before downstream writes; success=false, no dispatch.
 	if(anyBlocked)
 	{
@@ -1168,62 +1557,10 @@ string automation.processDeal(string deal_id, string contextJson)
 		}
 	}
 
-	// provisional Unit_Price sum ONLY when zero Quotes exist
-	if(quoteCount == 0)
-	{
-		provisional = 0.0;
-		if(!catalogLoaded)
-		{
-			allProds2 = zoho.crm.getRecords("Products", 1, 200);
-			if(allProds2 != null && allProds2.size() > 0 && !allProds2.toString().startsWith("{\"code\""))
-			{
-				for each p in allProds2
-				{
-					if(p != null && p.get("Product_Name") != null)
-					{
-						isActiveP = ifnull(p.get("Product_Active"), false);
-						if(isActiveP == true || isActiveP == "true")
-						{
-							pNameRaw = p.get("Product_Name").toString().trim().replaceAll("  ", " ");
-							if(pNameRaw != "") { productCatalog.put(pNameRaw.toLowerCase(), p); }
-						}
-					}
-				}
-			}
-		}
-		seenProvIds = List();
-		for each pName in aggregatedPIList
-		{
-			safeName = pName.trim().replaceAll("  ", " ");
-			if(safeName != "")
-			{
-				prod = productCatalog.get(safeName.toLowerCase());
-				if(prod == null)
-				{
-					sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safeName + ")");
-					if(sProd != null && sProd.size() > 0)
-					{
-						sProdFirst = sProd.get(0);
-						if(sProdFirst != null && sProdFirst.get("Product_Name") != null) { prod = sProdFirst; }
-					}
-				}
-				if(prod != null && prod.get("id") != null)
-				{
-					prodId = prod.get("id").toString();
-					if(!seenProvIds.contains(prodId))
-					{
-						seenProvIds.add(prodId);
-						fullProd = zoho.crm.getRecordById("Products", prodId.toLong());
-						priceP = 0.0;
-						if(fullProd != null && fullProd.get("id") != null) { priceP = ifnull(fullProd.get("Unit_Price"), "0").toDecimal(); }
-						else { priceP = ifnull(prod.get("Unit_Price"), "0").toDecimal(); }
-						provisional = provisional + priceP;
-					}
-				}
-			}
-		}
-		totalAmount = provisional;
-	}
+	// Deal.Amount is the SUM of active non-Closed-Lost Quote totals, full stop. The prior
+	// provisional Product.Unit_Price sum (when zero Quotes existed) is REMOVED (Root Cause D):
+	// it fabricated a contractual Amount from list prices, concealed the absence of a real
+	// contract Quote, and violated the Amount invariant. With no Quotes, Amount is 0.
 	totalAmount = totalAmount.round(2);
 	info "Amount recompute: quoteCount=" + quoteCount + " totalAmount=" + totalAmount;
 
@@ -1313,9 +1650,23 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 					}
 				}
 
-				// brands: collect distinct nonblank line brand counts (never summed)
-				qLines = fullQ.get("Quoted_Items");
-				if(!isNull(qLines) && qLines.size() > 0)
+				// brands: collect distinct nonblank line brand counts (never summed).
+				// Deluge getRecordById DROPS custom subform fields (Quoted_Item_Plan_Brands), so the
+				// ledger brand count never derived. Re-read the Quoted_Items via the REST API, which
+				// returns the custom subform fields, then collect brands from there.
+				qLines = List();
+				qLinesGet = invokeurl
+				[
+					url: "https://www.zohoapis.eu/crm/v6/Quotes/" + dqId
+					type: GET
+					connection: "zoho_crm"
+				];
+				if(!isNull(qLinesGet) && !isNull(qLinesGet.get("data")) && qLinesGet.get("data").size() > 0)
+				{
+					qLinesRb = qLinesGet.get("data").get(0).get("Quoted_Items");
+					if(!isNull(qLinesRb)) { qLines = qLinesRb; }
+				}
+				if(qLines.size() > 0)
 				{
 					for each ql in qLines
 					{

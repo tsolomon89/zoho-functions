@@ -22,7 +22,7 @@ Contract Current Date Renewal,Contract_Current_Date_Renewal,Formula (Date),Yes,"
 Contract Current Date Renewal Days Remaining,Contract_Current_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Current Date Renewal}),Datecomp(${Deals.Contract Current Date Renewal},${Deals.Contract Current Date Renewal}),Abs(Datecomp(Now(),${Deals.Contract Current Date Renewal})/1440))",
 Contract Current Date Start,Contract_Current_Date_Start,Date,Yes,,
 Contract Current Plan Brands,Contract_Current_Plan_Brands,Number,Yes,,
-Contract Current Plan Products,Contract_Current_Plan_Products,Pick List,Yes,,
+Contract Current Plan Products,Contract_Current_Plan_Products,Multiselect,Yes,,(verified live 2026-06-26: jsonarray multiselect; previously mislabelled Pick List)
 Contract Current Plan Type,Contract_Current_Plan_Type,Pick List,Yes,,
 Contract Initial ACV,Contract_Initial_ACV,Currency,Yes,,
 Contract Initial ACV Gap,Contract_Initial_ACV_Gap,Formula (Currency),Yes,${Deals.Contract Initial ACV}-${Deals.Contract Target ACV},
@@ -32,7 +32,7 @@ Contract Initial Date Renewal,Contract_Initial_Date_Renewal,Formula (Date),Yes,"
 Contract Initial Date Renewal Days Remaining,Contract_Initial_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Deals.Contract Initial Date Renewal}),Datecomp(${Deals.Contract Initial Date Renewal},${Deals.Contract Initial Date Renewal}),Abs(Datecomp(Now(),${Deals.Contract Initial Date Renewal})/1440))",
 Contract Initial Date Start,Contract_Initial_Date_Start,Date,Yes,,
 Contract Initial Plan Brands,Contract_Initial_Plan_Brands,Number,Yes,,
-Contract Initial Plan Products,Contract_Initial_Plan_Products,Pick List,Yes,,
+Contract Initial Plan Products,Contract_Initial_Plan_Products,Multiselect,Yes,,(verified live 2026-06-26: jsonarray multiselect; previously mislabelled Pick List)
 Contract Initial Plan Type,Contract_Initial_Plan_Type,Pick List,Yes,,
 Contract Target ACV,Contract_Target_ACV,Formula (Currency),Yes,"If(${Deals.Company Tier}=='1',26000,If(${Deals.Company Tier}=='2',16500,If(${Deals.Company Tier}=='3',10500,0)))",
 Created By,Created_By,Ownerlookup,,,

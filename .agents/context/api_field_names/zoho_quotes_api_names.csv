@@ -47,3 +47,19 @@ Subject,Subject,Single Line,,,,
 Tag,Tag,Single Line,,,,
 Created By,Created_By,Single Line,,,,
 Quoted Items,Quoted_Items,Subform,,,,
+Quote Product,Quote_Product,Lookup (Products),Yes,,,(verified live 2026-06-26) the SKU this Quote represents
+Opportunity Type,Opportunity_Type,Pick List,Yes,,FTP;RTP,(verified live 2026-06-26)
+Contract Date Start,Contract_Date_Start,Date,Yes,,,(verified live 2026-06-26)
+Contract Date End,Contract_Date_End,Date,Yes,,,(verified live 2026-06-26)
+Contract ACV,Contract_ACV,Currency,Yes,,,(verified live 2026-06-26) frozen contract value
+Contract Signed Date,Contract_Signed_Date,Date,Yes,,,(verified live 2026-06-26)
+Contract Type,Contract_Type,Pick List,Yes,,Initial;Current,(verified live 2026-06-26)
+Quote Last Deal ID,Quote_Last_Deal_ID,Single Line,Yes,,,(verified live 2026-06-26) reassignment marker
+Quote Applied Activity Keys,Quote_Applied_Activity_Keys,Multi Line,Yes,,,(verified live 2026-06-26) newline-delimited idempotency keys (also holds ImportBootstrap keys)
+[Quoted Items subform] Product Name,Product_Name,Lookup (Products),,,,(subform child)
+[Quoted Items subform] Quantity,Quantity,Decimal,,,,(subform child)
+[Quoted Items subform] List Price,List_Price,Currency,,,,(subform child) line ACV written here
+[Quoted Items subform] Quoted Item Plan Brands,Quoted_Item_Plan_Brands,Integer,Yes,,,(subform child)
+[Quoted Items subform] Quoted Item Pricing Tier,Quoted_Item_Pricing_Tier,Pick List,Yes,,-None-;Base;Markup;Agency,(subform child)
+[Quoted Items subform] Quoted Item Pricing Band,Quoted_Item_Pricing_Band,Pick List,Yes,,-None-;5;7;10;15;20;50;100,(subform child)
+[Quoted Items subform] Quoted Item Frequency,Quoted_Item_Frequency,Pick List,Yes,,-None-;4x per day;2x per day;1x per day,(subform child) Jurnii 360 only

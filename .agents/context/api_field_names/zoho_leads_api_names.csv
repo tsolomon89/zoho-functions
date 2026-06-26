@@ -69,7 +69,7 @@ Contract Current Date Renewal,Contract_Current_Date_Renewal,Formula (Date),Yes,"
 Contract Current Date Renewal Days Remaining,Contract_Current_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Current Date Renewal}),Datecomp(${Leads.Contract Current Date Renewal},${Leads.Contract Current Date Renewal}),Abs(Datecomp(Now(),${Leads.Contract Current Date Renewal})/1440))"
 Contract Current Date Start,Contract_Current_Date_Start,Date,Yes,
 Contract Current Plan Brands,Contract_Current_Plan_Brands,Number,Yes,
-Contract Current Plan Products,Contract_Current_Plan_Products,Pick List,Yes,
+Contract Current Plan Products,Contract_Current_Plan_Products,Multiselect,Yes,(verified live 2026-06-26: jsonarray; previously mislabelled Pick List)
 Contract Current Plan Type,Contract_Current_Plan_Type,Pick List,Yes,
 Contract Initial ACV,Contract_Initial_ACV,Currency,Yes,
 Contract Initial ACV Gap,Contract_Initial_ACV_Gap,Formula (Currency),Yes,${Leads.Contract Initial ACV}-${Leads.Contract Target ACV}
@@ -79,7 +79,7 @@ Contract Initial Date Renewal,Contract_Initial_Date_Renewal,Formula (Date),Yes,"
 Contract Initial Date Renewal Days Remaining,Contract_Initial_Date_Renewal_Days_Remaining,Formula (Decimal),Yes,"If(IsEmpty(${Leads.Contract Initial Date Renewal}),Datecomp(${Leads.Contract Initial Date Renewal},${Leads.Contract Initial Date Renewal}),Abs(Datecomp(Now(),${Leads.Contract Initial Date Renewal})/1440))"
 Contract Initial Date Start,Contract_Initial_Date_Start,Date,Yes,
 Contract Initial Plan Brands,Contract_Initial_Plan_Brands,Number,Yes,
-Contract Initial Plan Products,Contract_Initial_Plan_Products,Pick List,Yes,
+Contract Initial Plan Products,Contract_Initial_Plan_Products,Multiselect,Yes,(verified live 2026-06-26: jsonarray; previously mislabelled Pick List)
 Contract Initial Plan Type,Contract_Initial_Plan_Type,Pick List,Yes,
 Contract Key,Deal_Key,Single Line (Unique),Yes,
 Contract Target ACV,Contract_Target_ACV,Formula (Currency),Yes,"If(${Leads.Company Tier}=='1',26000,If(${Leads.Company Tier}=='2',16500,If(${Leads.Company Tier}=='3',10500,0)))"
