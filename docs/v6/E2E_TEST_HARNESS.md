@@ -92,15 +92,15 @@ Validates that imported Lead split-contract fields create the Product-specific Q
 | 1/6 | Exact Product Interest only, no tuple | Contact↔Product link; NO Quote; Amount blank/0; Target ACV benchmark only |
 | 2 | Current UX-Flex/5 | Confirmed Quote `Jurnii UX - Flex`, line brands 5, calc £8,400, Amount £8,400, Current+Initial ledger |
 | 3 | Current UX-Fixed/5 | Confirmed £10,500 (distinct from Flex) |
-| 4 | UX-Flex, brands blank | Draft, line `List_Price=0`, Amount 0, `[contract_tuple_incomplete]` |
+| 4 | UX-Flex, brands blank, no ACV | Draft, line `List_Price=0`, Amount 0, `[contract_tuple_incomplete]` (with an imported ACV present it would instead be Confirmed at that ACV) |
 | 5 | PI=UX-Fixed vs tuple UX-Flex | `[contract_product_conflict]`, no Quote, Amount 0 |
 | 7 | Target £10,500 vs calc £8,400 | Amount £8,400; Target unchanged £10,500; no overwrite |
 | 8/9 | Initial-only / Current-only | term Quote created; ledger derives; history not fabricated |
 | 10 | Initial == Current | one term Quote; no Amount inflation |
 | 11 | Initial != Current | two Confirmed Quotes; Amount = sum; Initial=earliest, Current=latest; brands ledger Initial vs Current |
-| 12 | Jurnii 360 + frequency | now reachable via `Contract_*_Plan_Frequency` (4x/2x/1x per day) → Product resolves, priced from the 360 matrix, Confirmed |
-| 13 | Jurnii 360, no frequency | Product resolves, Draft, `List_Price=0`, `[pricing_frequency_missing]` |
-| 14 | Jurnii Cortex | Product resolves, Draft, `List_Price=0`, `[pricing_unavailable]` (no matrix) |
+| 12 | Jurnii 360 + frequency | priced from the 360 matrix via `Contract_*_Plan_Frequency` (4x/2x/1x per day); imported ACV wins if present (variance review on difference); Confirmed |
+| 13 | Jurnii 360, no frequency | with imported ACV → Confirmed at imported ACV + `[pricing_from_imported_acv]`; without ACV → Draft, `List_Price=0`, `[pricing_frequency_missing]` |
+| 14 | Jurnii Cortex | with imported ACV → Confirmed at imported ACV + `[pricing_from_imported_acv]`; without ACV → Draft, `List_Price=0`, `[pricing_unavailable]` (no matrix) |
 | 15 | Idempotent replay (re-import same domain) | one Quote, one line, Amount unchanged, both keys recorded |
 | 16 | Multi-family Current | one Quote per family; Amount = sum of active; shared type/brands (schema limit) |
 

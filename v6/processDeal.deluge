@@ -1247,51 +1247,72 @@ string automation.processDeal(string deal_id, string contextJson)
 								lowercasePIList.add(impProdName.toLowerCase());
 							}
 
-							// ---- pricing via the central resolver (Base default tier) ----
-							impLineAcv = "";
-							impPriced = false;
-							impPriceReason = "";
+							// ---- contract value: IMPORTED ACV is authoritative for existing-contract imports;
+							//      the catalogue calculation is a benchmark (variance review) and the fallback
+							//      when no imported ACV exists. Unpriced only when NEITHER is available.
+							//      (Import docs carry the actual negotiated ACV but not always the pricing inputs
+							//      — e.g. Jurnii 360 has no frequency — so the imported ACV is the real money.) ----
+							calcAcv = "";
+							calcValid = false;
+							calcReason = "";
 							if(impBrands != "")
 							{
 								impPR = automation.resolveQuoteLinePrice(impProdId, impProdPlanType, impBrands, impTier, impFreq).toMap();
 								if(ifnull(impPR.get("valid"), "false").toString() == "true")
 								{
-									impLineAcv = ifnull(impPR.get("line_acv"), 0).toString();
-									impPriced = true;
+									calcAcv = ifnull(impPR.get("line_acv"), 0).toString();
+									calcValid = true;
 								}
-								else { impPriceReason = ifnull(impPR.get("reason"), "pricing_unavailable").toString(); }
+								else { calcReason = ifnull(impPR.get("reason"), "pricing_unavailable").toString(); }
 							}
-							else { impPriceReason = "missing_brand_count"; }
+							else { calcReason = "missing_brand_count"; }
 
-							// imported ACV vs authorised calculated price (benchmark comparison; calculated is canonical).
-							// No materiality tolerance is invented: compare EXACT currency values after normal
-							// 2-decimal rounding. Any non-rounding difference raises a review. If a business-
-							// authorised tolerance is later defined, gate it here with that documented value.
-							if(impPriced && impAcvStr != "" && impAcvStr != "0")
+							importedAcvOk = (impAcvStr != "" && impAcvStr != "0" && impAcvStr.toDecimal() > 0);
+							importedAcvVal = "";
+							if(importedAcvOk) { importedAcvVal = impAcvStr.toDecimal().round(2).toString(); }
+
+							impLineAcv = "";
+							impPriced = false;
+							impValueSource = "none";
+							if(importedAcvOk) { impLineAcv = importedAcvVal; impPriced = true; impValueSource = "imported_acv"; }
+							else if(calcValid) { impLineAcv = calcAcv; impPriced = true; impValueSource = "calculated"; }
+
+							// reviews around the chosen value (exact 2dp comparison; no invented tolerance)
+							if(impValueSource == "imported_acv" && calcValid)
 							{
-								impAcvNum = impAcvStr.toDecimal().round(2);
-								impCalcNum = impLineAcv.toDecimal().round(2);
-								if(impCalcNum != impAcvNum)
+								if(importedAcvVal.toDecimal() != calcAcv.toDecimal())
 								{
 									result.put("reviewRequired", true);
-									if(!reviewReasons.contains("imported_acv_conflict")) { reviewReasons.add("imported_acv_conflict"); }
-									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_conflict] Imported " + impTerm + " ACV " + impAcvStr + " differs from the authorised calculated price " + impLineAcv + " for " + impProdName + " (" + impBrands + " brands, tier " + impTier + "). Calculated value used on the Quote; confirm the contract figure. Lead " + impLeadId + ".");
-									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_acv_conflict", impProdName, {"imported":impAcvStr,"calculated":impLineAcv,"term":impTerm});
+									if(!reviewReasons.contains("imported_acv_variance")) { reviewReasons.add("imported_acv_variance"); }
+									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_variance] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + " but differs from the catalogue calculation " + calcAcv + " (" + impBrands + " brands, tier " + impTier + "). Confirm the contract figure. Lead " + impLeadId + ".");
+									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_acv_variance", impProdName, {"imported":importedAcvVal,"calculated":calcAcv,"term":impTerm});
 								}
 							}
+							else if(impValueSource == "imported_acv" && !calcValid)
+							{
+								result.put("reviewRequired", true);
+								if(!reviewReasons.contains("pricing_from_imported_acv")) { reviewReasons.add("pricing_from_imported_acv"); }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[pricing_from_imported_acv] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + "; the catalogue could not auto-price it (reason: " + calcReason + "). Confirm cadence/tier/brands. Lead " + impLeadId + ".");
+								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_priced_from_acv", impProdName, {"imported":importedAcvVal,"reason":calcReason,"term":impTerm});
+							}
 
-							// ---- stage rule ----
-							impComplete = (impBrands != "" && impStart != "" && impEnd != "" && impPriced);
+							// ---- stage rule: a dated existing contract with a known value (imported ACV or
+							//      calculated) is Confirmed so Amount + ledger derive now. Otherwise Draft + review. ----
+							impComplete = (impStart != "" && impEnd != "" && impPriced);
 							impStage = "Draft";
 							if(impComplete) { impStage = "Confirmed"; }
 							else
 							{
 								result.put("reviewRequired", true);
-								if(impPriceReason == "360_missing_frequency") { if(!reviewReasons.contains("pricing_frequency_missing")) { reviewReasons.add("pricing_frequency_missing"); } }
-								else if(impBrands == "") { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
-								else if(!impPriced) { if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); } }
+								if(!impPriced)
+								{
+									if(calcReason == "360_missing_frequency") { if(!reviewReasons.contains("pricing_frequency_missing")) { reviewReasons.add("pricing_frequency_missing"); } }
+									else if(impBrands == "") { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
+									else { if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); } }
+								}
 								else { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[import_contract_draft] Imported " + impTerm + " contract for " + impProdName + " created/left as Draft (reason=" + ifnull(impPriceReason, "incomplete") + "; brands=" + impBrands + " start=" + impStart + " end=" + impEnd + "). Complete the tuple/pricing then Confirm. Lead " + impLeadId + ".");
+								impPricedStr = if(impPriced, "true", "false");
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[import_contract_draft] Imported " + impTerm + " contract for " + impProdName + " created/left as Draft (priced=" + impPricedStr + " source=" + impValueSource + " reason=" + ifnull(calcReason, "") + "; brands=" + impBrands + " start=" + impStart + " end=" + impEnd + "). Complete the evidence then Confirm. Lead " + impLeadId + ".");
 							}
 
 							// ---- deterministic idempotency key ----
