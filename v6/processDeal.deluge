@@ -1330,6 +1330,14 @@ string automation.processDeal(string deal_id, string contextJson)
 								if(impUpdId != "")
 								{
 									existingQI = zoho.crm.getRecordById("Quotes", impUpdId.toLong());
+									// IDEMPOTENCY: reuse the existing Quoted_Items line id so the REST PUT
+									// UPDATES the line in place. Without the id, Zoho APPENDS a second subform
+									// row on every replay, doubling the Quote total (Amount inflation).
+									exLinesI = existingQI.get("Quoted_Items");
+									if(!isNull(exLinesI) && exLinesI.size() > 0 && !isNull(exLinesI.get(0)) && !isNull(exLinesI.get(0).get("id")))
+									{
+										impLine.put("id", exLinesI.get(0).get("id").toString());
+									}
 									qUpdI = Map();
 									qpHI = Map(); qpHI.put("id", impProdId); qUpdI.put("Quote_Product", qpHI);
 									qUpdI.put("Opportunity_Type", quoteOppType);
