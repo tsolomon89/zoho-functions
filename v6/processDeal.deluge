@@ -1909,6 +1909,30 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	}
 
 	// ===================================================================
+	// 8a2. Company Tier sync (Deal mirrors Account for the Target-ACV benchmark)
+	//      When the Account carries a tier and the Deal's is blank, copy it onto the Deal so the
+	//      Deal's Contract_Target_ACV formula resolves and reporting shows the tier. When BOTH are
+	//      populated and differ, PRESERVE the Deal tier and raise [company_tier_conflict] (never a
+	//      silent overwrite). This is the Account-tier-update refresh path (WF001c -> processAccount
+	//      -> processDeal): a later Account tier change does not silently clobber a deliberate Deal
+	//      tier. processLead seeds Lead->Deal on conversion; this seeds Account->Deal thereafter.
+	// ===================================================================
+	dealTierCur = ifnull(targetDeal.get("Company_Tier"), "").toString().trim();
+	acctTierCur = ifnull(accRec.get("Company_Tier"), "").toString().trim();
+	if(dealTierCur == "" && acctTierCur != "")
+	{
+		dUpd.put("Company_Tier", acctTierCur);
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "company_tier_from_account", acctTierCur, {"account":accountId});
+	}
+	else if(dealTierCur != "" && acctTierCur != "" && dealTierCur != acctTierCur)
+	{
+		result.put("reviewRequired", true);
+		if(!reviewReasons.contains("company_tier_conflict")) { reviewReasons.add("company_tier_conflict"); }
+		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[company_tier_conflict] Deal Company Tier '" + dealTierCur + "' differs from Account Company Tier '" + acctTierCur + "'. Deal tier preserved (it drives Contract_Target_ACV); reconcile manually if the Account is correct.");
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "company_tier_conflict", dealTierCur, {"account":acctTierCur});
+	}
+
+	// ===================================================================
 	// 8b. Deal.Amount valuation hierarchy (Amount is BOTH the contracted value AND the
 	//     pre-contract pipeline value). Precedence:
 	//       1) Lost (any type) -> 0  (lost override wins over Quotes/Target/imported ACV)
