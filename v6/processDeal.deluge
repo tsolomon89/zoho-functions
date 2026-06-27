@@ -1909,27 +1909,21 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	}
 
 	// ===================================================================
-	// 8a2. Company Tier sync (Deal mirrors Account for the Target-ACV benchmark)
-	//      When the Account carries a tier and the Deal's is blank, copy it onto the Deal so the
-	//      Deal's Contract_Target_ACV formula resolves and reporting shows the tier. When BOTH are
-	//      populated and differ, PRESERVE the Deal tier and raise [company_tier_conflict] (never a
-	//      silent overwrite). This is the Account-tier-update refresh path (WF001c -> processAccount
-	//      -> processDeal): a later Account tier change does not silently clobber a deliberate Deal
-	//      tier. processLead seeds Lead->Deal on conversion; this seeds Account->Deal thereafter.
+	// 8a2. Company Tier mirror (the ACCOUNT is live-authoritative)
+	//      Company_Tier is an Account attribute; Deal.Company_Tier is only a mirror/cache for the
+	//      Target-ACV benchmark. Keep the Deal mirror in lock-step with the Account: set/update it
+	//      when they differ, and CLEAR it when the Account tier is removed. There is NO manual
+	//      Deal-level tier override field, so the Account always wins — no [company_tier_conflict].
+	//      §8b derives the pipeline Amount from the LIVE Account tier (acctTierLive), so an Account
+	//      tier change (1->3, or ->blank) re-prices the Deal on the next reconcile (WF001c ->
+	//      processAccount -> processDeal). The Deal-tier field write here is the cache refresh.
 	// ===================================================================
 	dealTierCur = ifnull(targetDeal.get("Company_Tier"), "").toString().trim();
-	acctTierCur = ifnull(accRec.get("Company_Tier"), "").toString().trim();
-	if(dealTierCur == "" && acctTierCur != "")
+	acctTierLive = ifnull(accRec.get("Company_Tier"), "").toString().trim();
+	if(dealTierCur != acctTierLive)
 	{
-		dUpd.put("Company_Tier", acctTierCur);
-		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "company_tier_from_account", acctTierCur, {"account":accountId});
-	}
-	else if(dealTierCur != "" && acctTierCur != "" && dealTierCur != acctTierCur)
-	{
-		result.put("reviewRequired", true);
-		if(!reviewReasons.contains("company_tier_conflict")) { reviewReasons.add("company_tier_conflict"); }
-		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[company_tier_conflict] Deal Company Tier '" + dealTierCur + "' differs from Account Company Tier '" + acctTierCur + "'. Deal tier preserved (it drives Contract_Target_ACV); reconcile manually if the Account is correct.");
-		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "company_tier_conflict", dealTierCur, {"account":acctTierCur});
+		dUpd.put("Company_Tier", acctTierLive);
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "company_tier_mirror", acctTierLive, {"from":dealTierCur, "account":accountId});
 	}
 
 	// ===================================================================
@@ -1941,8 +1935,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	//       3) Open + Opportunity Type in {MQL,SQL,FTP} + no priced Quote -> Target ACV (from tier)
 	//       4) Open RTP + no priced Quote -> 0 (NEVER Target ACV as an actual renewal value)
 	//       5) otherwise -> 0
-	//     Target ACV is computed from Company Tier (Deal then Account) using the same rule as the
-	//     formula field (1->26000, 2->16500, 3->10500, else 0); Product.Unit_Price is NEVER used.
+	//     Target ACV is computed from the LIVE Account Company Tier (authoritative; the Deal tier is a
+	//     mirror) using the same rule as the formula field (1->26000, 2->16500, 3->10500, else 0);
+	//     Product.Unit_Price is NEVER used.
 	// ===================================================================
 	resolvedOppState = ifnull(dUpd.get("Opportunity_State"), ifnull(targetDeal.get("Opportunity_State"), "")).toString();
 	finalAmount = 0.0;
@@ -1959,9 +1954,11 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	}
 	else if(effectiveOppType == "MQL" || effectiveOppType == "SQL" || effectiveOppType == "FTP")
 	{
-		// pre-contract pipeline fallback = Target ACV from Company Tier (Deal, else Account)
-		amtTier = ifnull(targetDeal.get("Company_Tier"), "").toString().trim();
-		if(amtTier == "") { amtTier = ifnull(accRec.get("Company_Tier"), "").toString().trim(); }
+		// pre-contract pipeline fallback = Target ACV from the LIVE Account Company Tier (authoritative).
+		// Account is the source of truth; the Deal-tier field is just a mirror (see §8a2). Reading the
+		// live Account tier here means an Account tier change (1->3, or ->blank) re-prices the Deal and
+		// a removed Account tier yields 0 (never a stale Deal-mirror value).
+		amtTier = acctTierLive;
 		if(amtTier == "1") { finalAmount = 26000; }
 		else if(amtTier == "2") { finalAmount = 16500; }
 		else if(amtTier == "3") { finalAmount = 10500; }
@@ -1971,7 +1968,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		{
 			result.put("reviewRequired", true);
 			if(!reviewReasons.contains("pipeline_target_acv_unresolved")) { reviewReasons.add("pipeline_target_acv_unresolved"); }
-			automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[pipeline_target_acv_unresolved] Open " + effectiveOppType + " Deal has no priced Quote and no resolvable Company Tier, so the Target-ACV pipeline Amount is 0. Set Company Tier on the Deal/Account.");
+			automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[pipeline_target_acv_unresolved] Open " + effectiveOppType + " Deal has no priced Quote and no Account Company Tier, so the Target-ACV pipeline Amount is 0. Set Company Tier on the Account.");
 		}
 	}
 	else

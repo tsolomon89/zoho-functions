@@ -674,23 +674,21 @@ void automation.processLead(string lead_id)
 		}
 	}
 
-	// ---- 6a. Company Tier on the canonical Deal (benchmark Target ACV) ----
-	// Applies to BOTH freshly-created and REUSED Deals. Populate when the Deal tier is blank;
-	// never silently overwrite a conflicting populated tier -> deterministic [company_tier_conflict]
-	// review (the Deal's existing tier, and therefore Contract_Target_ACV, is left unchanged).
-	if(dealId != "" && dealId != "null" && leadCompanyTier != "")
+	// ---- 6a. Company Tier: the ACCOUNT is authoritative ----
+	// Company_Tier is an Account-level attribute; Deal.Company_Tier is only a mirror/cache for the
+	// Target-ACV benchmark. Seed the Lead's tier onto the canonical ACCOUNT when the Account has
+	// none, so the Account becomes the live source of truth. processDeal §8a2 then keeps the Deal
+	// mirror in sync with the Account (including clearing it when the Account tier is removed) and
+	// derives the pipeline Amount from the Account tier. No conflict review: there is no manual
+	// Deal-level tier override, so the Account tier is always authoritative and never "conflicts".
+	if(accountId != "" && accountId != "null" && leadCompanyTier != "")
 	{
-		dealTierRec = zoho.crm.getRecordById("Deals", dealId.toLong());
-		dealTierCur = ifnull(dealTierRec.get("Company_Tier"), "").toString().trim();
-		if(dealTierCur == "")
+		accTierRec = zoho.crm.getRecordById("Accounts", accountId.toLong());
+		accTierCur = ifnull(accTierRec.get("Company_Tier"), "").toString().trim();
+		if(accTierCur == "")
 		{
-			zoho.crm.updateRecord("Deals", dealId.toLong(), {"Company_Tier": leadCompanyTier}, {"trigger": List()});
-			info "6a: set Deal Company_Tier=" + leadCompanyTier + " on " + dealId;
-		}
-		else if(dealTierCur != leadCompanyTier)
-		{
-			automation.createAuxTask(newContactId, dealId, "Manual Review", "[company_tier_conflict] Lead Company Tier '" + leadCompanyTier + "' differs from the existing Deal Company Tier '" + dealTierCur + "'. Deal tier left unchanged (Contract_Target_ACV benchmark derives from it). Reconcile manually.");
-			automation.logAutomationEvent("processLead", "Deals", dealId, "company_tier_conflict", leadCompanyTier, {"dealTier":dealTierCur});
+			zoho.crm.updateRecord("Accounts", accountId.toLong(), {"Company_Tier": leadCompanyTier}, {"trigger": List()});
+			info "6a: seeded Account Company_Tier=" + leadCompanyTier + " on " + accountId;
 		}
 	}
 
