@@ -1751,7 +1751,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey && !isQuoteSrc) { dUpd.put("Deal_Key", dealKey); }
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
-	if(currentAmount != totalAmount) { dUpd.put("Amount", totalAmount); }
+	// Deal.Amount is set by the valuation-hierarchy block AFTER viability is resolved (it needs the
+	// final Lost/Open state), not here. `totalAmount` (active non-Closed-Lost priced Quote sum) is
+	// carried forward as the Quote-authority input.
 
 	// primary Contact
 	primaryContactsRaw = targetDeal.get("Primary_Contact");
@@ -1905,6 +1907,64 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "Deal Contact Roles viability could not be resolved (related-list read failed) and no Open Contact was found. Opportunity_State left unchanged. Review whether any viable Contact remains before closing the Deal.");
 		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "viability_check_unresolved", "opportunity_state_unchanged", null);
 	}
+
+	// ===================================================================
+	// 8b. Deal.Amount valuation hierarchy (Amount is BOTH the contracted value AND the
+	//     pre-contract pipeline value). Precedence:
+	//       1) Lost (any type) -> 0  (lost override wins over Quotes/Target/imported ACV)
+	//       2) active non-Closed-Lost PRICED Quotes -> SUM of their totals (totalAmount > 0;
+	//          includes Confirmed imported-ACV Quotes — value comes from the Quote)
+	//       3) Open + Opportunity Type in {MQL,SQL,FTP} + no priced Quote -> Target ACV (from tier)
+	//       4) Open RTP + no priced Quote -> 0 (NEVER Target ACV as an actual renewal value)
+	//       5) otherwise -> 0
+	//     Target ACV is computed from Company Tier (Deal then Account) using the same rule as the
+	//     formula field (1->26000, 2->16500, 3->10500, else 0); Product.Unit_Price is NEVER used.
+	// ===================================================================
+	resolvedOppState = ifnull(dUpd.get("Opportunity_State"), ifnull(targetDeal.get("Opportunity_State"), "")).toString();
+	finalAmount = 0.0;
+	amountBasis = "none";
+	if(resolvedOppState == "Lost")
+	{
+		finalAmount = 0.0;
+		amountBasis = "lost_override";
+	}
+	else if(totalAmount > 0)
+	{
+		finalAmount = totalAmount;
+		amountBasis = "quote_sum";
+	}
+	else if(effectiveOppType == "MQL" || effectiveOppType == "SQL" || effectiveOppType == "FTP")
+	{
+		// pre-contract pipeline fallback = Target ACV from Company Tier (Deal, else Account)
+		amtTier = ifnull(targetDeal.get("Company_Tier"), "").toString().trim();
+		if(amtTier == "") { amtTier = ifnull(accRec.get("Company_Tier"), "").toString().trim(); }
+		if(amtTier == "1") { finalAmount = 26000; }
+		else if(amtTier == "2") { finalAmount = 16500; }
+		else if(amtTier == "3") { finalAmount = 10500; }
+		else { finalAmount = 0.0; }
+		amountBasis = "target_acv_pipeline";
+		if(finalAmount == 0.0)
+		{
+			result.put("reviewRequired", true);
+			if(!reviewReasons.contains("pipeline_target_acv_unresolved")) { reviewReasons.add("pipeline_target_acv_unresolved"); }
+			automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[pipeline_target_acv_unresolved] Open " + effectiveOppType + " Deal has no priced Quote and no resolvable Company Tier, so the Target-ACV pipeline Amount is 0. Set Company Tier on the Deal/Account.");
+		}
+	}
+	else
+	{
+		// Open RTP (or other) with no priced Quote: do NOT use Target ACV as an actual renewal value.
+		finalAmount = 0.0;
+		amountBasis = "rtp_no_quote_zero";
+		if(effectiveOppType == "RTP")
+		{
+			result.put("reviewRequired", true);
+			if(!reviewReasons.contains("rtp_missing_commercial_evidence")) { reviewReasons.add("rtp_missing_commercial_evidence"); }
+			automation.createAuxTask(primaryContactId, targetDealId, "Manual Review", "[rtp_missing_commercial_evidence] Open RTP Deal has no active priced Quote and no imported-ACV Quote; Amount left at 0 (Target ACV is a benchmark, not an RTP renewal value). Add the renewal Quote / imported contract ACV.");
+		}
+	}
+	finalAmount = finalAmount.round(2);
+	if(currentAmount != finalAmount) { dUpd.put("Amount", finalAmount); }
+	info "Amount hierarchy: basis=" + amountBasis + " oppType=" + effectiveOppType + " state=" + resolvedOppState + " quoteSum=" + totalAmount + " final=" + finalAmount;
 
 	// ---- ledger fields onto the Deal ----
 	// Initial term: date-identity write-once; aggregates recalc as quotes join.

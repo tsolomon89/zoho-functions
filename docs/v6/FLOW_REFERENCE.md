@@ -71,7 +71,14 @@ Authority model:
 - **Product Interest** (`Leads.Product_Interest`, multiselect of exact SKU names) = Product-interest evidence only. It creates the Contact↔Product link (`Contacts_X_Products`). It NEVER creates a Quote and never defines brands/dates/tier/price.
 - **Contract Target ACV** (`Contract_Target_ACV`, formula from `Company_Tier`: 1=26000, 2=16500, 3=10500) = benchmark only. Never a Quote value, never `Deal.Amount`. `Company_Tier` is propagated Lead→Deal on BOTH create and reuse: when the Deal tier is blank it is set; when it is populated and differs from the Lead it is NOT overwritten and a `[company_tier_conflict]` review is raised.
 - **Split contract fields** (`Contract_Initial_*` / `Contract_Current_*`) = the customer's actual contract terms → the Quote-bootstrap input.
-- **Quote** = canonical commercial transaction. **Deal.Amount** = sum of active non-Closed-Lost Quote totals (no Unit_Price/Target fallback). **Deal `Contract_*` ledger** = derived from Confirmed/Closed-Won Quotes only.
+- **Quote** = canonical commercial transaction. **Deal `Contract_*` ledger** = derived from Confirmed/Closed-Won Quotes only.
+- **Deal.Amount valuation hierarchy** (§8b — Amount is BOTH the contracted value AND the pre-contract pipeline value):
+  1. **Lost** (any Opportunity Type): `Amount = 0` (override wins over Quotes / Target / imported ACV — a lost RTP never keeps its old renewal value).
+  2. **Active non-Closed-Lost priced Quotes** (sum > 0): `Amount = SUM(Quote totals)` — the actual quoted/contracted authority (includes Confirmed imported-ACV Quotes).
+  3. **Open + Opportunity Type ∈ {MQL, SQL, FTP} + no priced Quote**: `Amount = Target ACV` (pre-contract pipeline value), computed from Company Tier (Deal → Account; 1→26000/2→16500/3→10500/else 0).
+  4. **Open RTP + no priced Quote**: `Amount = 0` and `[rtp_missing_commercial_evidence]` review — Target ACV is NOT used as an actual renewal value; RTP value must come from an active renewal Quote or an imported-ACV Quote.
+  5. Otherwise `Amount = 0`.
+  Product `Unit_Price` is NEVER an Amount source (forbidden). Target ACV stays a benchmark; it is only the pipeline Amount for pre-Quote open MQL/SQL/FTP Deals.
 
 `processLead` extraction (step 1c) → encodes one term per Plan-Products family (multiselect):
 `term~family~planType~brands~dateStart~dateEnd~importedACV~frequency~tier`, terms joined by `;`, blanks as sentinel `_`. Initial+Current identical → one term (Current). A Product-Interest vs contract plan-type clash raises `[contract_product_conflict]` and emits no term. Then `processLead` calls `processDeal` with:
@@ -112,7 +119,7 @@ Multi-family Current term → one Quote per family (shares plan type / brands / 
 - `Meeting_Type` is DEP-labeled and unused. Events use `Meeting_Task_Stage`, `Meeting_Task_State`, and `Meeting_Task_Lost_Reasons`.
 - v6 idempotency is owned by ledger keys, related links, and re-fire guards.
 - Quote-line updates (both the import-bootstrap and the activity `§5` update paths) read existing `Quoted_Items` and the line id via the REST API, not `getRecordById` (which omits subform line ids and custom subform fields). Sending the line WITH its id makes the PUT update in place; without it Zoho appends a duplicate line and inflates the Quote total / Deal Amount / contract ACV on re-fire.
-- The provisional `Product.Unit_Price` sum as `Deal.Amount` (when zero Quotes existed) is REMOVED. With no Quotes, Amount is 0/blank — never fabricated from Unit_Price or Target ACV.
+- The provisional `Product.Unit_Price` sum as `Deal.Amount` is REMOVED and stays forbidden — a linked Product is interest evidence, not valuation authority. With no priced Quote, Amount is the Target-ACV pipeline value (open MQL/SQL/FTP) or 0 (Lost, or open RTP with no Quote) per the §8b hierarchy — never Unit_Price.
 - `processLead` no longer reads/writes the phantom contract fields `Contract_Start_Date`, `Contract_End_Date`, `Contract_Renewal_Date`, `Contract_ACV_Intial`, `Contract_ACV_Current`, `Contract_Type`, `Contract_Currency` (none exist on Leads or Deals). Use the `Contract_Initial_*`/`Contract_Current_*` fields; `Contract_*_Plan_Products` is multiselect on Leads and Deals.
 
 ## Cutover Acceptance
