@@ -3,3 +3,6 @@
 .zoho-self-client.env
 
 .claude/
+
+# Ignore CSV files in import_tests
+.agents/context/import_tests/*.csv
