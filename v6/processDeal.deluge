@@ -161,6 +161,8 @@ string automation.processDeal(string deal_id, string contextJson)
 	contactRoleMap = Map();
 	contactStageMap = Map();
 	contactDatesMap = Map();
+	contactProductKeysMap = Map();   // cId -> List of CANONICAL product_key (for product-scoped Contact_Role stamping)
+	productKeyResolveCache = Map();  // rawLower -> canonical product_key ("" if unresolved); avoids repeat resolveDealProduct calls
 	everRTPviaContact = false;   // ANY Deal-linked Contact completed Onboarding or Renewal
 
 	for each c in relContacts
@@ -209,12 +211,16 @@ string automation.processDeal(string deal_id, string contextJson)
 					info "processDeal: stamped Contact_Role1 on " + cId + " title='" + cJobTitleLoop + "' -> '" + resolvedRoleLoop + "' resp=" + stampResp;
 				}
 
+				// Per-contact raw product-name evidence (for product-scoped Contact_Role stamping in Section 3).
+				cRawProdNames = List();
+
 				cPIStaging = ifnull(fullC.get("Product_Interest_Staging"), "").toString().trim();
 				if(cPIStaging != "")
 				{
 					for each part in cPIStaging.toList(",")
 					{
 						pTrim = part.trim();
+						if(pTrim != "" && !cRawProdNames.contains(pTrim)) { cRawProdNames.add(pTrim); }
 						if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
 						{
 							aggregatedPIList.add(pTrim);
@@ -233,6 +239,7 @@ string automation.processDeal(string deal_id, string contextJson)
 							if(item != null && item.get("name") != null)
 							{
 								pn = item.get("name").toString().trim();
+								if(pn != "" && !cRawProdNames.contains(pn)) { cRawProdNames.add(pn); }
 								if(pn != "" && !lowercasePIList.contains(pn.toLowerCase()))
 								{
 									aggregatedPIList.add(pn);
@@ -247,6 +254,7 @@ string automation.processDeal(string deal_id, string contextJson)
 						for each part in cleaned.toList(",")
 						{
 							pTrim = part.trim();
+							if(pTrim != "" && !cRawProdNames.contains(pTrim)) { cRawProdNames.add(pTrim); }
 							if(pTrim != "" && !lowercasePIList.contains(pTrim.toLowerCase()))
 							{
 								aggregatedPIList.add(pTrim);
@@ -255,6 +263,29 @@ string automation.processDeal(string deal_id, string contextJson)
 						}
 					}
 				}
+
+				// Resolve this contact's raw product names -> CANONICAL product_key list (cached).
+				cProdKeys = List();
+				for each rawNm in cRawProdNames
+				{
+					rawLower = rawNm.toLowerCase();
+					ckey = "";
+					if(productKeyResolveCache.get(rawLower) != null)
+					{
+						ckey = productKeyResolveCache.get(rawLower).toString();
+					}
+					else
+					{
+						rRes = automation.resolveDealProduct(rawNm).toMap();
+						if(ifnull(rRes.get("valid"), "false").toString() == "true")
+						{
+							ckey = ifnull(rRes.get("product_key"), "").toString();
+						}
+						productKeyResolveCache.put(rawLower, ckey);
+					}
+					if(ckey != "" && !cProdKeys.contains(ckey)) { cProdKeys.add(ckey); }
+				}
+				contactProductKeysMap.put(cId, cProdKeys);
 
 				if(cState == "Open")
 				{
@@ -383,10 +414,45 @@ string automation.processDeal(string deal_id, string contextJson)
 	}
 	info "Existing Contact_Roles on Deal " + targetDealId + ": " + existingRoleMap.size();
 
+	// Product-scope guard: a Contact is stamped onto this Deal ONLY if its product evidence
+	// matches the Deal's product, OR it is the controlling Deal/Quote Contact (Contact_Name).
+	dealProdKey = ifnull(dealRecord.get("Deal_Product_Key"), "").toString().trim();
+	if(dealProdKey == "")
+	{
+		dealProdLookup = dealRecord.get("Deal_Product");
+		if(!isNull(dealProdLookup) && !isNull(dealProdLookup.get("name")))
+		{
+			dealProdKey = ifnull(automation.computeProductKey(dealProdLookup.get("name").toString()), "").toString().trim();
+		}
+	}
+	dealPrimaryContactId = "";
+	dealCnLookup = dealRecord.get("Contact_Name");
+	if(!isNull(dealCnLookup) && !isNull(dealCnLookup.get("id"))) { dealPrimaryContactId = dealCnLookup.get("id").toString(); }
+	info "Contact_Role product scope: dealProdKey='" + dealProdKey + "' dealPrimaryContactId=" + dealPrimaryContactId;
+
 	for each cId in processedContactIds
 	{
 		if(cId != "")
 		{
+			// Product-scope: skip stamping a Contact whose product evidence does not match this
+			// Product Deal, unless it is the controlling Deal/Quote Contact. dealProdKey=="" is a
+			// defensive fallback (should not occur on fresh data) -> retain prior stamp-all behavior.
+			stampAllowed = true;
+			if(dealProdKey != "")
+			{
+				stampAllowed = false;
+				if(cId == dealPrimaryContactId) { stampAllowed = true; }
+				else
+				{
+					cKeysForStamp = contactProductKeysMap.get(cId);
+					if(!isNull(cKeysForStamp) && cKeysForStamp.contains(dealProdKey)) { stampAllowed = true; }
+				}
+			}
+			if(!stampAllowed)
+			{
+				info "Contact_Roles skip contact=" + cId + " (product evidence does not match Deal product '" + dealProdKey + "')";
+				continue;
+			}
 			existingRoleVal = existingRoleMap.get(cId);
 			if(existingRoleVal == null || existingRoleVal.toString().trim() == "")
 			{

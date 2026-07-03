@@ -1,0 +1,145 @@
+string automation.collectLegacyQuoteEvidence(string moduleName, string recordId)
+{
+	// =========================================================================
+	// _util_collectLegacyQuoteEvidence   (VERSION: v6-product-deal)
+	//
+	// Extract split-contract TERMS from the Contract_Initial_* / Contract_Current_*
+	// fields. These fields live ONLY on Leads today, so this returns terms only for
+	// module=="Leads"; every other module returns an empty term set.
+	//
+	// Parsing mirrors processLead.deluge lines 256-355 EXACTLY:
+	//   - Contract_{Initial,Current}_Plan_Products is MULTISELECT -> one term per
+	//     family (strip [ ] " ' ; split ","; "Jurnii Cortext"->"Jurnii Cortex";
+	//     drop -None-);
+	//   - Contract_*_Plan_Type: "Flexible" -> "Flex";
+	//   - Contract_*_Plan_Brands: "null" -> "";
+	//   - Contract_*_Date_Start / _End: strip anything from "T" onward;
+	//   - Contract_*_ACV: as-is trimmed;
+	//   - Contract_*_Plan_Frequency: "-None-" -> "";
+	//   - tier: always "Base".
+	//   - identical-term dedup: if Initial family-set/type/brands/dates/freq ==
+	//     Current, emit only Current terms.
+	//
+	// This helper does NOT resolve products, apply the PI plan-type conflict check,
+	// or pre-encode. It returns STRUCTURED per-family term objects so the engine
+	// (normalizeToProductQuoteTuples) can resolve/conflict/encode.
+	//
+	// Returns a JSON string (parse with .toMap()):
+	//   {
+	//     "terms": [ { term, family, type, brands, start, end, acv, freq, tier } ],
+	//     "pi_for_conflict": "<Lead Product_Interest as a comma string>"
+	//   }
+	// For non-Lead modules: { "terms": [], "pi_for_conflict": "" }.
+	// =========================================================================
+	r = Map();
+	terms = List();
+	r.put("terms", terms);
+	r.put("pi_for_conflict", "");
+
+	mod = ifnull(moduleName, "").toString().trim();
+	rid = ifnull(recordId, "").toString().replaceAll("zcrm_", "").trim();
+	if(mod != "Leads" || rid == "" || !rid.matches("[0-9]+")) { return r.toString(); }
+
+	leadRecord = zoho.crm.getRecordById("Leads", rid.toLong());
+	if(isNull(leadRecord) || isNull(leadRecord.get("id"))) { return r.toString(); }
+
+	// ---- Product_Interest as comma string (for the engine's type-conflict check) ----
+	leadPIStr = "";
+	leadPIRaw = leadRecord.get("Product_Interest");
+	if(leadPIRaw != null)
+	{
+		leadPICleaned = leadPIRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
+		if(leadPICleaned != "")
+		{
+			for each piTok in leadPICleaned.toList(",")
+			{
+				piTrim = piTok.trim();
+				if(piTrim != "" && piTrim != "-None-")
+				{
+					leadPIStr = leadPIStr + if(leadPIStr != "", ", ", "") + piTrim;
+				}
+			}
+		}
+	}
+	r.put("pi_for_conflict", leadPIStr);
+
+	// ---- Initial term fields ----
+	iFamList = List();
+	iFamRaw = leadRecord.get("Contract_Initial_Plan_Products");
+	if(iFamRaw != null)
+	{
+		iFamS = iFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+		for each ft in iFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { iFamList.add(ftv); } }
+	}
+	iType = ifnull(leadRecord.get("Contract_Initial_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+	if(iType == "Flexible") { iType = "Flex"; }
+	iBrands = ifnull(leadRecord.get("Contract_Initial_Plan_Brands"), "").toString().trim();
+	if(iBrands == "null") { iBrands = ""; }
+	iStartV = leadRecord.get("Contract_Initial_Date_Start");
+	iStart = ""; if(iStartV != null) { iStart = iStartV.toString().trim(); if(iStart.contains("T")) { iStart = iStart.getPrefix("T"); } }
+	iEndV = leadRecord.get("Contract_Initial_Date_End");
+	iEnd = ""; if(iEndV != null) { iEnd = iEndV.toString().trim(); if(iEnd.contains("T")) { iEnd = iEnd.getPrefix("T"); } }
+	iAcv = ifnull(leadRecord.get("Contract_Initial_ACV"), "").toString().trim();
+	iFreq = ifnull(leadRecord.get("Contract_Initial_Plan_Frequency"), "").toString().trim();
+	if(iFreq == "-None-") { iFreq = ""; }
+
+	// ---- Current term fields ----
+	cFamList = List();
+	cFamRaw = leadRecord.get("Contract_Current_Plan_Products");
+	if(cFamRaw != null)
+	{
+		cFamS = cFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
+		for each ft in cFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { cFamList.add(ftv); } }
+	}
+	cType = ifnull(leadRecord.get("Contract_Current_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+	if(cType == "Flexible") { cType = "Flex"; }
+	cBrands = ifnull(leadRecord.get("Contract_Current_Plan_Brands"), "").toString().trim();
+	if(cBrands == "null") { cBrands = ""; }
+	cStartV = leadRecord.get("Contract_Current_Date_Start");
+	cStart = ""; if(cStartV != null) { cStart = cStartV.toString().trim(); if(cStart.contains("T")) { cStart = cStart.getPrefix("T"); } }
+	cEndV = leadRecord.get("Contract_Current_Date_End");
+	cEnd = ""; if(cEndV != null) { cEnd = cEndV.toString().trim(); if(cEnd.contains("T")) { cEnd = cEnd.getPrefix("T"); } }
+	cAcv = ifnull(leadRecord.get("Contract_Current_ACV"), "").toString().trim();
+	cFreq = ifnull(leadRecord.get("Contract_Current_Plan_Frequency"), "").toString().trim();
+	if(cFreq == "-None-") { cFreq = ""; }
+
+	// identical-term dedup: same family set, type, brands, dates, freq -> only Current
+	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd && iFreq == cFreq);
+
+	// emit Current term(s) first (active/latest identity)
+	for each fam in cFamList
+	{
+		t = Map();
+		t.put("term", "Current");
+		t.put("family", fam);
+		t.put("type", cType);
+		t.put("brands", cBrands);
+		t.put("start", cStart);
+		t.put("end", cEnd);
+		t.put("acv", cAcv);
+		t.put("freq", cFreq);
+		t.put("tier", "Base");
+		terms.add(t);
+	}
+	// emit Initial term(s) only when they differ from Current
+	if(!identicalTerms)
+	{
+		for each fam in iFamList
+		{
+			t = Map();
+			t.put("term", "Initial");
+			t.put("family", fam);
+			t.put("type", iType);
+			t.put("brands", iBrands);
+			t.put("start", iStart);
+			t.put("end", iEnd);
+			t.put("acv", iAcv);
+			t.put("freq", iFreq);
+			t.put("tier", "Base");
+			terms.add(t);
+		}
+	}
+
+	r.put("terms", terms);
+	return r.toString();
+}

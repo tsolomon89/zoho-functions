@@ -1,23 +1,34 @@
 void automation.processAccount(string account_id)
 {
 	// =========================================================================
-	// processAccount  (Contact-centric, thin)
+	// processAccount  (Product-Deal centric, thin)
 	//
-	// processDeal is the SOLE reconciliation/rollup owner. processAccount only:
-	//   1. Ensures Account_Key is stamped on the canonical Account (processDeal
-	//      requires it).
-	//   2. Resolves the canonical active Deal (lowest-id open Deal), creating a
-	//      minimal one if the Account has Contacts but no open Deal.
-	//   3. Delegates all reconciliation (Contacts, Roles, Products, Primary
-	//      Contact, Opportunity_* rollup, Account rollup) to processDeal(dealId).
+	// Deal = Account x Product. There is NO generic Account-level Deal and NO
+	// "::active" key. processAccount only:
+	//   1. Ensures Account_Key is stamped on the Account (processDeal requires it).
+	//   2. Reads related Deals, GROUPS them by Deal_Product_Key, and silences
+	//      per-product duplicates (>1 live Deal for the same product_key -> keep
+	//      lowest id, Lost the rest). Different product keys are NOT duplicates.
+	//   3. Derives the Account's product set via
+	//      automation.normalizeToProductQuoteTuples("Accounts", cleanId) and, for
+	//      each product NOT already covered by a surviving live Deal, calls
+	//      automation.createOrReuseProductDeal(...).
+	//   4. Runs automation.processDeal(dealId, "{}") for every product Deal
+	//      (surviving canonical + newly created).
+	//   5. Rolls up Account state via automation.rollupAccountState(cleanId).
 	//
-	// All writes use suppressTrigger so WFC-Account / WFC-Deal do not cascade.
+	// An Account with Contacts but NO product evidence creates NOTHING (no generic
+	// Deal, no [product_unresolved] spam) -- it just logs and rolls up.
+	//
+	// All internal writes use suppressTrigger so WFC-Account / WFC-Deal do not
+	// cascade. createOrReuseProductDeal creates WITHOUT trigger suppression by
+	// design (idempotent; processDeal is also called explicitly below).
 	//
 	// REQUIRED ZOHO CRM SETTING:
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v6-contact-centric";
+	info "VERSION: v6-product-deal";
 
 	if(account_id == null || account_id == "") { return; }
 	cleanId = account_id.replaceAll("zcrm_", "").trim();
@@ -53,39 +64,55 @@ void automation.processAccount(string account_id)
 		zoho.crm.updateRecord("Accounts", cleanId.toLong(), {"Account_Key": accountKey}, noTrigger);
 	}
 
-	dealKey = accountKey + "::active";
+	// accountName fallback so it is always defined for downstream helpers.
+	if(accountName == "") { accountName = accountKey; }
 
-	// ---- 2. Resolve canonical active Deal (lowest-id open Deal) ----
+	// ---- 2. Read related Deals and GROUP by Deal_Product_Key ----
+	// A live Deal = Opportunity_State Open AND a non-blank Deal_Key. Per product_key,
+	// the lowest-id live Deal is canonical; any other live Deal with the SAME
+	// product_key is a duplicate and is silenced. Deals with DIFFERENT product keys
+	// (or blank product key) are NOT duplicates of each other.
 	relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", cleanId.toLong());
-	canonicalDealId = "";
-	minId = 999999999999999999;
+
+	// productKey -> lowest-id live Deal id (the surviving canonical for that product)
+	canonicalByProduct = Map();
+	// productKey -> min id seen (for lowest-id selection)
+	minIdByProduct = Map();
+
 	if(!isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
 	{
-		for each d in relDeals
-		{
-			// Deal viability = Opportunity_State (Deals have no bare State field); default Open so a
-			// missing custom value (getRelatedRecords may omit it) keeps the Deal in the active set.
-			if(ifnull(d.get("Opportunity_State"), "Open") == "Open")
-			{
-				dIdLong = d.get("id").toLong();
-				if(dIdLong < minId)
-				{
-					minId = dIdLong;
-					canonicalDealId = d.get("id").toString();
-				}
-			}
-		}
-	}
-
-	// ---- 2b. Silence duplicate active Deals (keep only the canonical). Moved here from
-	//          processDeal, which now reconciles exactly the Deal it is handed. ----
-	if(canonicalDealId != "" && !isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
-	{
+		// Pass 1: elect the lowest-id live Deal per product_key.
 		for each d in relDeals
 		{
 			dId = "";
 			if(!isNull(d.get("id"))) { dId = d.get("id").toString(); }
-			if(dId != "" && dId != canonicalDealId)
+			if(dId == "" || !dId.matches("[0-9]+")) { continue; }
+			// getRelatedRecords may omit custom fields -> default Open keeps the Deal in scope,
+			// but a live Deal also requires a non-blank Deal_Key (the product-scoped key).
+			dState = ifnull(d.get("Opportunity_State"), "Open").toString();
+			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
+			if(dState != "Open" || dKey == "") { continue; }
+			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
+			dIdLong = dId.toLong();
+			if(minIdByProduct.get(pKey) == null || dIdLong < minIdByProduct.get(pKey))
+			{
+				minIdByProduct.put(pKey, dIdLong);
+				canonicalByProduct.put(pKey, dId);
+			}
+		}
+
+		// Pass 2: silence any other live Deal sharing a product_key with its canonical.
+		for each d in relDeals
+		{
+			dId = "";
+			if(!isNull(d.get("id"))) { dId = d.get("id").toString(); }
+			if(dId == "" || !dId.matches("[0-9]+")) { continue; }
+			dState = ifnull(d.get("Opportunity_State"), "Open").toString();
+			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
+			if(dState != "Open" || dKey == "") { continue; }
+			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
+			keepId = ifnull(canonicalByProduct.get(pKey), "").toString();
+			if(keepId != "" && dId != keepId)
 			{
 				dupFull = zoho.crm.getRecordById("Deals", dId.toLong());
 				if(!isNull(dupFull) && !isNull(dupFull.get("id")) && ifnull(dupFull.get("Opportunity_State"), "Open").toString() == "Open")
@@ -93,41 +120,74 @@ void automation.processAccount(string account_id)
 					dupUpd = Map();
 					dupUpd.put("Opportunity_State", "Lost");
 					dupUpd.put("Opportunity_Status", "Closed");
-					if(ifnull(dupFull.get("Reason_For_Loss__s"), "").toString() != "Duplicate / Test Record") { dupUpd.put("Reason_For_Loss__s", "Duplicate / Test Record"); }
-					if(ifnull(dupFull.get("Deal_Key"), "").toString() != "") { dupUpd.put("Deal_Key", ""); }
+					dupUpd.put("Reason_For_Loss__s", "Duplicate / Test Record");
+					dupUpd.put("Deal_Key", "");
 					dupName = ifnull(dupFull.get("Deal_Name"), "").toString();
 					if(!dupName.endsWith("(Duplicate)")) { dupUpd.put("Deal_Name", dupName + " (Duplicate)"); }
 					zoho.crm.updateRecord("Deals", dId.toLong(), dupUpd, noTrigger);
-					automation.logAutomationEvent("processAccount", "Deals", dId.toString(), "duplicate_silenced", "kept_canonical", {"canonical":canonicalDealId});
+					dupCode = automation.resolveManualReviewCode("duplicate_product_deal");
+					automation.logAutomationEvent("processAccount", "Deals", dId.toString(), "duplicate_silenced", dupCode, {"kept":keepId, "product_key":pKey});
 				}
 			}
 		}
 	}
 
-	// ---- 3. Create a minimal canonical Deal if the Account has Contacts but none open ----
-	if(canonicalDealId == "")
+	// ---- 3. Derive the Account's product set and ensure a Deal per product ----
+	// Collect the set of product_keys already covered by a surviving live Deal, plus
+	// the ids of those canonical Deals (to reconcile below).
+	dealIdsToProcess = List();
+	coveredKeys = List();
+	for each pKey in canonicalByProduct.keys()
 	{
-		relContacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", cleanId.toLong());
-		if(!isNull(relContacts) && relContacts.size() > 0 && !relContacts.toString().startsWith("{\"code\""))
+		keepId = canonicalByProduct.get(pKey).toString();
+		if(!dealIdsToProcess.contains(keepId)) { dealIdsToProcess.add(keepId); }
+		if(pKey != "" && !coveredKeys.contains(pKey)) { coveredKeys.add(pKey); }
+	}
+
+	tuplesJson = automation.normalizeToProductQuoteTuples("Accounts", cleanId);
+	tuples = tuplesJson.toMap();
+	products = ifnull(tuples.get("products"), List());
+	productCount = 0;
+	if(!isNull(products)) { productCount = products.size(); }
+
+	if(productCount > 0)
+	{
+		for each p in products
 		{
-			dealName = if(accountName != "", accountName + " Deal", accountKey + " Deal");
-			dealMap = Map();
-			dealMap.put("Deal_Name", dealName);
-			dealMap.put("Account_Name", cleanId);
-			dealMap.put("Deal_Key", dealKey);
-			// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status).
-			dealMap.put("Opportunity_State", "Open");
-			dealMap.put("Opportunity_Status", "New");
-			dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-			dRes = zoho.crm.createRecord("Deals", dealMap);
-			if(!isNull(dRes) && dRes.get("id") != null) { canonicalDealId = dRes.get("id").toString(); }
-			else if(!isNull(dRes) && dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null) { canonicalDealId = dRes.get("details").get("id").toString(); }
+			pKey = ifnull(p.get("product_key"), "").toString().trim();
+			pId = ifnull(p.get("product_id"), "").toString().trim();
+			pName = ifnull(p.get("product_name"), "").toString().trim();
+			if(pKey == "") { continue; }
+			if(coveredKeys.contains(pKey)) { continue; }
+
+			corRes = automation.createOrReuseProductDeal(cleanId, accountKey, pId, pName, pKey, accountName).toMap();
+			if(ifnull(corRes.get("valid"), "false") == "true")
+			{
+				newDealId = ifnull(corRes.get("deal_id"), "").toString();
+				if(newDealId != "" && !dealIdsToProcess.contains(newDealId)) { dealIdsToProcess.add(newDealId); }
+				coveredKeys.add(pKey);
+			}
+			else
+			{
+				automation.logAutomationEvent("processAccount", "Accounts", cleanId, "product_deal_unresolved", ifnull(corRes.get("reason"), "unknown"), {"product_key":pKey, "product_name":pName});
+			}
+		}
+	}
+	else
+	{
+		// Account with Contacts but no product evidence: create NOTHING.
+		automation.logAutomationEvent("processAccount", "Accounts", cleanId, "no_product_evidence", "no_deal_created", {"existing_product_deals":dealIdsToProcess.size().toString()});
+	}
+
+	// ---- 4. Reconcile every product Deal (surviving canonical + newly created) ----
+	for each dealId in dealIdsToProcess
+	{
+		if(dealId != "" && dealId.matches("[0-9]+"))
+		{
+			pdRes = automation.processDeal(dealId, "{}");
 		}
 	}
 
-	// ---- 4. Delegate all reconciliation + rollup to processDeal ----
-	if(canonicalDealId != "")
-	{
-		pdRes = automation.processDeal(canonicalDealId, "{}");
-	}
+	// ---- 5. Roll up Account state ----
+	automation.rollupAccountState(cleanId);
 }

@@ -10,12 +10,20 @@ void automation.processContact(string contact_id)
 	//   1. Read Contact, resolve / repair canonical Account (Account_Key)
 	//   2. Normalize Contact Stage / State defaults, Contact_Role1 from Job_Title,
 	//      and stage-completion dates on the Contact
-	//   3. Resolve / create the Account's one active canonical Deal
-	//   4. (removed — reconciliation now lives only in processDeal)
-	//   5. Activation: ensure an unactivated open Contact has one Sequence
-	//      Activation Task (absorbs createActivationTask + _util_resolveSequenceRoute)
-	//   6. processDeal(dealId) — Contacts, Roles, Products, Primary Contact,
-	//      Opportunity_* rollup, Account rollup
+	//   3. Product evidence -> Product Deals (Deal = Account x Product only). One
+	//      Product Deal per resolved product via createOrReuseProductDeal; associate
+	//      this Contact (by its Contact_Role1) to each matching Product Deal;
+	//      processDeal(dealId) reconciles each. No generic Account-level Deal.
+	//   4. (reconciliation lives only in processDeal, called per Product Deal above)
+	//   5. Activation: ensure an unactivated open Decision-Maker Contact has one
+	//      Sequence Activation Task, driven by the SINGLE Product Deal. Multi-Deal
+	//      Contact -> Manual Review [multi_product_sequence_ambiguous] (never auto-pick).
+	//
+	// Product resolution outcomes (HARD RULE 4 / 7):
+	//   - 0 products -> MQL-level. No Deal, no [product_unresolved], no activation.
+	//   - each resolved product -> its own Product Deal (Deal_Key=accountKey::productKey).
+	//   - unresolved raw evidence -> Manual Review [product_unresolved].
+	//   - >1 Product Deal for one Contact -> activation deferred to Manual Review.
 	//
 	// All processor writes use suppressTrigger so WFC-Contact / WFC-Deal /
 	// WFC-Account do not cascade.
@@ -24,7 +32,7 @@ void automation.processContact(string contact_id)
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v6-contact-centric";
+	info "VERSION: v6-contact-centric-product-deal";
 
 	if(contact_id == null || contact_id == "") { return; }
 	cleanId = contact_id.replaceAll("zcrm_", "").trim();
@@ -124,6 +132,14 @@ void automation.processContact(string contact_id)
 
 	if(accountId == "" || accountId == "null") { return; }
 
+	// accountName must be defined on BOTH account paths (the else-branch that creates a
+	// new Account never set it). Fall back to the Contact name then the Account_Key so
+	// createOrReuseProductDeal always receives a non-empty display name.
+	if(isNull(accountName) || accountName.toString().trim() == "")
+	{
+		accountName = if(cName != "", cName, accountKey);
+	}
+
 	// ---- 3. Normalize Contact defaults and completed dates ----
 	updConInit = Map();
 	if(accNameMap == null || accNameMap.get("id") == null || accNameMap.get("id").toString() != accountId)
@@ -192,68 +208,77 @@ void automation.processContact(string contact_id)
 		contactRecord = zoho.crm.getRecordById("Contacts", cleanId.toLong());
 	}
 
-	// ---- 4. Resolve THE canonical Deal (one per Account, ANY state) ----
-	// Never create a second Deal merely because the existing one is Lost / Closed /
-	// Onboarding / Renewal. Search Deal_Key across all states; else reuse the lowest-id
-	// existing Deal on the Account; only create when the Account has no Deal at all.
-	dealKey = accountKey + "::active";
-	dealId = "";
+	// ---- 4. Product evidence -> Product Deals (Deal = Account x Product only) ----
+	// The normalize adapter is the ONLY place that knows which fields carry product /
+	// contract evidence. products[] = resolved canonical products; unresolved[] = raw
+	// evidence that resolveDealProduct could not map; conflicts[] = type conflicts.
+	// HARD RULE 1/2: never a generic Account Deal; every Deal_Key = accountKey::productKey
+	// via createOrReuseProductDeal.
+	tuples = automation.normalizeToProductQuoteTuples("Contacts", cleanId).toMap();
+	products = ifnull(tuples.get("products"), List());
+	unresolvedList = ifnull(tuples.get("unresolved"), List());
 
-	searchDeal = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{\"code\""))
+	// Resolve the Contact_Role value once (name string), for the Contact_Role junction.
+	// Prefer the value just written / already on the Contact; default to Decision Maker.
+	contactRoleVal = ifnull(contactRecord.get("Contact_Role1"), "").toString().trim();
+	if(contactRoleVal == "") { contactRoleVal = "Decision Maker"; }
+
+	// Unresolved raw evidence -> Manual Review [product_unresolved] (never auto-pick).
+	if(!isNull(unresolvedList) && unresolvedList.size() > 0)
 	{
-		minDealId = 999999999999999999;
-		for each pd in searchDeal
+		for each ur in unresolvedList
 		{
-			pdLong = pd.get("id").toString().toLong();
-			if(pdLong < minDealId) { minDealId = pdLong; dealId = pd.get("id").toString(); }
-		}
-		if(searchDeal.size() > 1) { info "processContact: WARNING multiple Deals carry Deal_Key=" + dealKey + " — using canonical " + dealId; }
-	}
-	else
-	{
-		relDeals = zoho.crm.getRelatedRecords("Deals", "Accounts", accountId.toLong());
-		if(!isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
-		{
-			minDealId = 999999999999999999;
-			for each d in relDeals
-			{
-				dLong = d.get("id").toString().toLong();
-				if(dLong < minDealId) { minDealId = dLong; dealId = d.get("id").toString(); }
-			}
-			info "processContact: canonical Deal resolved by Account relation (Deal_Key absent) — " + dealId;
+			urRaw = ifnull(ur.get("raw"), "").toString();
+			urReason = ifnull(ur.get("reason"), "").toString();
+			automation.createManualReview(cleanId, "", "product_unresolved", "Contact product evidence '" + urRaw + "' did not resolve to a canonical Product (" + urReason + ").");
 		}
 	}
 
-	if(dealId == "")
+	// MQL-level: no resolvable product evidence -> no Deal, no [product_unresolved],
+	// no activation (activation needs a Deal What_Id). Log and return.
+	if(isNull(products) || products.size() == 0)
 	{
-		// Account has no Deal at all -> create the single canonical Deal.
-		dealName = (if(cName != "", cName, accountKey)) + " Deal";
-		dealMap = Map();
-		dealMap.put("Deal_Name", dealName);
-		dealMap.put("Account_Name", accountId);
-		dealMap.put("Deal_Key", dealKey);
-		// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status).
-		dealMap.put("Opportunity_State", "Open");
-		dealMap.put("Opportunity_Status", "New");
-		// Opportunity_Stage / Stage (type) are set by processDeal (sole rollup owner).
-		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-		dealMap.put("Contact_Name", cleanId);
-		dRes = zoho.crm.createRecord("Deals", dealMap);
-		if(dRes.get("id") != null) { dealId = dRes.get("id").toString(); }
-		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null) { dealId = dRes.get("details").get("id").toString(); }
+		automation.logAutomationEvent("processContact", "Contacts", cleanId, "product_resolution", "mql_no_product_deal", {"account": accountId, "unresolved": ifnull(unresolvedList, List()).size().toString()});
+		return;
 	}
 
-	if(dealId == "") { return; }
+	// One Product Deal per resolved product; associate THIS Contact to each matching
+	// Deal (HARD RULE 5: evidence matches the Deal product, established by normalize).
+	productDealIds = List();
+	for each prod in products
+	{
+		pProductId = ifnull(prod.get("product_id"), "").toString();
+		pProductName = ifnull(prod.get("product_name"), "").toString();
+		pProductKey = ifnull(prod.get("product_key"), "").toString();
 
-	// ---- 5. Reconcile FIRST (processDeal = sole owner of Contacts, Roles, Products,
-	//        Primary Contact, Opportunity_* rollup, Account rollup) ----
-	pdRes = automation.processDeal(dealId, "{}");
+		cordRes = automation.createOrReuseProductDeal(accountId, accountKey, pProductId, pProductName, pProductKey, accountName).toMap();
+		if(ifnull(cordRes.get("valid"), "false").toString() != "true")
+		{
+			automation.createManualReview(cleanId, "", "product_unresolved", "Could not create/reuse Product Deal for '" + pProductName + "' (" + ifnull(cordRes.get("reason"), "").toString() + ").");
+			continue;
+		}
+		pDealId = ifnull(cordRes.get("deal_id"), "").toString();
+		if(pDealId == "" || !pDealId.matches("[0-9]+")) { continue; }
 
-	// ---- 6. Activation AFTER reconciliation, linked to the final canonical Deal.
-	//        Absorbs createActivationTask + _util_resolveSequenceRoute. ----
-	// Re-read the Contact for the authoritative Sequence_State (processDeal may have
-	// touched Contact_Role1 / Primary Contact).
+		// Associate this Contact to THIS Product Deal only, carrying its resolved role.
+		roleMap = Map();
+		roleMap.put("Contact_Role", contactRoleVal);
+		zoho.crm.updateRelatedRecord("Contact_Roles", cleanId.toLong(), "Deals", pDealId.toLong(), roleMap);
+
+		productDealIds.add(pDealId);
+
+		// processDeal = sole owner of Contacts, Roles, Products, Primary Contact,
+		// Opportunity_* rollup, Account rollup. Reconcile each Product Deal.
+		automation.processDeal(pDealId, "{}");
+	}
+
+	automation.logAutomationEvent("processContact", "Contacts", cleanId, "product_resolution", "product_deals", {"count": productDealIds.size().toString(), "account": accountId});
+
+	if(productDealIds.size() == 0) { return; }
+
+	// ---- 5. Activation (Decision Maker only), driven by the SINGLE Product Deal. ----
+	// Re-read the Contact for authoritative State / Sequence_State / role (processDeal
+	// may have touched Contact_Role1 / Primary Contact).
 	contactRecord = zoho.crm.getRecordById("Contacts", cleanId.toLong());
 	contactSeqState = ifnull(contactRecord.get("Sequence_State"), "").toString();
 	if(contactSeqState == "")
@@ -263,12 +288,23 @@ void automation.processContact(string contact_id)
 		contactSeqState = "Not Activated";
 	}
 
-	// Activate ONLY when Not Activated. A Stopped / Running / Complete Contact must
-	// never auto-(re)activate here (restart of a Stopped Contact is a deliberate
-	// re-activation handled elsewhere).
+	// Activation gate: Decision Maker only (HARD RULE 6), Open + Not Activated only.
+	// A Stopped / Running / Complete Contact must never auto-(re)activate here.
 	contactState = ifnull(contactRecord.get("State"), "Open").toString();
-	if(contactState == "Open" && contactSeqState == "Not Activated")
+	contactRoleNow = ifnull(contactRecord.get("Contact_Role1"), "").toString().trim();
+	if(contactRoleNow == "") { contactRoleNow = contactRoleVal; }
+	if(contactRoleNow == "Decision Maker" && contactState == "Open" && contactSeqState == "Not Activated")
 	{
+		// HARD RULE 7: ONE active automated sequence per Contact. A multi-Product-Deal
+		// Contact is ambiguous -> Manual Review; never auto-pick which Deal drives it.
+		if(productDealIds.size() > 1)
+		{
+			automation.createManualReview(cleanId, productDealIds.get(0), "multi_product_sequence_ambiguous", "Contact maps to multiple Product Deals but only one Contact sequence can run; a human must choose which Product Deal drives the sequence.");
+			return;
+		}
+
+		// Exactly one Product Deal -> it drives the sequence.
+		dealId = productDealIds.get(0);
 		// dedup: an open Sequence Activation Task for this Contact + Stage already exists?
 		activationExists = false;
 		existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId.toLong());

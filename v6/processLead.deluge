@@ -14,18 +14,26 @@ void automation.processLead(string lead_id)
 	//   2. Resolve / create the canonical Account
 	//   3. Convert the Lead (creates Contact + links to canonical Account)
 	//   4. Enrich Contact from Lead (idempotent, never regress Stage)
-	//   5. Resolve / create the Account's canonical Deal; seed Lead-only data
-	//      (Lead_Source, contract fields) and Contact Product links
-	//   6. processContact(newContactId) → reconciliation + rollup + activation
+	//   5. PER-PRODUCT FAN-OUT: normalizeToProductQuoteTuples("Leads", lead_id) yields
+	//      one bucket per resolved Product (product-interest-only or with contract terms).
+	//      For each bucket: createOrReuseProductDeal (Deal = Account x Product), seed
+	//      Lead-only Deal fields, then processDeal (import_bootstrap when terms exist,
+	//      plain reconcile otherwise). Unresolved evidence + conflicts -> Manual Review.
+	//   6. processContact(newContactId) fires via WF001b2 (Contacts-create) -> activation.
+	//
+	// v6-product-deal fan-out: the single account-level "::active" Deal is GONE. A Deal is
+	// ALWAYS Account x Product (Deal_Key = accountKey::productKey via createOrReuseProductDeal).
+	// The inline flat termsEncoded builder is GONE; normalizeToProductQuoteTuples (adapter) now
+	// owns evidence collection + encoding. No legacy migration / no "::active" handling (fresh org).
 	//
 	// Graph enrichment writes suppress Contact workflow recursion; Contact create is the
-	// single deterministic downstream step (processLead → processContact → processDeal).
+	// single deterministic downstream step (processLead -> processContact -> processDeal).
 	//
 	// REQUIRED ZOHO CRM SETTING:
 	// - Accounts.Account_Key UNIQUE
 	// - Deals.Deal_Key UNIQUE
 	// =========================================================================
-	info "VERSION: v6-contact-centric";
+	info "VERSION: v6-product-deal";
 
 	if(lead_id == null || lead_id == "") { return; }
 	cleanId = lead_id.replaceAll("zcrm_", "").trim();
@@ -237,122 +245,13 @@ void automation.processLead(string lead_id)
 	}
 	info "Lead PI parsed string='" + leadPIStr + "'";
 
-	// ---- 1c. Import-contract tuple extraction (2026-06-26) ----
-	// Read the REAL split-contract fields and build a deterministic encoded payload for the
-	// import_bootstrap Quote engine (processDeal step 6c). Each term is "~"-delimited (9 fields):
-	//   term~family~planType~brands~dateStart~dateEnd~importedACV~frequency~tier
-	// Terms are joined with ";". "~" and ";" are chosen because they never occur in the data and
-	// are literal under both literal- and regex-style toList() splitting. Rules:
-	//   - a tuple asserts a contract only when Plan Products (family) is non-blank;
-	//   - Initial+Current identical (same family/type/brands/dates) -> ONE term (Current);
-	//   - exact Product-Interest vs contract-tuple plan-type conflict -> [contract_product_conflict],
-	//     term skipped (no Quote until resolved).
-	// Frequency lives on no Lead field today (360 imports therefore stay unpriced -> review),
-	// and pricing tier is not an imported field (defaults to Base downstream).
-	// NB: Contract_*_Plan_Products is a MULTI-select on Leads (live), so it is parsed into a family
-	// LIST; one Quote term is emitted per family (Test 16 multi-family). Plan Type / Plan Brands /
-	// dates / ACV are single values shared across families of the same term — a documented schema
-	// limitation: a multi-family term cannot carry per-product type/brands.
-	iFamList = List();
-	iFamRaw = leadRecord.get("Contract_Initial_Plan_Products");
-	if(iFamRaw != null)
-	{
-		iFamS = iFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
-		for each ft in iFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { iFamList.add(ftv); } }
-	}
-	iType = ifnull(leadRecord.get("Contract_Initial_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
-	if(iType == "Flexible") { iType = "Flex"; }
-	iBrands = ifnull(leadRecord.get("Contract_Initial_Plan_Brands"), "").toString().trim();
-	if(iBrands == "null") { iBrands = ""; }
-	iStartV = leadRecord.get("Contract_Initial_Date_Start");
-	iStart = ""; if(iStartV != null) { iStart = iStartV.toString().trim(); if(iStart.contains("T")) { iStart = iStart.getPrefix("T"); } }
-	iEndV = leadRecord.get("Contract_Initial_Date_End");
-	iEnd = ""; if(iEndV != null) { iEnd = iEndV.toString().trim(); if(iEnd.contains("T")) { iEnd = iEnd.getPrefix("T"); } }
-	iAcv = ifnull(leadRecord.get("Contract_Initial_ACV"), "").toString().trim();
-
-	cFamList = List();
-	cFamRaw = leadRecord.get("Contract_Current_Plan_Products");
-	if(cFamRaw != null)
-	{
-		cFamS = cFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
-		for each ft in cFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { cFamList.add(ftv); } }
-	}
-	cType = ifnull(leadRecord.get("Contract_Current_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
-	if(cType == "Flexible") { cType = "Flex"; }
-	cBrands = ifnull(leadRecord.get("Contract_Current_Plan_Brands"), "").toString().trim();
-	if(cBrands == "null") { cBrands = ""; }
-	cStartV = leadRecord.get("Contract_Current_Date_Start");
-	cStart = ""; if(cStartV != null) { cStart = cStartV.toString().trim(); if(cStart.contains("T")) { cStart = cStart.getPrefix("T"); } }
-	cEndV = leadRecord.get("Contract_Current_Date_End");
-	cEnd = ""; if(cEndV != null) { cEnd = cEndV.toString().trim(); if(cEnd.contains("T")) { cEnd = cEnd.getPrefix("T"); } }
-	cAcv = ifnull(leadRecord.get("Contract_Current_ACV"), "").toString().trim();
-
-	// Per-term contract frequency (drives Jurnii 360 pricing). Per-term picklist fields
-	// Contract_Initial_Plan_Frequency / Contract_Current_Plan_Frequency — values "4x per day" /
-	// "2x per day" / "1x per day"; blank for UX/Cortex. Frequency is a contract-line dimension
-	// (per Initial/Current term), NOT interest evidence, so it lives with the other Contract_*
-	// term fields. Shared across families within a term (same limit as Plan Type / Plan Brands).
-	iFreq = ifnull(leadRecord.get("Contract_Initial_Plan_Frequency"), "").toString().trim();
-	if(iFreq == "-None-") { iFreq = ""; }
-	cFreq = ifnull(leadRecord.get("Contract_Current_Plan_Frequency"), "").toString().trim();
-	if(cFreq == "-None-") { cFreq = ""; }
-
-	// dedupe: identical Initial & Current term (same family set, type, brands, dates) -> only Current
-	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd && iFreq == cFreq);
-
-	// Empty fields are encoded as the sentinel "_" (decoded to "" in processDeal) so toList("~")
-	// always yields exactly 9 tokens. iConflict/cConflict flag a Product-Interest vs contract
-	// plan-type conflict (same family, different plan type) for [contract_product_conflict] review.
-	iConflict = false;
-	cConflict = false;
-	termsEncoded = "";
-	// Current term(s) (active/latest). Field order: term~family~type~brands~start~end~acv~freq~tier
-	for each fam in cFamList
-	{
-		famConf = false;
-		if(cType != "")
-		{
-			for each pTok in leadPIStr.toList(",")
-			{
-				pt = pTok.trim();
-				if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + cType).toLowerCase()) { famConf = true; }
-			}
-		}
-		if(famConf) { cConflict = true; }
-		else
-		{
-			cAcvEnc = if(cFamList.size() == 1 && cAcv != "", cAcv, "_");
-			enc = "Current~" + fam + "~" + if(cType != "", cType, "_") + "~" + if(cBrands != "", cBrands, "_") + "~" + if(cStart != "", cStart, "_") + "~" + if(cEnd != "", cEnd, "_") + "~" + cAcvEnc + "~" + if(cFreq != "", cFreq, "_") + "~Base";
-			if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
-		}
-	}
-	// Initial term(s) (earliest identity) — only when the term differs from Current
-	if(!identicalTerms)
-	{
-		for each fam in iFamList
-		{
-			famConf = false;
-			if(iType != "")
-			{
-				for each pTok in leadPIStr.toList(",")
-				{
-					pt = pTok.trim();
-					if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + iType).toLowerCase()) { famConf = true; }
-				}
-			}
-			if(famConf) { iConflict = true; }
-			else
-			{
-				iAcvEnc = if(iFamList.size() == 1 && iAcv != "", iAcv, "_");
-				enc = "Initial~" + fam + "~" + if(iType != "", iType, "_") + "~" + if(iBrands != "", iBrands, "_") + "~" + if(iStart != "", iStart, "_") + "~" + if(iEnd != "", iEnd, "_") + "~" + iAcvEnc + "~" + if(iFreq != "", iFreq, "_") + "~Base";
-				if(termsEncoded != "") { termsEncoded = termsEncoded + ";" + enc; } else { termsEncoded = enc; }
-			}
-		}
-	}
-	// retained for the conflict-review messages in step 6c
-	iFam = ""; if(iFamList.size() > 0) { iFam = iFamList.get(0); }
-	cFam = ""; if(cFamList.size() > 0) { cFam = cFamList.get(0); }
-	info "Import contract termsEncoded='" + termsEncoded + "' iConflict=" + iConflict + " cConflict=" + cConflict + " identical=" + identicalTerms;
+	// ---- 1c. Import-contract tuple extraction: REMOVED (v6-product-deal) ----
+	// The inline flat single-Deal termsEncoded builder that lived here is DELETED. Evidence
+	// collection (Product_Interest + Contract_Initial_*/Contract_Current_* split-contract fields)
+	// and the "~"/";" encoding are now owned by the adapter automation.normalizeToProductQuoteTuples
+	// ("Leads", lead_id), which returns PER-PRODUCT buckets (each with its own terms_encoded), the
+	// unresolved list, and the plan-type conflicts list. See step 6 (per-product fan-out). This keeps
+	// a single source of truth for evidence -> tuple encoding shared with processContact/processDeal.
 
 	// ---- 2. Derive Account_Key ----
 	normalizedDomain = "";
@@ -600,78 +499,106 @@ void automation.processLead(string lead_id)
 		info "Contact update resp (incl. Contact_Role, trigger suppressed): " + contactUpdResp;
 	}
 
-	// ---- 6. Resolve / create canonical active Deal ----
-	dealKey = accountKey + "::active";
-	dealId = "";
+	// ---- 6. PER-PRODUCT DEAL FAN-OUT (v6-product-deal) ----
+	// The single account-level "::active" Deal is GONE. normalizeToProductQuoteTuples owns evidence
+	// collection + encoding and returns one bucket per RESOLVED Product (each with its own
+	// terms_encoded, "" for product-interest-only), plus the unresolved evidence and plan-type
+	// conflict lists. For each bucket we guarantee the Deal = Account x Product box via
+	// createOrReuseProductDeal (Deal_Key = accountKey::productKey), seed the Lead-only Deal fields
+	// the helper does not set, then hand off to processDeal (import_bootstrap when the bucket carries
+	// contract terms, plain reconcile otherwise). No generic Account-level Deal is ever created.
+	accountName = if(company != "", company, accountKey);
+	if(accountRecord != null && ifnull(accountRecord.get("Account_Name"), "") != "") { accountName = accountRecord.get("Account_Name").toString(); }
 
-	searchDeal = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-	if(searchDeal != null && searchDeal.size() > 0 && !searchDeal.toString().startsWith("{\"code\""))
+	noTrig = Map();
+	noTrig.put("trigger", List());
+
+	tuplesJson = automation.normalizeToProductQuoteTuples("Leads", cleanId);
+	tuples = tuplesJson.toMap();
+	prodBuckets = ifnull(tuples.get("products"), List());
+	unresolvedList = ifnull(tuples.get("unresolved"), List());
+	conflictList = ifnull(tuples.get("conflicts"), List());
+	info "6: normalizeToProductQuoteTuples products=" + prodBuckets.size() + " unresolved=" + unresolvedList.size() + " conflicts=" + conflictList.size();
+
+	// Unresolved product evidence -> Contact-only Manual Review (no Deal exists for it). Never discard.
+	for each ur in unresolvedList
 	{
-		dealId = searchDeal.get(0).get("id").toString();
+		urRaw = ifnull(ur.get("raw"), "").toString().trim();
+		urReason = ifnull(ur.get("reason"), "").toString().trim();
+		if(urRaw != "")
+		{
+			automation.createManualReview(newContactId, "", "product_unresolved", "Lead product evidence '" + urRaw + "' could not be resolved to a canonical Product (reason: " + urReason + "). Resolve and re-run.");
+			automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_unresolved", urReason, {"raw":urRaw});
+		}
 	}
-	else
+
+	// Fan out one Product Deal per resolved bucket.
+	for each bucket in prodBuckets
 	{
-		dealName = if(company != "", company, accountKey) + " Deal";
-		dealMap = Map();
-		dealMap.put("Deal_Name", dealName);
-		dealMap.put("Account_Name", accountId);
-		dealMap.put("Deal_Key", dealKey);
+		bProductId = ifnull(bucket.get("product_id"), "").toString().trim();
+		bProductName = ifnull(bucket.get("product_name"), "").toString().trim();
+		bProductKey = ifnull(bucket.get("product_key"), "").toString().trim();
+		bTermsEncoded = ifnull(bucket.get("terms_encoded"), "").toString();
+		if(bProductKey == "") { continue; }
+
+		cprJson = automation.createOrReuseProductDeal(accountId, accountKey, bProductId, bProductName, bProductKey, accountName);
+		cpr = cprJson.toMap();
+		if(ifnull(cpr.get("valid"), "false") != "true")
+		{
+			automation.createManualReview(newContactId, "", "product_unresolved", "Could not create/reuse the Product Deal for '" + bProductName + "' (" + bProductKey + "): " + ifnull(cpr.get("reason"), "") + ".");
+			automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_deal_unavailable", ifnull(cpr.get("reason"), "").toString(), {"product_key":bProductKey});
+			continue;
+		}
+		dealId = ifnull(cpr.get("deal_id"), "").toString().trim();
+		if(dealId == "" || dealId == "null") { continue; }
+
+		// Seed Lead-only Deal fields the helper does not set (suppress triggers; idempotent).
+		// createOrReuseProductDeal already sets Deal_Name/Account_Name/Deal_Key/Deal_Product/
+		// Deal_Product_Key/Opportunity_State=Open/Opportunity_Status=New/Closing_Date.
+		seedDeal = Map();
+		seedDeal.put("Contact_Name", newContactId);
+		if(leadSource != "") { seedDeal.put("Lead_Source", leadSource); }
+		// Company_Tier mirror on the Deal (Account is authoritative; see 6a). Target ACV benchmark only.
+		if(leadCompanyTier != "") { seedDeal.put("Company_Tier", leadCompanyTier); }
 		if(leadLostReasons != "")
 		{
-			// Deal viability = Opportunity_State/Opportunity_Status (Deals have NO bare State/Status
-			// fields; those are Contact/Account-only). Deals are never "Won".
-			dealMap.put("Opportunity_State", "Lost");
-			dealMap.put("Opportunity_Status", "Closed");
-			dealMap.put("Lost_Reasons", leadLostReasons);
+			// Lead arrived already lost -> the Product Deal is Lost/Closed (Deals never Won).
+			seedDeal.put("Opportunity_State", "Lost");
+			seedDeal.put("Opportunity_Status", "Closed");
+			seedDeal.put("Lost_Reasons", leadLostReasons);
+		}
+		zoho.crm.updateRecord("Deals", dealId.toLong(), seedDeal, noTrig);
+
+		// Hand off to processDeal (single commercial owner). import_bootstrap when this bucket
+		// carries contract terms; plain reconcile otherwise.
+		if(bTermsEncoded != "")
+		{
+			importCtx = Map();
+			importCtx.put("source", "import_bootstrap");
+			importCtx.put("sourceModule", "Leads");
+			importCtx.put("sourceRecordId", cleanId);
+			importCtx.put("contactId", newContactId);
+			importCtx.put("opportunityType", "RTP");
+			importCtx.put("termsEncoded", bTermsEncoded);
+			impResp = automation.processDeal(dealId, importCtx.toString());
+			info "6: import_bootstrap processDeal (" + bProductKey + ") resp=" + impResp;
 		}
 		else
 		{
-			dealMap.put("Opportunity_State", "Open");
-			dealMap.put("Opportunity_Status", "New");
+			plainResp = automation.processDeal(dealId, "{}");
+			info "6: plain processDeal (" + bProductKey + ") resp=" + plainResp;
 		}
+	}
 
-		// Opportunity_Stage / Stage (type) and Primary_Contact are set by processDeal
-		// (sole rollup owner). Seed only the initial Primary Contact lookup + Lead data.
-		dealMap.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
-		dealMap.put("Contact_Name", newContactId);
-		if(leadSource != "") { dealMap.put("Lead_Source", leadSource); }
-		// Propagate Company Tier so the Deal's Contract_Target_ACV benchmark formula resolves
-		// (tier1=26000/tier2=16500/tier3=10500). Target ACV is a benchmark only — never Deal.Amount.
-		// (On REUSE of an existing Deal this is handled by the post-resolution block below.)
-		if(leadCompanyTier != "") { dealMap.put("Company_Tier", leadCompanyTier); }
-		// Contract ledger fields (Contract_Initial_*/Contract_Current_*) are DERIVED on the Deal
-		// from Confirmed Quotes by processDeal — never seeded directly from the Lead here (that would
-		// be a competing source of truth). The imported split-contract tuples are routed into the
-		// Quote engine via the import_bootstrap context in step 6c.
-		// F1 FIX (2026-06-24): Deals.Product_Interest_Staging does NOT exist (COQL rejects it),
-		// so this write was a silent no-op. Canonical path: Lead.Product_Interest ->
-		// Contact Products_Linked junction (step 6b) -> activity Contract_Products ->
-		// Quote/Quoted_Items -> Deal Contract_*_Plan_Products. The Deal has no staging field.
-
-		dRes = zoho.crm.createRecord("Deals", dealMap);
-		if(dRes.get("id") != null)
-		{
-			dealId = dRes.get("id").toString();
-		}
-		else if(dRes.get("code") == "DUPLICATE_DATA" && dRes.get("details") != null)
-		{
-			dealId = dRes.get("details").get("id").toString();
-		}
-
-		postDealSearch = zoho.crm.searchRecords("Deals", "(Deal_Key:equals:" + dealKey + ")");
-		if(postDealSearch != null && postDealSearch.size() > 0 && !postDealSearch.toString().startsWith("{\"code\""))
-		{
-			minDealId = 999999999999999999;
-			for each pd in postDealSearch
-			{
-				pdLong = pd.get("id").toString().toLong();
-				if(pdLong < minDealId)
-				{
-					minDealId = pdLong;
-					dealId = pd.get("id").toString();
-				}
-			}
-		}
+	// Plan-type conflicts (Product-Interest vs contract tuple plan type). One review per family.
+	// Conflicts are family-level (the term was skipped, so no Quote/Deal owns them); route each as a
+	// Contact-only Manual Review [contract_product_conflict] so it is never silently dropped.
+	for each cf in conflictList
+	{
+		cfFamily = ifnull(cf.get("family"), "").toString().trim();
+		cfDetail = ifnull(cf.get("detail"), "").toString().trim();
+		automation.createManualReview(newContactId, "", "contract_product_conflict", "Lead Product Interest conflicts with the imported contract plan type for '" + cfFamily + "'. " + cfDetail + " No Quote was created for this term; reconcile the exact Product before bootstrapping.");
+		automation.logAutomationEvent("processLead", "Contacts", newContactId, "contract_product_conflict", cfFamily, {"detail":cfDetail});
 	}
 
 	// ---- 6a. Company Tier: the ACCOUNT is authoritative ----
@@ -750,54 +677,21 @@ void automation.processLead(string lead_id)
 					info "F1: linked Product Interest '" + piClean + "' (" + piProdId + ") to Contact " + newContactId + " via Contacts_X_Products resp=" + linkPI;
 				}
 			}
-			if(!piResolved && dealId != "" && dealId != "null")
+			// Unresolved SKU routing is owned by the per-product fan-out (step 6, from the adapter's
+			// unresolved list) as a Contact-only Manual Review [product_unresolved]. Not duplicated here.
+			if(!piResolved)
 			{
-				automation.createAuxTask(newContactId, dealId, "Manual Review", "[product_unresolved] Lead Product Interest '" + piClean + "' could not be resolved to a Products record at conversion; link it manually to the Contact's Products Linked.");
-				automation.logAutomationEvent("processLead", "Contacts", newContactId, "product_interest", "unresolved_sku", {"sku":piClean});
+				info "F1: Product Interest '" + piClean + "' unresolved for junction link (review raised by step 6 fan-out).";
 			}
-		}
-		if(dealId != "" && dealId != "null" && termsEncoded == "")
-		{
-			// Contact-create workflow can race ahead of this product-link block and run
-			// processDeal before Products_Linked exists. Reconcile once more after the
-			// junction writes; processDeal is idempotent and does not create activation tasks.
-			// When import contract terms exist, the import_bootstrap call (step 6c) performs the
-			// canonical reconcile instead, so we skip this plain pass to avoid double work.
-			postPIReconcile = automation.processDeal(dealId, "{}");
-			info "F1: post Product Interest processDeal reconcile resp=" + postPIReconcile;
 		}
 	}
 
-	// ---- 6c. Imported-contract bootstrap hand-off (2026-06-26) ----
-	// Route the imported split-contract evidence into processDeal (the single commercial owner),
-	// which resolves the exact Product SKU, upserts the idempotent Quote + Quoted Item, prices the
-	// line, recomputes Deal.Amount, and derives the contract ledger. Product-Interest/contract
-	// plan-type conflicts raise [contract_product_conflict] and suppress that term's Quote.
-	if(dealId != "" && dealId != "null")
-	{
-		if(iConflict)
-		{
-			automation.createAuxTask(newContactId, dealId, "Manual Review", "[contract_product_conflict] Lead Product Interest conflicts with the imported Initial contract plan type for '" + iFam + "' (tuple type='" + iType + "'). No Quote was created for this term. Reconcile the exact Product before bootstrapping.");
-			automation.logAutomationEvent("processLead", "Deals", dealId, "contract_product_conflict", iFam, {"term":"Initial","planType":iType});
-		}
-		if(cConflict)
-		{
-			automation.createAuxTask(newContactId, dealId, "Manual Review", "[contract_product_conflict] Lead Product Interest conflicts with the imported Current contract plan type for '" + cFam + "' (tuple type='" + cType + "'). No Quote was created for this term. Reconcile the exact Product before bootstrapping.");
-			automation.logAutomationEvent("processLead", "Deals", dealId, "contract_product_conflict", cFam, {"term":"Current","planType":cType});
-		}
-		if(termsEncoded != "")
-		{
-			importCtx = Map();
-			importCtx.put("source", "import_bootstrap");
-			importCtx.put("sourceModule", "Leads");
-			importCtx.put("sourceRecordId", cleanId);
-			importCtx.put("contactId", newContactId);
-			importCtx.put("opportunityType", "RTP");
-			importCtx.put("termsEncoded", termsEncoded);
-			impReconcile = automation.processDeal(dealId, importCtx.toString());
-			info "6c: import_bootstrap processDeal resp=" + impReconcile;
-		}
-	}
+	// ---- 6c. Imported-contract bootstrap hand-off: REMOVED (v6-product-deal) ----
+	// The flat single-Deal import_bootstrap call and the iConflict/cConflict createAuxTask reviews
+	// that lived here are DELETED. The per-product fan-out (step 6) now performs, per resolved Product
+	// Deal, the import_bootstrap processDeal (when that bucket carries terms) and routes plan-type
+	// conflicts + unresolved evidence via createManualReview. There is no account-level Deal to host a
+	// single flat import call, and terms are encoded per-bucket by normalizeToProductQuoteTuples.
 
 	// ---- 7. Contact pipeline handoff ----
 	// processLead constructs/reuses the Contact-Account-Deal graph and maps Lead data.

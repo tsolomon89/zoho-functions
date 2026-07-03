@@ -1,0 +1,186 @@
+string automation.normalizeToProductQuoteTuples(string moduleName, string recordId)
+{
+	// =========================================================================
+	// _util_normalizeToProductQuoteTuples   (VERSION: v6-product-deal)
+	//
+	// THE engine that turns raw product evidence + legacy contract terms into
+	// resolved, per-product quote tuples ready for the Product Deal / Quote layer.
+	// Consumers align to this exact contract; the field wiring lives entirely in
+	// collectProductEvidence / collectLegacyQuoteEvidence (swappable without
+	// touching this file).
+	//
+	// Steps:
+	//   pe = collectProductEvidence(module, id).raw   (interest names/keys)
+	//   le = collectLegacyQuoteEvidence(module, id)   (structured contract terms)
+	//   1) resolve each interest name -> product bucket (or unresolved)
+	//   2) resolve each term family -> bucket; PI plan-type conflict -> conflicts
+	//      + skip; else ENCODE the term into that product's bucket.
+	//
+	// ENCODING (must match processDeal parser EXACTLY): 9 "~"-joined fields in
+	// order  term~family~type~brands~start~end~acv~freq~tier ; every blank field
+	// becomes "_"; multiple terms for one product joined by ";".
+	// ACV gating: include the real acv ONLY when the source term had exactly ONE
+	// family (the source multiselect emitted one term object per family, so a group
+	// of term objects sharing term+type+brands+start+end+freq of size >1 means the
+	// original term was multi-family -> acv "_").
+	//
+	// Returns a JSON string (parse with .toMap()):
+	//   {
+	//     "products":   [ { product_key, product_id, product_name,
+	//                       terms_encoded, has_terms } ],
+	//     "unresolved": [ { raw, reason } ],
+	//     "conflicts":  [ { family, detail } ]
+	//   }
+	// Buckets with no terms (interest-only) are valid (has_terms="false",
+	// terms_encoded="").
+	// =========================================================================
+	out = Map();
+	productsOut = List();
+	unresolved = List();
+	conflicts = List();
+	out.put("products", productsOut);
+	out.put("unresolved", unresolved);
+	out.put("conflicts", conflicts);
+
+	mod = ifnull(moduleName, "").toString().trim();
+	rid = ifnull(recordId, "").toString().replaceAll("zcrm_", "").trim();
+	if(mod == "" || rid == "" || !rid.matches("[0-9]+")) { return out.toString(); }
+
+	pe = automation.collectProductEvidence(mod, rid).toMap();
+	le = automation.collectLegacyQuoteEvidence(mod, rid).toMap();
+
+	peRaw = ifnull(pe.get("raw"), List());
+	leTerms = ifnull(le.get("terms"), List());
+	piForConflict = ifnull(le.get("pi_for_conflict"), "").toString();
+
+	// buckets keyed by product_key; parallel maps preserve insertion + payload
+	bucketKeys = List();
+	bucketById = Map();      // product_key -> product_id
+	bucketByName = Map();    // product_key -> product_name (canonical)
+	bucketTerms = Map();     // product_key -> encoded terms string
+
+	// ---- (1) product-interest evidence -> buckets ----
+	for each nm in peRaw
+	{
+		name = ifnull(nm, "").toString().trim();
+		if(name == "") { continue; }
+		res = automation.resolveDealProduct(name).toMap();
+		if(ifnull(res.get("valid"), "false").toString() == "true")
+		{
+			pk = ifnull(res.get("product_key"), "").toString();
+			if(pk != "" && !bucketKeys.contains(pk))
+			{
+				bucketKeys.add(pk);
+				bucketById.put(pk, ifnull(res.get("product_id"), "").toString());
+				bucketByName.put(pk, ifnull(res.get("product_name"), "").toString());
+				bucketTerms.put(pk, "");
+			}
+		}
+		else
+		{
+			u = Map();
+			u.put("raw", name);
+			u.put("reason", ifnull(res.get("reason"), "product_unresolved").toString());
+			unresolved.add(u);
+		}
+	}
+
+	// ---- pre-pass: family-count per source term signature (for ACV gating) ----
+	// signature excludes family, so a group size > 1 means the original multiselect
+	// term carried multiple families (per-family acv is then not attributable).
+	sigCount = Map();
+	for each t in leTerms
+	{
+		sig = ifnull(t.get("term"), "").toString() + "|" + ifnull(t.get("type"), "").toString() + "|" + ifnull(t.get("brands"), "").toString() + "|" + ifnull(t.get("start"), "").toString() + "|" + ifnull(t.get("end"), "").toString() + "|" + ifnull(t.get("freq"), "").toString();
+		prev = ifnull(sigCount.get(sig), 0);
+		sigCount.put(sig, prev + 1);
+	}
+
+	// ---- (2) contract terms -> resolve, conflict-check, encode into buckets ----
+	for each t in leTerms
+	{
+		fam = ifnull(t.get("family"), "").toString().trim();
+		if(fam == "") { continue; }
+		rr = automation.resolveDealProduct(fam).toMap();
+		if(ifnull(rr.get("valid"), "false").toString() != "true")
+		{
+			u = Map();
+			u.put("raw", fam);
+			u.put("reason", ifnull(rr.get("reason"), "product_unresolved").toString());
+			unresolved.add(u);
+			continue;
+		}
+
+		tType = ifnull(t.get("type"), "").toString().trim();
+
+		// PI plan-type conflict: a "<family> - <someType>" interest token whose type
+		// differs from this term's type -> conflict + skip (mirror processLead
+		// L313-321,335-343).
+		famConf = false;
+		if(tType != "")
+		{
+			for each pTok in piForConflict.toList(",")
+			{
+				pt = pTok.trim();
+				if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + tType).toLowerCase()) { famConf = true; }
+			}
+		}
+		if(famConf)
+		{
+			cf = Map();
+			cf.put("family", fam);
+			cf.put("detail", "product_interest plan-type conflicts with contract term '" + ifnull(t.get("term"), "").toString() + "' type '" + tType + "'");
+			conflicts.add(cf);
+			continue;
+		}
+
+		// ensure a bucket exists for this resolved product
+		pk = ifnull(rr.get("product_key"), "").toString();
+		if(pk == "") { continue; }
+		if(!bucketKeys.contains(pk))
+		{
+			bucketKeys.add(pk);
+			bucketById.put(pk, ifnull(rr.get("product_id"), "").toString());
+			bucketByName.put(pk, ifnull(rr.get("product_name"), "").toString());
+			bucketTerms.put(pk, "");
+		}
+
+		// ACV gating by source family-count signature
+		sig = ifnull(t.get("term"), "").toString() + "|" + tType + "|" + ifnull(t.get("brands"), "").toString() + "|" + ifnull(t.get("start"), "").toString() + "|" + ifnull(t.get("end"), "").toString() + "|" + ifnull(t.get("freq"), "").toString();
+		acvRaw = ifnull(t.get("acv"), "").toString().trim();
+		acvEnc = "_";
+		if(ifnull(sigCount.get(sig), 0) == 1 && acvRaw != "") { acvEnc = acvRaw; }
+
+		// encode: term~family~type~brands~start~end~acv~freq~tier ("_" for blanks)
+		tTerm = ifnull(t.get("term"), "").toString().trim();
+		tBrands = ifnull(t.get("brands"), "").toString().trim();
+		tStart = ifnull(t.get("start"), "").toString().trim();
+		tEnd = ifnull(t.get("end"), "").toString().trim();
+		tFreq = ifnull(t.get("freq"), "").toString().trim();
+		tTier = ifnull(t.get("tier"), "Base").toString().trim();
+		if(tTier == "") { tTier = "Base"; }
+
+		enc = if(tTerm != "", tTerm, "_") + "~" + fam + "~" + if(tType != "", tType, "_") + "~" + if(tBrands != "", tBrands, "_") + "~" + if(tStart != "", tStart, "_") + "~" + if(tEnd != "", tEnd, "_") + "~" + acvEnc + "~" + if(tFreq != "", tFreq, "_") + "~" + tTier;
+
+		existing = ifnull(bucketTerms.get(pk), "").toString();
+		if(existing != "") { bucketTerms.put(pk, existing + ";" + enc); } else { bucketTerms.put(pk, enc); }
+	}
+
+	// ---- assemble products output ----
+	for each pk in bucketKeys
+	{
+		p = Map();
+		p.put("product_key", pk);
+		p.put("product_id", ifnull(bucketById.get(pk), "").toString());
+		p.put("product_name", ifnull(bucketByName.get(pk), "").toString());
+		encTerms = ifnull(bucketTerms.get(pk), "").toString();
+		p.put("terms_encoded", encTerms);
+		p.put("has_terms", if(encTerms != "", "true", "false"));
+		productsOut.add(p);
+	}
+
+	out.put("products", productsOut);
+	out.put("unresolved", unresolved);
+	out.put("conflicts", conflicts);
+	return out.toString();
+}

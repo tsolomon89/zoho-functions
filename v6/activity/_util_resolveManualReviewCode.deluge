@@ -34,7 +34,8 @@ string automation.resolveManualReviewCode(string codeKey)
 		"renewal_date_invalid",
 		"quote_lifecycle_conflict",
 		"target_acv_unresolved",
-		"multi_product_sequence_ambiguous"
+		"multi_product_sequence_ambiguous",
+		"contract_product_conflict"
 	};
 	if(known.contains(key)) { return "[" + key + "]"; }
 
