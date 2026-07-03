@@ -385,6 +385,17 @@ void automation.processLead(string lead_id)
 		}
 	}
 
+	// ---- Capture per-product evidence + contract tuples from the LEAD *before* convert ----
+	// Deluge getRecordById on a CONVERTED lead returns null (converted leads are excluded from
+	// default reads), so the evidence adapter MUST read the lead while it is still un-converted.
+	// Capture the buckets now; the post-convert fan-out (section 6) consumes these.
+	tuplesJson = automation.normalizeToProductQuoteTuples("Leads", cleanId);
+	tuples = tuplesJson.toMap();
+	prodBuckets = ifnull(tuples.get("products"), List());
+	unresolvedList = ifnull(tuples.get("unresolved"), List());
+	conflictList = ifnull(tuples.get("conflicts"), List());
+	info "pre-convert normalize: products=" + prodBuckets.size() + " unresolved=" + unresolvedList.size() + " conflicts=" + conflictList.size();
+
 	convertMap = Map();
 	convertMap.put("overwrite", false);
 	convertMap.put("notify_lead_owner", false);
@@ -513,12 +524,9 @@ void automation.processLead(string lead_id)
 	noTrig = Map();
 	noTrig.put("trigger", List());
 
-	tuplesJson = automation.normalizeToProductQuoteTuples("Leads", cleanId);
-	tuples = tuplesJson.toMap();
-	prodBuckets = ifnull(tuples.get("products"), List());
-	unresolvedList = ifnull(tuples.get("unresolved"), List());
-	conflictList = ifnull(tuples.get("conflicts"), List());
-	info "6: normalizeToProductQuoteTuples products=" + prodBuckets.size() + " unresolved=" + unresolvedList.size() + " conflicts=" + conflictList.size();
+	// prodBuckets / unresolvedList / conflictList were captured PRE-convert (before convertLead)
+	// because getRecordById on a converted Lead returns null. Do NOT re-read the lead here.
+	info "6: fan-out using pre-convert tuples: products=" + prodBuckets.size() + " unresolved=" + unresolvedList.size() + " conflicts=" + conflictList.size();
 
 	// Unresolved product evidence -> Contact-only Manual Review (no Deal exists for it). Never discard.
 	for each ur in unresolvedList
