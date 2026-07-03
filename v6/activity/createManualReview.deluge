@@ -42,6 +42,42 @@ string automation.createManualReview(string contactIdStr, string dealIdStr, stri
 		}
 	}
 
+	// Contact-only Manual Review (no Deal should be selected -- e.g. multi_product_sequence_ambiguous,
+	// or product_unresolved during import before any Deal exists). createAuxTask requires a Deal, so
+	// create a Contact-scoped review Task directly (Who_Id=Contact, no What_Id), deduped on the leading
+	// [code] token across this Contact's open Manual Review tasks. Do NOT invent a Deal to host it.
+	if(dId == "" && cId != "" && cId.matches("[0-9]+"))
+	{
+		existingC = zoho.crm.getRelatedRecords("Tasks", "Contacts", cId.toLong());
+		if(!isNull(existingC) && existingC.size() > 0 && !existingC.toString().startsWith("{\"code\""))
+		{
+			for each tk in existingC
+			{
+				tType = ifnull(tk.get("Task_Type"), "").toString();
+				tStatus = ifnull(tk.get("Status"), "").toString();
+				tDesc = ifnull(tk.get("Description"), "").toString();
+				if(tType == "Manual Review" && (tStatus == "Not Started" || tStatus == "In Progress") && tDesc.contains(code))
+				{
+					return tk.get("id").toString();
+				}
+			}
+		}
+		coMap = Map();
+		coMap.put("Subject", "Manual Review: " + note);
+		coMap.put("Status", "In Progress");
+		coMap.put("Who_Id", cId);
+		coMap.put("$se_module", "Contacts");
+		coMap.put("Task_Type", "Manual Review");
+		coMap.put("Blocks_Sequence", "Yes");
+		coMap.put("Description", note);
+		coMap.put("Task_Status", "Working");
+		coMap.put("Task_State", "Open");
+		coResp = zoho.crm.createRecord("Tasks", coMap);
+		if(!isNull(coResp) && !isNull(coResp.get("id"))) { return coResp.get("id").toString(); }
+		automation.logAutomationEvent("createManualReview", "Contacts", cId, "review_not_created", "contact_only_create_failed", {"code":code});
+		return "";
+	}
+
 	taskId = automation.createAuxTask(cId, dId, "Manual Review", note);
 	if(taskId == "")
 	{

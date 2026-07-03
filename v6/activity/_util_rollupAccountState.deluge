@@ -37,8 +37,19 @@ void automation.rollupAccountState(string accountId)
 			if(did == "" || !did.matches("[0-9]+")) { continue; }
 			full = zoho.crm.getRecordById("Deals", did.toLong());
 			if(isNull(full) || isNull(full.get("id"))) { continue; }
-			// exclude silenced duplicates (Deal_Key cleared by dedup)
-			if(ifnull(full.get("Deal_Key"), "").toString().trim() == "") { continue; }
+			// Count ONLY genuine Product Deals so legacy/non-product Deals don't pollute Account_Status
+			// while Phase 1/2 coexist with old data. Ignore:
+			//   - blank Deal_Key (silenced duplicate)
+			//   - Deal_Key ending "::active" (legacy account-level Deal)
+			//   - no product identity (blank Deal_Product_Key AND blank Deal_Product)
+			dKey = ifnull(full.get("Deal_Key"), "").toString().trim();
+			dpKey = ifnull(full.get("Deal_Product_Key"), "").toString().trim();
+			dpLk = full.get("Deal_Product");
+			dpId = "";
+			if(!isNull(dpLk) && !isNull(dpLk.get("id"))) { dpId = dpLk.get("id").toString(); }
+			if(dKey == "") { continue; }
+			if(dKey.endsWith("::active")) { continue; }
+			if(dpKey == "" && dpId == "") { continue; }
 
 			total = total + 1;
 			st = ifnull(full.get("Opportunity_State"), "Open").toString();

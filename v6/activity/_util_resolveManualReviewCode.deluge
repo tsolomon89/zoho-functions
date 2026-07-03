@@ -33,7 +33,8 @@ string automation.resolveManualReviewCode(string codeKey)
 		"expansion_downgrade_attempt",
 		"renewal_date_invalid",
 		"quote_lifecycle_conflict",
-		"target_acv_unresolved"
+		"target_acv_unresolved",
+		"multi_product_sequence_ambiguous"
 	};
 	if(known.contains(key)) { return "[" + key + "]"; }
 
