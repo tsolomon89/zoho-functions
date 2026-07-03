@@ -134,7 +134,10 @@ string automation.processDeal(string deal_id, string contextJson)
 		result.put("outcome", "missing_account_key");
 		return result.toString();
 	}
-	dealKey = accountKey + "::active";
+	// Deal_Key is PRODUCT-SCOPED: accountKey + "::" + productKey. The productKey is resolved from
+	// the Deal's own Deal_Product / else EXACTLY ONE unique non-lost child Quote product (§6b below),
+	// so Deal_Key is composed there — never here, and NEVER the legacy "::active" account-level key.
+	dealKey = "";
 
 	// EXACT supplied deal only — never reselect a canonical/min-id Deal.
 	targetDealId = cleanId;
@@ -1580,6 +1583,13 @@ string automation.processDeal(string deal_id, string contextJson)
 	// ===================================================================
 	totalAmount = 0.0;
 	quoteCount = 0;
+	// Phase 1: product identity + controlling-Contact gathered INSIDE the Amount loop (no extra reads).
+	nonLostProdKeys = List();          // distinct normalised Quote_Product keys across non-lost Quotes
+	nonLostProdIdByKey = Map();        // productKey -> Products record id (for stamping Deal_Product)
+	ctrlContactId = "";                // controlling Quote's Contact (most-advanced non-lost Quote)
+	ctrlContactRank = -1;
+	ctrlContactQuoteId = 0;
+	qStageRankMap = {"Draft":1, "Negotiation":2, "On Hold":2, "Delivered":3, "Confirmed":4, "Closed Won":5};
 	dealQuotesAmt = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
 	if(dealQuotesAmt != null && dealQuotesAmt.size() > 0 && !dealQuotesAmt.toString().startsWith("{\"code\""))
 	{
@@ -1599,20 +1609,38 @@ string automation.processDeal(string deal_id, string contextJson)
 			sub = ifnull(fullQ.get("Sub_Total"), "0").toDecimal();
 			contractAcv = ifnull(fullQ.get("Contract_ACV"), "0").toDecimal();
 
+			// Contract_ACV-first for ALL non-lost stages (Quote ACV is authoritative; a scaffold Draft
+			// may carry Contract_ACV with no Quoted_Items lines and must not be undercounted). Target
+			// ACV is NEVER used here — it is only the §8b pre-contract fallback.
 			qTotal = 0.0;
-			if(qStg == "Confirmed" || qStg == "Closed Won")
-			{
-				if(contractAcv > 0) { qTotal = contractAcv; }
-				else if(grand > 0) { qTotal = grand; }
-				else { qTotal = sub; }
-			}
-			else
-			{
-				// Draft / Negotiation / Delivered / On Hold
-				if(grand > 0) { qTotal = grand; }
-				else { qTotal = sub; }
-			}
+			if(contractAcv > 0) { qTotal = contractAcv; }
+			else if(grand > 0) { qTotal = grand; }
+			else if(sub > 0) { qTotal = sub; }
 			totalAmount = totalAmount + qTotal;
+
+			// --- Phase 1: gather this non-lost Quote's product key + controlling Contact ---
+			qpLk = fullQ.get("Quote_Product");
+			if(!isNull(qpLk) && !isNull(qpLk.get("name")))
+			{
+				qpk = automation.computeProductKey(qpLk.get("name").toString());
+				if(qpk != "")
+				{
+					if(!nonLostProdKeys.contains(qpk)) { nonLostProdKeys.add(qpk); }
+					if(!isNull(qpLk.get("id"))) { nonLostProdIdByKey.put(qpk, qpLk.get("id").toString()); }
+				}
+			}
+			qcLk = fullQ.get("Contact_Name");
+			if(!isNull(qcLk) && !isNull(qcLk.get("id")))
+			{
+				qCid = qcLk.get("id").toString();
+				qRank = ifnull(qStageRankMap.get(qStg), 0).toLong();
+				if(qRank > ctrlContactRank || (qRank == ctrlContactRank && dqId.toLong() > ctrlContactQuoteId))
+				{
+					ctrlContactRank = qRank;
+					ctrlContactQuoteId = dqId.toLong();
+					ctrlContactId = qCid;
+				}
+			}
 		}
 	}
 
@@ -1622,6 +1650,83 @@ string automation.processDeal(string deal_id, string contextJson)
 	// contract Quote, and violated the Amount invariant. With no Quotes, Amount is 0.
 	totalAmount = totalAmount.round(2);
 	info "Amount recompute: quoteCount=" + quoteCount + " totalAmount=" + totalAmount;
+
+	// ===================================================================
+	// 6b. Phase 1 — resolve the Deal's PRODUCT identity + compose the product-scoped Deal_Key.
+	//     Precedence (never "::active", never partial):
+	//       - Deal_Product / Deal_Product_Key present -> AUTHORITATIVE; compose Deal_Key from it,
+	//         and flag any disagreeing non-lost Quote [quote_product_mismatch] (do NOT auto-move).
+	//       - else derive from non-lost child Quotes: EXACTLY ONE unique product key -> stamp + compose;
+	//         >1 unique -> [quote_product_mismatch], do NOT stamp Deal_Product / compose Deal_Key;
+	//         0 -> [product_unresolved], do NOT compose Deal_Key.
+	//     (dUpd does not exist yet; stamping of Deal_Product/Key/Deal_Key happens in §8.)
+	// ===================================================================
+	dealProductKey = ifnull(targetDeal.get("Deal_Product_Key"), "").toString().trim();
+	dealProductId = "";
+	dpExisting = targetDeal.get("Deal_Product");
+	if(!isNull(dpExisting) && !isNull(dpExisting.get("id"))) { dealProductId = dpExisting.get("id").toString(); }
+	if(dealProductKey == "" && !isNull(dpExisting) && !isNull(dpExisting.get("name")))
+	{
+		dealProductKey = automation.computeProductKey(dpExisting.get("name").toString());
+	}
+	dealProductResolved = false;
+
+	if(dealProductKey != "")
+	{
+		// AUTHORITATIVE Deal product — compose from it; flag any Quote that disagrees.
+		dealProductResolved = true;
+		dealKey = accountKey + "::" + dealProductKey;
+		qDisagree = false;
+		for each pk in nonLostProdKeys
+		{
+			if(pk.toString() != dealProductKey) { qDisagree = true; }
+		}
+		if(qDisagree)
+		{
+			result.put("reviewRequired", true);
+			if(!reviewReasons.contains("quote_product_mismatch")) { reviewReasons.add("quote_product_mismatch"); }
+			automation.createManualReview(primaryContactId, targetDealId, "quote_product_mismatch", "Deal_Product=" + dealProductKey + " but non-lost Quote products = " + nonLostProdKeys.toString() + ". Reroute mismatched Quotes to the correct Product Deal (not auto-moved).");
+			automation.logAutomationEvent("processDeal", "Deals", targetDealId, "product_mismatch", "quote_vs_deal_product", {"deal":dealProductKey, "quotes":nonLostProdKeys.toString()});
+		}
+	}
+	else if(nonLostProdKeys.size() == 1)
+	{
+		// derive from the single unique non-lost Quote product
+		dealProductResolved = true;
+		dealProductKey = nonLostProdKeys.get(0).toString();
+		dealProductId = ifnull(nonLostProdIdByKey.get(dealProductKey), "").toString();
+		dealKey = accountKey + "::" + dealProductKey;
+	}
+	else if(nonLostProdKeys.size() > 1)
+	{
+		// ambiguous — do NOT stamp Deal_Product or compose Deal_Key; never auto-pick.
+		result.put("reviewRequired", true);
+		if(!reviewReasons.contains("quote_product_mismatch")) { reviewReasons.add("quote_product_mismatch"); }
+		automation.createManualReview(primaryContactId, targetDealId, "quote_product_mismatch", "Deal has non-lost Quotes for multiple Products " + nonLostProdKeys.toString() + " and no authoritative Deal_Product; cannot resolve a single Product. Reroute Quotes to the correct Product Deals.");
+		automation.logAutomationEvent("processDeal", "Deals", targetDealId, "product_mismatch", "multiple_quote_products", {"keys":nonLostProdKeys.toString()});
+	}
+	else
+	{
+		// No authoritative Deal_Product AND no non-lost Quote product.
+		//   FTP+ (commercial) -> genuinely unresolved: Manual Review [product_unresolved].
+		//   Pre-FTP early-stage -> LEGACY COEXISTENCE GUARD (narrow): leave the Deal UNTOUCHED
+		//     (no [product_unresolved], no re-key, no stamp) while Phase 1 runs before the Phase 2
+		//     creators exist. dealKey stays "" so §8 never writes it (never restores "::active");
+		//     dealProductResolved stays false so §8 stamps nothing. This tolerates legacy
+		//     productless early-stage Deals until Phase 2 / fresh import replaces them.
+		ftpPlus = (effectiveOppType == "FTP" || effectiveOppType == "RTP");
+		if(ftpPlus)
+		{
+			result.put("reviewRequired", true);
+			if(!reviewReasons.contains("product_unresolved")) { reviewReasons.add("product_unresolved"); }
+			automation.createManualReview(primaryContactId, targetDealId, "product_unresolved", "FTP+ Deal has no Deal_Product and no non-lost Quote with a resolvable Product; cannot compose a product-scoped Deal_Key.");
+			automation.logAutomationEvent("processDeal", "Deals", targetDealId, "product_unresolved", "ftp_no_product_identity", {"oppType":effectiveOppType});
+		}
+		else
+		{
+			automation.logAutomationEvent("processDeal", "Deals", targetDealId, "product_skip_legacy_early_stage", "no_product_evidence_pre_ftp", {"oppType":effectiveOppType});
+		}
+	}
 
 	// ===================================================================
 	// 7. Contractual-term ledger (Confirmed/Closed-Won only)
@@ -1748,7 +1853,23 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	// ===================================================================
 	dUpd = Map();
 
-	if(ifnull(targetDeal.get("Deal_Key"), "") != dealKey && !isQuoteSrc) { dUpd.put("Deal_Key", dealKey); }
+	// Deal_Key is product-scoped; write ONLY when composed (§6b resolved a single Product). Never
+	// write empty / "::active" / partial. (isQuoteSrc guard preserved: quote-sourced reconciles do
+	// not clobber the key set by the creator.)
+	if(dealKey != "" && ifnull(targetDeal.get("Deal_Key"), "").toString() != dealKey && !isQuoteSrc) { dUpd.put("Deal_Key", dealKey); }
+
+	// Stamp Deal_Product / Deal_Product_Key when a single Product was resolved (§6b).
+	if(dealProductResolved && dealProductKey != "")
+	{
+		if(ifnull(targetDeal.get("Deal_Product_Key"), "").toString() != dealProductKey) { dUpd.put("Deal_Product_Key", dealProductKey); }
+		if(dealProductId != "" && dealProductId.matches("[0-9]+"))
+		{
+			curDpId = "";
+			curDp2 = targetDeal.get("Deal_Product");
+			if(!isNull(curDp2) && !isNull(curDp2.get("id"))) { curDpId = curDp2.get("id").toString(); }
+			if(curDpId != dealProductId) { dpm = Map(); dpm.put("id", dealProductId); dUpd.put("Deal_Product", dpm); }
+		}
+	}
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	// Deal.Amount is set by the valuation-hierarchy block AFTER viability is resolved (it needs the
@@ -1769,19 +1890,24 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			}
 		}
 	}
-	if(furthestContactId != "")
+	// Deal.Contact = controlling Quote.Contact (the most-advanced non-lost Quote, resolved in §6b)
+	// when present; otherwise the furthest-stage open Account Contact (prior behaviour).
+	// Spec: Quote.Contact -> Deal.Contact.
+	dealContactId = furthestContactId;
+	if(ctrlContactId != "") { dealContactId = ctrlContactId; }
+	if(dealContactId != "")
 	{
-		if(furthestContactId != currentPrimaryId) { dUpd.put("Contact_Name", furthestContactId); }
-		if(!primaryContactIdsList.contains(furthestContactId))
+		if(dealContactId != currentPrimaryId) { dUpd.put("Contact_Name", dealContactId); }
+		if(!primaryContactIdsList.contains(dealContactId))
 		{
 			pcList = List();
 			for each existingPcId in primaryContactIdsList
 			{
 				existingPcMap = Map(); existingPcMap.put("id", existingPcId.toLong()); pcList.add(existingPcMap);
 			}
-			newPcMap = Map(); newPcMap.put("id", furthestContactId.toLong()); pcList.add(newPcMap);
+			newPcMap = Map(); newPcMap.put("id", dealContactId.toLong()); pcList.add(newPcMap);
 			dUpd.put("Primary_Contact", pcList);
-			primaryContactIdsList.add(furthestContactId);
+			primaryContactIdsList.add(dealContactId);
 		}
 	}
 
