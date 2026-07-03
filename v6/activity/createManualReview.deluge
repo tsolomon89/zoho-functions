@@ -1,0 +1,52 @@
+string automation.createManualReview(string contactIdStr, string dealIdStr, string codeKey, string detail)
+{
+	// =========================================================================
+	// createManualReview   (VERSION: v6-product-deal)
+	//
+	// Thin convenience wrapper that realises the plan's "createAuxTask gains a
+	// reviewCode contract" WITHOUT changing createAuxTask's signature (which would
+	// break its ~existing callers before Phases 1-4 rewire them). It resolves a
+	// canonical review code via resolveManualReviewCode and prepends it to the
+	// note, then delegates to createAuxTask("Manual Review", ...).
+	//
+	// Because the note LEADS with the canonical "[code]" token, createAuxTask's
+	// existing append-issue dedup makes repeated fires idempotent per Contact/Deal
+	// and accumulates DISTINCT codes on one reusable Manual Review task.
+	//
+	// Returns the Manual Review Task id (new or reused), or "".
+	// =========================================================================
+	code = automation.resolveManualReviewCode(codeKey);
+	note = code;
+	det = ifnull(detail, "").toString().trim();
+	if(det != "") { note = code + " " + det; }
+
+	cId = ifnull(contactIdStr, "").toString().replaceAll("zcrm_", "").trim();
+	dId = ifnull(dealIdStr, "").toString().replaceAll("zcrm_", "").trim();
+
+	// createAuxTask requires BOTH a contact and a deal (it returns "" otherwise).
+	// Several review codes legitimately have no contact (e.g. quote_missing_contact,
+	// product_unresolved). Fall back to the Deal's primary contact so the review is
+	// never silently dropped.
+	if(cId == "" && dId != "" && dId.matches("[0-9]+"))
+	{
+		dealRec = zoho.crm.getRecordById("Deals", dId.toLong());
+		if(!isNull(dealRec) && !isNull(dealRec.get("id")))
+		{
+			pc = dealRec.get("Deal_Primary_Contact");
+			if(!isNull(pc) && !isNull(pc.get("id"))) { cId = pc.get("id").toString(); }
+			if(cId == "")
+			{
+				cn = dealRec.get("Contact_Name");
+				if(!isNull(cn) && !isNull(cn.get("id"))) { cId = cn.get("id").toString(); }
+			}
+		}
+	}
+
+	taskId = automation.createAuxTask(cId, dId, "Manual Review", note);
+	if(taskId == "")
+	{
+		// never let a review vanish silently -- surface the unresolvable case in the log
+		automation.logAutomationEvent("createManualReview", "Deals", dId, "review_not_created", "no_contact_or_deal", {"code":code, "detail":det});
+	}
+	return taskId;
+}

@@ -1,0 +1,87 @@
+void automation.rollupAccountState(string accountId)
+{
+	// =========================================================================
+	// _util_rollupAccountState   (VERSION: v6-product-deal)
+	//
+	// Aggregate Product-Deal state onto the Account (spec M1 / doc 00,05):
+	//   Account.State        = "Lost" ONLY when EVERY Product Deal is Lost; else "Open".
+	//                          (Never "Won" -- mirrors decision 2: Deals are never Won.)
+	//   Account.Account_Status = "Churned"        when all Product Deals Lost
+	//                          = "Active Customer" when >=1 Deal is signed/active (RTP)
+	//                          = "Prospect"        otherwise (open, none signed yet)
+	//
+	// "Signed/active" is inferred from Opportunity_Stage in {Onboarding, Renewal}
+	// (RTP) -- the canonical single-L values used across the codebase and confirmed
+	// in live Deal data (matches syncConfirmedQuoteToDeal's RTP check). Silenced
+	// duplicate Deals (blank Deal_Key) are excluded.
+	//
+	// Writes use trigger suppression so the Account WFC does not cascade. Does not
+	// touch Account.Status (New/Working/Closed) -- that value set is not part of the
+	// spec rollup.
+	// =========================================================================
+	accId = ifnull(accountId, "").toString().replaceAll("zcrm_", "").trim();
+	if(accId == "" || !accId.matches("[0-9]+")) { return; }
+
+	noTrigger = Map();
+	noTrigger.put("trigger", List());
+
+	deals = zoho.crm.getRelatedRecords("Deals", "Accounts", accId.toLong());
+	total = 0;
+	lost = 0;
+	signed = 0;
+	if(!isNull(deals) && deals.size() > 0 && !deals.toString().startsWith("{\"code\""))
+	{
+		for each d in deals
+		{
+			did = ifnull(d.get("id"), "").toString();
+			if(did == "" || !did.matches("[0-9]+")) { continue; }
+			full = zoho.crm.getRecordById("Deals", did.toLong());
+			if(isNull(full) || isNull(full.get("id"))) { continue; }
+			// exclude silenced duplicates (Deal_Key cleared by dedup)
+			if(ifnull(full.get("Deal_Key"), "").toString().trim() == "") { continue; }
+
+			total = total + 1;
+			st = ifnull(full.get("Opportunity_State"), "Open").toString();
+			if(st == "Lost") { lost = lost + 1; }
+			stage = ifnull(full.get("Opportunity_Stage"), "").toString();
+			if(stage == "Onboarding" || stage == "Renewal") { signed = signed + 1; }
+		}
+	}
+
+	if(total == 0)
+	{
+		automation.logAutomationEvent("rollupAccountState", "Accounts", accId, "rollup", "no_product_deals", null);
+		return;
+	}
+
+	acctState = "";
+	acctStatus = "";
+	if(lost == total)
+	{
+		acctState = "Lost";
+		acctStatus = "Churned";
+	}
+	else
+	{
+		acctState = "Open";
+		acctStatus = if(signed > 0, "Active Customer", "Prospect");
+	}
+
+	upd = Map();
+	upd.put("State", acctState);
+	upd.put("Account_Status", acctStatus);
+	updResp = zoho.crm.updateRecord("Accounts", accId.toLong(), upd, noTrigger);
+	// State / Account_Status are currently unused on live Accounts (all null), so an
+	// invalid picklist option would be rejected here. Surface any rejection in the log
+	// instead of assuming success. (Verify the option strings before publish -- see
+	// Phase 0 checklist.)
+	updOk = (!isNull(updResp) && !isNull(updResp.get("id")));
+	if(updOk)
+	{
+		automation.logAutomationEvent("rollupAccountState", "Accounts", accId, "rollup", "applied", {"state":acctState, "account_status":acctStatus, "total":total.toString(), "lost":lost.toString(), "signed":signed.toString()});
+	}
+	else
+	{
+		automation.logAutomationEvent("rollupAccountState", "Accounts", accId, "rollup", "update_rejected", {"state":acctState, "account_status":acctStatus, "resp":ifnull(updResp, "").toString()});
+	}
+}
