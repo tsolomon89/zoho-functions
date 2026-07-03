@@ -1,9 +1,9 @@
 string automation.normalizeToProductQuoteTuples(string moduleName, string recordId)
 {
 	// =========================================================================
-	// _util_normalizeToProductQuoteTuples   (VERSION: v6-product-deal)
+	// _util_normalizeToProductQuoteTuples   (VERSION: v6-product-quote-11field)
 	//
-	// THE engine that turns raw product evidence + legacy contract terms into
+	// THE engine that turns raw product evidence + structured contract terms into
 	// resolved, per-product quote tuples ready for the Product Deal / Quote layer.
 	// Consumers align to this exact contract; the field wiring lives entirely in
 	// collectProductEvidence / collectLegacyQuoteEvidence (swappable without
@@ -13,16 +13,27 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 	//   pe = collectProductEvidence(module, id).raw   (interest names/keys)
 	//   le = collectLegacyQuoteEvidence(module, id)   (structured contract terms)
 	//   1) resolve each interest name -> product bucket (or unresolved)
-	//   2) resolve each term family -> bucket; PI plan-type conflict -> conflicts
-	//      + skip; else ENCODE the term into that product's bucket.
+	//   2) resolve each term family -> bucket (or unresolved + skip);
+	//      else ENCODE the term into that product's bucket.
 	//
-	// ENCODING (must match processDeal parser EXACTLY): 9 "~"-joined fields in
-	// order  term~family~type~brands~start~end~acv~freq~tier ; every blank field
-	// becomes "_"; multiple terms for one product joined by ";".
-	// ACV gating: include the real acv ONLY when the source term had exactly ONE
-	// family (the source multiselect emitted one term object per family, so a group
-	// of term objects sharing term+type+brands+start+end+freq of size >1 means the
-	// original term was multi-family -> acv "_").
+	// ENCODING (must match processDeal 5b parser EXACTLY): 11 "~"-joined fields
+	// in THIS order; every blank field becomes "_"; multiple terms for one
+	// product joined by ";".
+	//   0 quoteType   (from term.term: Acquisition|Expansion|Renewal)
+	//   1 family      (canonical product NAME)
+	//   2 planType    (term.type: Fixed|Flex|_)
+	//   3 brands      (term.brands: integer|_)
+	//   4 dateStart   (term.start: yyyy-MM-dd|_)
+	//   5 dateEnd     (term.end: yyyy-MM-dd|_)
+	//   6 acv         (term.acv: number|_)
+	//   7 freq        (term.freq: 4x/2x/1x per day|_)
+	//   8 tier        (always "Base")
+	//   9 dateRenewal (term.date_renewal: yyyy-MM-dd|_)
+	//  10 stage       (term.stage: Draft|Negotiation|...|Closed Lost|_)
+	//
+	// ACV: the A/E/R Plan Products group is SINGLE-select, so each term is
+	// single-product; ACV is always included when present (no multi-family
+	// blanking). pi_for_conflict is "" from the adapter, so no conflict fires.
 	//
 	// Returns a JSON string (parse with .toMap()):
 	//   {
@@ -51,7 +62,6 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 
 	peRaw = ifnull(pe.get("raw"), List());
 	leTerms = ifnull(le.get("terms"), List());
-	piForConflict = ifnull(le.get("pi_for_conflict"), "").toString();
 
 	// buckets keyed by product_key; parallel maps preserve insertion + payload
 	bucketKeys = List();
@@ -85,18 +95,7 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 		}
 	}
 
-	// ---- pre-pass: family-count per source term signature (for ACV gating) ----
-	// signature excludes family, so a group size > 1 means the original multiselect
-	// term carried multiple families (per-family acv is then not attributable).
-	sigCount = Map();
-	for each t in leTerms
-	{
-		sig = ifnull(t.get("term"), "").toString() + "|" + ifnull(t.get("type"), "").toString() + "|" + ifnull(t.get("brands"), "").toString() + "|" + ifnull(t.get("start"), "").toString() + "|" + ifnull(t.get("end"), "").toString() + "|" + ifnull(t.get("freq"), "").toString();
-		prev = ifnull(sigCount.get(sig), 0);
-		sigCount.put(sig, prev + 1);
-	}
-
-	// ---- (2) contract terms -> resolve, conflict-check, encode into buckets ----
+	// ---- (2) contract terms -> resolve, encode into buckets ----
 	for each t in leTerms
 	{
 		fam = ifnull(t.get("family"), "").toString().trim();
@@ -111,29 +110,6 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 			continue;
 		}
 
-		tType = ifnull(t.get("type"), "").toString().trim();
-
-		// PI plan-type conflict: a "<family> - <someType>" interest token whose type
-		// differs from this term's type -> conflict + skip (mirror processLead
-		// L313-321,335-343).
-		famConf = false;
-		if(tType != "")
-		{
-			for each pTok in piForConflict.toList(",")
-			{
-				pt = pTok.trim();
-				if(pt.toLowerCase().startsWith(fam.toLowerCase() + " - ") && pt.toLowerCase() != (fam + " - " + tType).toLowerCase()) { famConf = true; }
-			}
-		}
-		if(famConf)
-		{
-			cf = Map();
-			cf.put("family", fam);
-			cf.put("detail", "product_interest plan-type conflicts with contract term '" + ifnull(t.get("term"), "").toString() + "' type '" + tType + "'");
-			conflicts.add(cf);
-			continue;
-		}
-
 		// ensure a bucket exists for this resolved product
 		pk = ifnull(rr.get("product_key"), "").toString();
 		if(pk == "") { continue; }
@@ -145,22 +121,21 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 			bucketTerms.put(pk, "");
 		}
 
-		// ACV gating by source family-count signature
-		sig = ifnull(t.get("term"), "").toString() + "|" + tType + "|" + ifnull(t.get("brands"), "").toString() + "|" + ifnull(t.get("start"), "").toString() + "|" + ifnull(t.get("end"), "").toString() + "|" + ifnull(t.get("freq"), "").toString();
-		acvRaw = ifnull(t.get("acv"), "").toString().trim();
-		acvEnc = "_";
-		if(ifnull(sigCount.get(sig), 0) == 1 && acvRaw != "") { acvEnc = acvRaw; }
-
-		// encode: term~family~type~brands~start~end~acv~freq~tier ("_" for blanks)
-		tTerm = ifnull(t.get("term"), "").toString().trim();
+		// gather + encode (single-select group: acv always included when present)
+		tQuoteType = ifnull(t.get("term"), "").toString().trim();
+		tType = ifnull(t.get("type"), "").toString().trim();
 		tBrands = ifnull(t.get("brands"), "").toString().trim();
 		tStart = ifnull(t.get("start"), "").toString().trim();
 		tEnd = ifnull(t.get("end"), "").toString().trim();
+		tAcv = ifnull(t.get("acv"), "").toString().trim();
 		tFreq = ifnull(t.get("freq"), "").toString().trim();
 		tTier = ifnull(t.get("tier"), "Base").toString().trim();
 		if(tTier == "") { tTier = "Base"; }
+		tRenewal = ifnull(t.get("date_renewal"), "").toString().trim();
+		tStage = ifnull(t.get("stage"), "").toString().trim();
 
-		enc = if(tTerm != "", tTerm, "_") + "~" + fam + "~" + if(tType != "", tType, "_") + "~" + if(tBrands != "", tBrands, "_") + "~" + if(tStart != "", tStart, "_") + "~" + if(tEnd != "", tEnd, "_") + "~" + acvEnc + "~" + if(tFreq != "", tFreq, "_") + "~" + tTier;
+		// 11-field order: quoteType~family~planType~brands~start~end~acv~freq~tier~dateRenewal~stage
+		enc = if(tQuoteType != "", tQuoteType, "_") + "~" + ifnull(rr.get("product_name"), fam).toString() + "~" + if(tType != "", tType, "_") + "~" + if(tBrands != "", tBrands, "_") + "~" + if(tStart != "", tStart, "_") + "~" + if(tEnd != "", tEnd, "_") + "~" + if(tAcv != "", tAcv, "_") + "~" + if(tFreq != "", tFreq, "_") + "~" + tTier + "~" + if(tRenewal != "", tRenewal, "_") + "~" + if(tStage != "", tStage, "_");
 
 		existing = ifnull(bucketTerms.get(pk), "").toString();
 		if(existing != "") { bucketTerms.put(pk, existing + ";" + enc); } else { bucketTerms.put(pk, enc); }

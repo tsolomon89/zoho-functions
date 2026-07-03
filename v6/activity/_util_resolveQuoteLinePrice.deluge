@@ -65,6 +65,9 @@ string automation.resolveQuoteLinePrice(string productId, string planType, strin
 		if(!isNull(prod) && !isNull(prod.get("id")))
 		{
 			family = ifnull(prod.get("Product_Plan_Products"), "").toString().trim();
+			// CANONICAL model: name-only Products carry a BLANK Product_Plan_Products.
+			// Fall back to the Product_Name as the family (e.g. "Jurnii UX" -> "Jurnii UX").
+			if(family == "") { family = ifnull(prod.get("Product_Name"), "").toString().trim(); }
 			if(family == "Jurnii Cortext") { family = "Jurnii Cortex"; }
 			if(pType == "")
 			{

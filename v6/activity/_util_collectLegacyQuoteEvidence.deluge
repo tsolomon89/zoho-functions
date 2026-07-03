@@ -3,32 +3,41 @@ string automation.collectLegacyQuoteEvidence(string moduleName, string recordId)
 	// =========================================================================
 	// _util_collectLegacyQuoteEvidence   (VERSION: v6-product-deal)
 	//
-	// Extract split-contract TERMS from the Contract_Initial_* / Contract_Current_*
-	// fields. These fields live ONLY on Leads today, so this returns terms only for
-	// module=="Leads"; every other module returns an empty term set.
+	// Extract split-contract TERMS from the NEW Lead A/E/R quote groups:
+	//   Acquisition_* / Expansion_* / Renewal_*.
+	// (The legacy Contract_Initial_* / Contract_Current_* fields are DEPRECATED
+	// and are no longer read.) These group fields live ONLY on Leads today, so
+	// this returns terms only for module=="Leads"; every other module returns an
+	// empty term set.
 	//
-	// Parsing mirrors processLead.deluge lines 256-355 EXACTLY:
-	//   - Contract_{Initial,Current}_Plan_Products is MULTISELECT -> one term per
-	//     family (strip [ ] " ' ; split ","; "Jurnii Cortext"->"Jurnii Cortex";
-	//     drop -None-);
-	//   - Contract_*_Plan_Type: "Flexible" -> "Flex";
-	//   - Contract_*_Plan_Brands: "null" -> "";
-	//   - Contract_*_Date_Start / _End: strip anything from "T" onward;
-	//   - Contract_*_ACV: as-is trimmed;
-	//   - Contract_*_Plan_Frequency: "-None-" -> "";
-	//   - tier: always "Base".
-	//   - identical-term dedup: if Initial family-set/type/brands/dates/freq ==
-	//     Current, emit only Current terms.
+	// For EACH group prefix {P} in [Acquisition_, Expansion_, Renewal_] read:
+	//   {P}Quote_Plan_Products      (SINGLE picklist: Jurnii UX/Jurnii 360/
+	//                                Jurnii Cortex/Partnership)
+	//   {P}Quote_Plan_Type          ("Flexible" -> "Flex")
+	//   {P}Quote_Plan_Brands
+	//   {P}Quote_Plan_Frequency     ("-None-" -> "")
+	//   {P}Quote_Contract_Date_Start (strip anything from "T" onward)
+	//   {P}Quote_Contract_Date_End   (strip anything from "T" onward)
+	//   {P}Quote_Contract_Date_Renewal
+	//   {P}Quote_ACV
+	//   {P}Quote_Stage
+	// If {P}Quote_Plan_Products is non-blank, emit ONE term object; a group with
+	// blank Plan Products emits no term. "Jurnii Cortext" -> "Jurnii Cortex".
+	// The term object's "term" field now carries the QUOTE TYPE = group name
+	// (Acquisition | Expansion | Renewal). tier is always "Base".
 	//
-	// This helper does NOT resolve products, apply the PI plan-type conflict check,
-	// or pre-encode. It returns STRUCTURED per-family term objects so the engine
-	// (normalizeToProductQuoteTuples) can resolve/conflict/encode.
+	// This helper does NOT resolve products, apply any PI plan-type conflict
+	// check, or pre-encode. It returns STRUCTURED per-group term objects so the
+	// engine (normalizeToProductQuoteTuples) can resolve/encode.
 	//
 	// Returns a JSON string (parse with .toMap()):
 	//   {
-	//     "terms": [ { term, family, type, brands, start, end, acv, freq, tier } ],
-	//     "pi_for_conflict": "<Lead Product_Interest as a comma string>"
+	//     "terms": [ { term, family, type, brands, start, end, date_renewal,
+	//                  acv, freq, tier, stage } ],
+	//     "pi_for_conflict": ""
 	//   }
+	// pi_for_conflict is always "" now (Plan Products is canonical and separate
+	// from Plan Type, so no Product_Interest-vs-type conflict check is needed).
 	// For non-Lead modules: { "terms": [], "pi_for_conflict": "" }.
 	// =========================================================================
 	r = Map();
@@ -43,101 +52,60 @@ string automation.collectLegacyQuoteEvidence(string moduleName, string recordId)
 	leadRecord = zoho.crm.getRecordById("Leads", rid.toLong());
 	if(isNull(leadRecord) || isNull(leadRecord.get("id"))) { return r.toString(); }
 
-	// ---- Product_Interest as comma string (for the engine's type-conflict check) ----
-	leadPIStr = "";
-	leadPIRaw = leadRecord.get("Product_Interest");
-	if(leadPIRaw != null)
+	// A/E/R group prefixes; "term" carries the quote-type group name.
+	groups = {"Acquisition", "Expansion", "Renewal"};
+	for each grp in groups
 	{
-		leadPICleaned = leadPIRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "").trim();
-		if(leadPICleaned != "")
+		p = grp + "_";
+
+		// Plan Products is a SINGLE picklist; strip bracket/quote noise if present.
+		famRaw = leadRecord.get(p + "Quote_Plan_Products");
+		fam = "";
+		if(!isNull(famRaw))
 		{
-			for each piTok in leadPICleaned.toList(",")
-			{
-				piTrim = piTok.trim();
-				if(piTrim != "" && piTrim != "-None-")
-				{
-					leadPIStr = leadPIStr + if(leadPIStr != "", ", ", "") + piTrim;
-				}
-			}
+			fam = famRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").replaceAll("'", "").trim();
 		}
-	}
-	r.put("pi_for_conflict", leadPIStr);
+		if(fam == "Jurnii Cortext") { fam = "Jurnii Cortex"; }
+		if(fam == "" || fam == "-None-" || fam == "null") { continue; }
 
-	// ---- Initial term fields ----
-	iFamList = List();
-	iFamRaw = leadRecord.get("Contract_Initial_Plan_Products");
-	if(iFamRaw != null)
-	{
-		iFamS = iFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
-		for each ft in iFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { iFamList.add(ftv); } }
-	}
-	iType = ifnull(leadRecord.get("Contract_Initial_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
-	if(iType == "Flexible") { iType = "Flex"; }
-	iBrands = ifnull(leadRecord.get("Contract_Initial_Plan_Brands"), "").toString().trim();
-	if(iBrands == "null") { iBrands = ""; }
-	iStartV = leadRecord.get("Contract_Initial_Date_Start");
-	iStart = ""; if(iStartV != null) { iStart = iStartV.toString().trim(); if(iStart.contains("T")) { iStart = iStart.getPrefix("T"); } }
-	iEndV = leadRecord.get("Contract_Initial_Date_End");
-	iEnd = ""; if(iEndV != null) { iEnd = iEndV.toString().trim(); if(iEnd.contains("T")) { iEnd = iEnd.getPrefix("T"); } }
-	iAcv = ifnull(leadRecord.get("Contract_Initial_ACV"), "").toString().trim();
-	iFreq = ifnull(leadRecord.get("Contract_Initial_Plan_Frequency"), "").toString().trim();
-	if(iFreq == "-None-") { iFreq = ""; }
+		gType = ifnull(leadRecord.get(p + "Quote_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+		if(gType == "Flexible") { gType = "Flex"; }
 
-	// ---- Current term fields ----
-	cFamList = List();
-	cFamRaw = leadRecord.get("Contract_Current_Plan_Products");
-	if(cFamRaw != null)
-	{
-		cFamS = cFamRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
-		for each ft in cFamS.toList(",") { ftv = ft.trim(); if(ftv == "Jurnii Cortext") { ftv = "Jurnii Cortex"; } if(ftv != "" && ftv != "-None-") { cFamList.add(ftv); } }
-	}
-	cType = ifnull(leadRecord.get("Contract_Current_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
-	if(cType == "Flexible") { cType = "Flex"; }
-	cBrands = ifnull(leadRecord.get("Contract_Current_Plan_Brands"), "").toString().trim();
-	if(cBrands == "null") { cBrands = ""; }
-	cStartV = leadRecord.get("Contract_Current_Date_Start");
-	cStart = ""; if(cStartV != null) { cStart = cStartV.toString().trim(); if(cStart.contains("T")) { cStart = cStart.getPrefix("T"); } }
-	cEndV = leadRecord.get("Contract_Current_Date_End");
-	cEnd = ""; if(cEndV != null) { cEnd = cEndV.toString().trim(); if(cEnd.contains("T")) { cEnd = cEnd.getPrefix("T"); } }
-	cAcv = ifnull(leadRecord.get("Contract_Current_ACV"), "").toString().trim();
-	cFreq = ifnull(leadRecord.get("Contract_Current_Plan_Frequency"), "").toString().trim();
-	if(cFreq == "-None-") { cFreq = ""; }
+		gBrands = ifnull(leadRecord.get(p + "Quote_Plan_Brands"), "").toString().trim();
+		if(gBrands == "null") { gBrands = ""; }
 
-	// identical-term dedup: same family set, type, brands, dates, freq -> only Current
-	identicalTerms = (iFamList.size() > 0 && cFamList.size() > 0 && iFamList.toString().toLowerCase() == cFamList.toString().toLowerCase() && iType == cType && iBrands == cBrands && iStart == cStart && iEnd == cEnd && iFreq == cFreq);
+		gStartV = leadRecord.get(p + "Quote_Contract_Date_Start");
+		gStart = ""; if(gStartV != null) { gStart = gStartV.toString().trim(); if(gStart.contains("T")) { gStart = gStart.getPrefix("T"); } }
 
-	// emit Current term(s) first (active/latest identity)
-	for each fam in cFamList
-	{
+		gEndV = leadRecord.get(p + "Quote_Contract_Date_End");
+		gEnd = ""; if(gEndV != null) { gEnd = gEndV.toString().trim(); if(gEnd.contains("T")) { gEnd = gEnd.getPrefix("T"); } }
+
+		gRenewalV = leadRecord.get(p + "Quote_Contract_Date_Renewal");
+		gRenewal = ""; if(gRenewalV != null) { gRenewal = gRenewalV.toString().trim(); if(gRenewal.contains("T")) { gRenewal = gRenewal.getPrefix("T"); } }
+		if(gRenewal == "null") { gRenewal = ""; }
+
+		gAcv = ifnull(leadRecord.get(p + "Quote_ACV"), "").toString().trim();
+		if(gAcv == "null") { gAcv = ""; }
+
+		gFreq = ifnull(leadRecord.get(p + "Quote_Plan_Frequency"), "").toString().trim();
+		if(gFreq == "-None-") { gFreq = ""; }
+
+		gStage = ifnull(leadRecord.get(p + "Quote_Stage"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+		if(gStage == "-None-" || gStage == "null") { gStage = ""; }
+
 		t = Map();
-		t.put("term", "Current");
+		t.put("term", grp);
 		t.put("family", fam);
-		t.put("type", cType);
-		t.put("brands", cBrands);
-		t.put("start", cStart);
-		t.put("end", cEnd);
-		t.put("acv", cAcv);
-		t.put("freq", cFreq);
+		t.put("type", gType);
+		t.put("brands", gBrands);
+		t.put("start", gStart);
+		t.put("end", gEnd);
+		t.put("date_renewal", gRenewal);
+		t.put("acv", gAcv);
+		t.put("freq", gFreq);
 		t.put("tier", "Base");
+		t.put("stage", gStage);
 		terms.add(t);
-	}
-	// emit Initial term(s) only when they differ from Current
-	if(!identicalTerms)
-	{
-		for each fam in iFamList
-		{
-			t = Map();
-			t.put("term", "Initial");
-			t.put("family", fam);
-			t.put("type", iType);
-			t.put("brands", iBrands);
-			t.put("start", iStart);
-			t.put("end", iEnd);
-			t.put("acv", iAcv);
-			t.put("freq", iFreq);
-			t.put("tier", "Base");
-			terms.add(t);
-		}
 	}
 
 	r.put("terms", terms);

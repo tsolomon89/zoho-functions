@@ -586,7 +586,10 @@ void automation.processLead(string lead_id)
 			importCtx.put("sourceModule", "Leads");
 			importCtx.put("sourceRecordId", cleanId);
 			importCtx.put("contactId", newContactId);
-			importCtx.put("opportunityType", "RTP");
+			// NOTE: opportunityType is intentionally NOT passed. Quote_Type is now per-term
+				// (encoded at index 0 of the 11-field termsEncoded string) and processDeal 5b derives
+				// it per Quote; a single importCtx-level opportunityType would be wrong for mixed
+				// A/E/R buckets and must never override the per-term Quote_Type.
 			importCtx.put("termsEncoded", bTermsEncoded);
 			impResp = automation.processDeal(dealId, importCtx.toString());
 			info "6: import_bootstrap processDeal (" + bProductKey + ") resp=" + impResp;

@@ -12,7 +12,8 @@ string automation.collectProductEvidence(string moduleName, string recordId)
 	// collected separately by collectLegacyQuoteEvidence.
 	//
 	// Per module:
-	//   Leads:    Product_Interest (multiselect; jsonarray or bracketed string)
+	//   Leads:    Product_Interest (multiselect; jsonarray or bracketed string) +
+	//             Acquisition_/Expansion_/Renewal_ Quote_Plan_Products (single picklist)
 	//   Contacts: Products_Linked (junction jsonarray of {name}) +
 	//             Product_Interest_Staging (comma-string mirror)
 	//   Deals:    Deal_Product (lookup .name) + Deal_Product_Key +
@@ -46,6 +47,18 @@ string automation.collectProductEvidence(string moduleName, string recordId)
 			{
 				piCleaned = piRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll(";", ",").replaceAll("\"", "").replaceAll("'", "");
 				for each tok in piCleaned.toList(",") { candidates.add(tok.trim()); }
+			}
+			// A/E/R group Plan Products (single picklist each) -> product bucket, so a
+			// Lead with only a Renewal group (no Product_Interest) still yields a product.
+			leadGroups = {"Acquisition", "Expansion", "Renewal"};
+			for each grp in leadGroups
+			{
+				gpRaw = rec.get(grp + "_Quote_Plan_Products");
+				if(!isNull(gpRaw))
+				{
+					gpTok = gpRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").replaceAll("'", "").trim();
+					if(gpTok != "") { candidates.add(gpTok); }
+				}
 			}
 		}
 	}

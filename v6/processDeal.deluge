@@ -1149,17 +1149,29 @@ string automation.processDeal(string deal_id, string contextJson)
 	}
 
 	// ===================================================================
-	// 5b. IMPORTED-CONTRACT bootstrap  (source=="import_bootstrap")
-	//     One idempotent Quote package per asserted contract term from imported Lead
-	//     split-contract evidence. The exact Product is resolved by
-	//     (Product_Plan_Products + Product_Plan_Type), NOT from Product Interest.
-	//     Pricing uses the central resolver; the imported ACV is a comparison benchmark
-	//     only (flagged on material conflict, never used to value an unpriceable line).
-	//     STAGE RULE (documented): a term is created Confirmed ONLY when it asserts a complete,
-	//     dated, priced existing contract (single active Product resolved; brands>0; both
-	//     contract dates; pricing resolved). Otherwise it is created Draft + Manual Review and
-	//     the confirmed ledger does not derive. Idempotency key (stored in
-	//     Quote_Applied_Activity_Keys): ImportBootstrap:Lead:<leadId>:<term>:<prodId>:<start>:<end>.
+	// 5b. IMPORTED-CONTRACT bootstrap  (source=="import_bootstrap")  -- CANONICAL Quote engine
+	//     One idempotent Quote package per asserted contract term (A/E/R) from imported
+	//     Lead split-contract evidence, decoded from the 11-field TERM ENCODING CONTRACT:
+	//       0 quoteType  1 family  2 planType  3 brands  4 dateStart  5 dateEnd
+	//       6 acv        7 freq    8 tier      9 dateRenewal          10 stage
+	//     Product is resolved to the ONE CANONICAL name-only Product via
+	//     automation.resolveDealProduct(family) -> Quote_Product == Deal_Product (no variants,
+	//     no [quote_product_mismatch]). If the family cannot resolve -> [product_unresolved]
+	//     Manual Review and the term is skipped.
+	//     Plan attributes live on the Quote (Quote_Plan_Type/Brands/Frequency + Quote_Type).
+	//     Imported ACV wins over pricing where present (Contract_ACV = acv); when acv is blank
+	//     the central resolver prices the line, and an unpriceable line stays Draft + Manual
+	//     Review (List_Price 0 so Zoho does not fabricate a total from Product Unit_Price).
+	//     Quote_Stage = encoded stage (default Draft). Quote_Target_ACV derives from the Account
+	//     Company Tier (1->26000, 2->16500, 3->10500, else 0); Quote_ACV_Gap is a FORMULA field
+	//     (Target - Contract_ACV) and is NOT written here. Quote_Contract_Date_Renewal = encoded
+	//     renewal, else End-45d when End is present.
+	//     IMPORT IDEMPOTENCY (this chunk only; NOT lifecycle transitions): create/update ONLY the
+	//     supplied A/E/R Quotes. Dedup key (stored in Quote_Applied_Activity_Keys) =
+	//     ImportBootstrap:Lead:<leadId>:<quoteType>:<prodId>:<start>:<end>; key already applied
+	//     -> skip. Never create a duplicate OPEN Quote for the same Deal + Quote_Type + product +
+	//     term (existing Deal Quotes are searched by Quote_Type + Quote_Product + dates first).
+	//     Opportunity_Type (FTP/RTP) is still written so downstream §9/§6/§7 term ledger derive.
 	//     Downstream §9 (Confirmed stamp), §6 (Amount = sum non-Closed-Lost), §7 (ledger) derive
 	//     Deal.Amount and the Contract_Initial_*/Current_* ledger from the resulting Quotes.
 	// ===================================================================
@@ -1169,38 +1181,20 @@ string automation.processDeal(string deal_id, string contextJson)
 		termsEncoded = ifnull(ctx.get("termsEncoded"), "").toString();
 		if(termsEncoded != "")
 		{
-			// load active Product catalogue once, indexed by (family|planType) lowercase
-			impCatByFamType = Map();
-			impAllProds = zoho.crm.getRecords("Products", 1, 200);
-			if(impAllProds != null && impAllProds.size() > 0 && !impAllProds.toString().startsWith("{\"code\""))
-			{
-				for each p in impAllProds
-				{
-					if(p != null && p.get("Product_Name") != null)
-					{
-						isActivePI = ifnull(p.get("Product_Active"), false);
-						if(isActivePI == true || isActivePI == "true")
-						{
-							pFam = ifnull(p.get("Product_Plan_Products"), "").toString().trim();
-							if(pFam == "Jurnii Cortext") { pFam = "Jurnii Cortex"; }
-							pTyp = ifnull(p.get("Product_Plan_Type"), "").toString().trim();
-							if(pTyp == "Flexible") { pTyp = "Flex"; }
-							ftKey = (pFam + "|" + pTyp).toLowerCase();
-							ftList = impCatByFamType.get(ftKey);
-							if(isNull(ftList)) { ftList = List(); impCatByFamType.put(ftKey, ftList); }
-							ftList.add(p);
-						}
-					}
-				}
-			}
+			// Company-Tier target ACV benchmark (Account is authoritative for tier).
+			impTierNum = ifnull(accRec.get("Company_Tier"), "").toString().trim();
+			impTargetAcv = 0;
+			if(impTierNum == "1") { impTargetAcv = 26000; }
+			else if(impTierNum == "2") { impTargetAcv = 16500; }
+			else if(impTierNum == "3") { impTargetAcv = 10500; }
 
 			for each termStr in termsEncoded.toList(";")
 			{
 				termParts = termStr.toList("~");
-				if(termParts.size() >= 9)
+				if(termParts.size() >= 11)
 				{
-					// decode: "_" sentinel -> empty string
-					impTerm = termParts.get(0).trim(); if(impTerm == "_") { impTerm = ""; }
+					// decode: "_" sentinel -> empty string. 11-field canonical format.
+					impQuoteType = termParts.get(0).trim(); if(impQuoteType == "_") { impQuoteType = ""; }
 					impFam = termParts.get(1).trim(); if(impFam == "_") { impFam = ""; }
 					if(impFam == "Jurnii Cortext") { impFam = "Jurnii Cortex"; }
 					impType = termParts.get(2).trim(); if(impType == "_") { impType = ""; }
@@ -1212,54 +1206,42 @@ string automation.processDeal(string deal_id, string contextJson)
 					impFreq = termParts.get(7).trim(); if(impFreq == "_" || impFreq == "-None-") { impFreq = ""; }
 					impTier = termParts.get(8).trim();
 					if(impTier == "" || impTier == "_") { impTier = "Base"; }
+					impRenewal = termParts.get(9).trim(); if(impRenewal == "_") { impRenewal = ""; }
+					impStageIn = termParts.get(10).trim(); if(impStageIn == "_") { impStageIn = ""; }
+
+					// impTerm is used only for human-readable Subject / task text / logs.
+					impTerm = impQuoteType; if(impTerm == "") { impTerm = "Imported"; }
 
 					// family is required to assert a contract
 					if(impFam != "")
 					{
-						familyHasVariants = (impFam == "Jurnii UX" || impFam == "Jurnii 360" || impFam == "Jurnii Cortex");
 						termResolved = true;
 						impProd = null;
 
-						if(impType == "" && familyHasVariants)
+						// CANONICAL product resolution (no variant catalogue lookup).
+						impRes = automation.resolveDealProduct(impFam).toMap();
+						impResValid = (ifnull(impRes.get("valid"), "false").toString() == "true");
+						if(impResValid && !isNull(impRes.get("product_id")) && impRes.get("product_id").toString() != "")
+						{
+							impProd = Map();
+							impProd.put("id", impRes.get("product_id").toString());
+							impProd.put("Product_Name", ifnull(impRes.get("product_name"), impFam).toString());
+						}
+						else
 						{
 							termResolved = false;
 							result.put("reviewRequired", true);
-							if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); }
-							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_tuple_incomplete] Imported " + impTerm + " contract for family '" + impFam + "' is missing Plan Type (required to resolve the exact Product SKU). Lead " + impLeadId + " brands=" + impBrands + " dates=" + impStart + ".." + impEnd + ".");
-							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_tuple_incomplete", impFam, {"term":impTerm});
-						}
-
-						if(termResolved)
-						{
-							ftKeyT = (impFam + "|" + impType).toLowerCase();
-							candidates = impCatByFamType.get(ftKeyT);
-							impCandCount = 0;
-							if(!isNull(candidates)) { impCandCount = candidates.size(); }
-							if(impCandCount == 1) { impProd = candidates.get(0); }
-							else if(impCandCount > 1)
-							{
-								termResolved = false;
-								result.put("reviewRequired", true);
-								if(!reviewReasons.contains("contract_product_ambiguous")) { reviewReasons.add("contract_product_ambiguous"); }
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_product_ambiguous] Imported " + impTerm + " contract (" + impFam + " / " + impType + ") matched " + impCandCount + " active Products. Make Product_Plan_Products+Product_Plan_Type unique. Lead " + impLeadId + ".");
-								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_product_ambiguous", impFam + "/" + impType, {"term":impTerm});
-							}
-							else
-							{
-								termResolved = false;
-								result.put("reviewRequired", true);
-								if(!reviewReasons.contains("contract_product_unresolved")) { reviewReasons.add("contract_product_unresolved"); }
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[contract_product_unresolved] Imported " + impTerm + " contract (" + impFam + " / " + impType + ") did not match any active Product. Lead " + impLeadId + ".");
-								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_product_unresolved", impFam + "/" + impType, {"term":impTerm});
-							}
+							if(!reviewReasons.contains("product_unresolved")) { reviewReasons.add("product_unresolved"); }
+							automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[product_unresolved] Imported " + impTerm + " contract family '" + impFam + "' did not resolve to a canonical Product (reason: " + ifnull(impRes.get("reason"), "") + "). Lead " + impLeadId + ".");
+							automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_product_unresolved", impFam, {"term":impTerm});
 						}
 
 						if(termResolved && !isNull(impProd) && !isNull(impProd.get("id")))
 						{
 							impProdId = impProd.get("id").toString();
 							impProdName = ifnull(impProd.get("Product_Name"), "").toString().trim();
-							impProdPlanType = ifnull(impProd.get("Product_Plan_Type"), "").toString().trim();
-							if(impProdPlanType == "Flexible") { impProdPlanType = "Flex"; }
+							// planType now comes from the encoded term (not the Product).
+							impProdPlanType = impType;
 
 							// (a) link Product -> source Contact junction (idempotent)
 							if(sourceContactId != "")
@@ -1316,17 +1298,17 @@ string automation.processDeal(string deal_id, string contextJson)
 								lowercasePIList.add(impProdName.toLowerCase());
 							}
 
-							// ---- contract value: IMPORTED ACV is authoritative for existing-contract imports;
-							//      the catalogue calculation is a benchmark (variance review) and the fallback
-							//      when no imported ACV exists. Unpriced only when NEITHER is available.
-							//      (Import docs carry the actual negotiated ACV but not always the pricing inputs
-							//      — e.g. Jurnii 360 has no frequency — so the imported ACV is the real money.) ----
+							// ---- contract value: IMPORTED ACV WINS where present (the real negotiated money);
+							//      otherwise the central resolver prices the canonical line. Unpriced only
+							//      when neither an imported ACV nor a resolvable price exists.
+							//      (Import docs carry the actual negotiated ACV but not always the pricing
+							//      inputs — e.g. Jurnii 360 has no frequency — so imported ACV is authoritative.) ----
 							calcAcv = "";
 							calcValid = false;
 							calcReason = "";
 							if(impBrands != "")
 							{
-								impPR = automation.resolveQuoteLinePrice(impProdId, impProdPlanType, impBrands, impTier, impFreq).toMap();
+								impPR = automation.resolveQuoteLinePrice(impProdId, impProdPlanType, impBrands, "Base", impFreq).toMap();
 								if(ifnull(impPR.get("valid"), "false").toString() == "true")
 								{
 									calcAcv = ifnull(impPR.get("line_acv"), 0).toString();
@@ -1353,7 +1335,7 @@ string automation.processDeal(string deal_id, string contextJson)
 								{
 									result.put("reviewRequired", true);
 									if(!reviewReasons.contains("imported_acv_variance")) { reviewReasons.add("imported_acv_variance"); }
-									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_variance] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + " but differs from the catalogue calculation " + calcAcv + " (" + impBrands + " brands, tier " + impTier + "). Confirm the contract figure. Lead " + impLeadId + ".");
+									automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[imported_acv_variance] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + " but differs from the catalogue calculation " + calcAcv + " (" + impBrands + " brands). Confirm the contract figure. Lead " + impLeadId + ".");
 									automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_acv_variance", impProdName, {"imported":importedAcvVal,"calculated":calcAcv,"term":impTerm});
 								}
 							}
@@ -1361,33 +1343,42 @@ string automation.processDeal(string deal_id, string contextJson)
 							{
 								result.put("reviewRequired", true);
 								if(!reviewReasons.contains("pricing_from_imported_acv")) { reviewReasons.add("pricing_from_imported_acv"); }
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[pricing_from_imported_acv] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + "; the catalogue could not auto-price it (reason: " + calcReason + "). Confirm cadence/tier/brands. Lead " + impLeadId + ".");
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[pricing_from_imported_acv] Imported " + impTerm + " ACV " + importedAcvVal + " used as the contract value for " + impProdName + "; the catalogue could not auto-price it (reason: " + calcReason + "). Confirm cadence/brands. Lead " + impLeadId + ".");
 								automation.logAutomationEvent("processDeal", "Deals", targetDealId, "import_priced_from_acv", impProdName, {"imported":importedAcvVal,"reason":calcReason,"term":impTerm});
 							}
 
-							// ---- stage rule: a dated existing contract with a known value (imported ACV or
-							//      calculated) is Confirmed so Amount + ledger derive now. Otherwise Draft + review. ----
-							impComplete = (impStart != "" && impEnd != "" && impPriced);
-							impStage = "Draft";
-							if(impComplete) { impStage = "Confirmed"; }
-							else
+							// Contract ACV (imported wins) + Company-Tier Target ACV benchmark.
+							// Quote_ACV_Gap is a FORMULA field (Target - Contract_ACV) -> NOT written.
+							impContractAcv = 0;
+							if(impPriced) { impContractAcv = impLineAcv.toDecimal(); }
+
+							// ---- renewal date: encoded value wins; else derive End - 45 days when End present ----
+							impRenewalOut = impRenewal;
+							if(impRenewalOut == "" && impEnd != "")
 							{
-								result.put("reviewRequired", true);
-								if(!impPriced)
-								{
-									if(calcReason == "360_missing_frequency") { if(!reviewReasons.contains("pricing_frequency_missing")) { reviewReasons.add("pricing_frequency_missing"); } }
-									else if(impBrands == "") { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
-									else { if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); } }
-								}
-								else { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
-								impPricedStr = if(impPriced, "true", "false");
-								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[import_contract_draft] Imported " + impTerm + " contract for " + impProdName + " created/left as Draft (priced=" + impPricedStr + " source=" + impValueSource + " reason=" + ifnull(calcReason, "") + "; brands=" + impBrands + " start=" + impStart + " end=" + impEnd + "). Complete the evidence then Confirm. Lead " + impLeadId + ".");
+								impRenewalOut = impEnd.toDate().addDay(-45).toString("yyyy-MM-dd");
 							}
 
-							// ---- deterministic idempotency key ----
-							impKey = "ImportBootstrap:Lead:" + impLeadId + ":" + impTerm + ":" + impProdId + ":" + impStart + ":" + impEnd;
+							// ---- stage: encoded stage wins (default Draft). A blank/unpriceable line
+							//      stays Draft + Manual Review (existing pricing review pattern). ----
+							impStage = impStageIn;
+							if(impStage == "") { impStage = "Draft"; }
+							if(!impPriced)
+							{
+								result.put("reviewRequired", true);
+								// unpriceable -> keep Draft regardless of the encoded stage
+								if(impStage != "Closed Lost" && impStage != "Closed Won") { impStage = "Draft"; }
+								if(calcReason == "360_missing_frequency") { if(!reviewReasons.contains("pricing_frequency_missing")) { reviewReasons.add("pricing_frequency_missing"); } }
+								else if(impBrands == "") { if(!reviewReasons.contains("contract_tuple_incomplete")) { reviewReasons.add("contract_tuple_incomplete"); } }
+								else { if(!reviewReasons.contains("pricing_unavailable")) { reviewReasons.add("pricing_unavailable"); } }
+								automation.createAuxTask(sourceContactId, targetDealId, "Manual Review", "[import_contract_draft] Imported " + impTerm + " contract for " + impProdName + " left as Draft (unpriceable: source=" + impValueSource + " reason=" + ifnull(calcReason, "") + "; brands=" + impBrands + " start=" + impStart + " end=" + impEnd + "). Complete the evidence then Confirm. Lead " + impLeadId + ".");
+							}
 
-							// ---- locate existing Quote: key already applied -> skip; else term-match -> update ----
+							// ---- deterministic idempotency key (quoteType + canonical prod + term dates) ----
+							impKey = "ImportBootstrap:Lead:" + impLeadId + ":" + impQuoteType + ":" + impProdId + ":" + impStart + ":" + impEnd;
+
+							// ---- locate existing Quote: key already applied -> skip; else dedup by
+							//      Quote_Type + Quote_Product + term dates (open Quote) -> update in place. ----
 							impKeyApplied = false;
 							impUpdId = "";
 							impDQ = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
@@ -1397,16 +1388,22 @@ string automation.processDeal(string deal_id, string contextJson)
 								{
 									dqpId = "";
 									if(!isNull(dqp.get("id"))) { dqpId = dqp.get("id").toString(); }
-									rawKeysI = ifnull(dqp.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+									if(dqpId == "" || !dqpId.matches("[0-9]+")) { continue; }
+									// Idempotency depends on custom fields (Quote_Type, Contract_Date_*,
+									// Quote_Applied_Activity_Keys) that the related-list projection can omit;
+									// read the full Quote so the ledger/dedup check is reliable (mirrors section 9).
+									dqFull = zoho.crm.getRecordById("Quotes", dqpId.toLong());
+									if(isNull(dqFull) || isNull(dqFull.get("id"))) { continue; }
+									rawKeysI = ifnull(dqFull.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 									for each kLine in rawKeysI.toList("\n") { if(kLine.trim() == impKey) { impKeyApplied = true; } }
 									qProdIdI = "";
-									qpLookupI = dqp.get("Quote_Product");
+									qpLookupI = dqFull.get("Quote_Product");
 									if(!isNull(qpLookupI) && !isNull(qpLookupI.get("id"))) { qProdIdI = qpLookupI.get("id").toString(); }
-									qOppTI = ifnull(dqp.get("Opportunity_Type"), "").toString();
-									qSI = ifnull(dqp.get("Contract_Date_Start"), "").toString();
-									qEI = ifnull(dqp.get("Contract_Date_End"), "").toString();
-									qStgI = ifnull(dqp.get("Quote_Stage"), "").toString();
-									if(impUpdId == "" && qProdIdI == impProdId && qOppTI == quoteOppType && qSI == impStart && qEI == impEnd && qStgI != "Closed Lost" && qStgI != "Closed Won")
+									qTypeI = ifnull(dqFull.get("Quote_Type"), "").toString();
+									qSI = ifnull(dqFull.get("Contract_Date_Start"), "").toString();
+									qEI = ifnull(dqFull.get("Contract_Date_End"), "").toString();
+									qStgI = ifnull(dqFull.get("Quote_Stage"), "").toString();
+									if(impUpdId == "" && qProdIdI == impProdId && qTypeI == impQuoteType && qSI == impStart && qEI == impEnd && qStgI != "Closed Lost" && qStgI != "Closed Won")
 									{
 										impUpdId = dqpId;
 									}
@@ -1424,7 +1421,7 @@ string automation.processDeal(string deal_id, string contextJson)
 								impLinePm = Map(); impLinePm.put("id", impProdId); impLine.put("Product_Name", impLinePm);
 								impLine.put("Quantity", 1);
 								impLine.put("Quoted_Item_Pricing_Tier", impTier);
-								if(impBrands != "") { impLine.put("Quoted_Item_Plan_Brands", impBrands.toLong()); }
+								if(impBrands != "" && impBrands.matches("[0-9]+")) { impLine.put("Quoted_Item_Plan_Brands", impBrands.toLong()); }
 								if(impFreq != "") { impLine.put("Quoted_Item_Frequency", impFreq); }
 								// Set List_Price explicitly. For an UNPRICED line set 0 — otherwise Zoho
 								// auto-inherits the Product Unit_Price onto the line, fabricating a Quote total
@@ -1461,11 +1458,17 @@ string automation.processDeal(string deal_id, string contextJson)
 									qUpdI = Map();
 									qpHI = Map(); qpHI.put("id", impProdId); qUpdI.put("Quote_Product", qpHI);
 									qUpdI.put("Opportunity_Type", quoteOppType);
+									if(impQuoteType != "") { qUpdI.put("Quote_Type", impQuoteType); }
+									if(impType != "") { qUpdI.put("Quote_Plan_Type", impType); }
+									if(impBrands != "" && impBrands.matches("[0-9]+")) { qUpdI.put("Quote_Plan_Brands", impBrands.toLong()); }
+									if(impFreq != "") { qUpdI.put("Quote_Plan_Frequency", impFreq); }
+									qUpdI.put("Quote_Target_ACV", impTargetAcv);
+									if(impRenewalOut != "") { qUpdI.put("Quote_Contract_Date_Renewal", impRenewalOut); }
 									qUpdI.put("Quote_Last_Deal_ID", targetDealId);
 									qUpdI.put("Quote_Stage", impStage);
 									if(impStart != "") { qUpdI.put("Contract_Date_Start", impStart); }
 									if(impEnd != "") { qUpdI.put("Contract_Date_End", impEnd); }
-									if(impPriced) { qUpdI.put("Contract_ACV", impLineAcv.toDecimal()); }
+									if(impPriced) { qUpdI.put("Contract_ACV", impContractAcv); }
 									qUpdI.put("Quoted_Items", impLinesList);
 									priorKI = ifnull(existingQI.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 									newKI = priorKI;
@@ -1493,11 +1496,17 @@ string automation.processDeal(string deal_id, string contextJson)
 									dMapI = Map(); dMapI.put("id", targetDealId); qMapI.put("Deal_Name", dMapI);
 									qpMapI = Map(); qpMapI.put("id", impProdId); qMapI.put("Quote_Product", qpMapI);
 									qMapI.put("Opportunity_Type", quoteOppType);
+									if(impQuoteType != "") { qMapI.put("Quote_Type", impQuoteType); }
+									if(impType != "") { qMapI.put("Quote_Plan_Type", impType); }
+									if(impBrands != "" && impBrands.matches("[0-9]+")) { qMapI.put("Quote_Plan_Brands", impBrands.toLong()); }
+									if(impFreq != "") { qMapI.put("Quote_Plan_Frequency", impFreq); }
+									qMapI.put("Quote_Target_ACV", impTargetAcv);
+									if(impRenewalOut != "") { qMapI.put("Quote_Contract_Date_Renewal", impRenewalOut); }
 									qMapI.put("Quote_Last_Deal_ID", targetDealId);
 									if(sourceContactId != "") { scMapI = Map(); scMapI.put("id", sourceContactId); qMapI.put("Contact_Name", scMapI); }
 									if(impStart != "") { qMapI.put("Contract_Date_Start", impStart); }
 									if(impEnd != "") { qMapI.put("Contract_Date_End", impEnd); }
-									if(impPriced) { qMapI.put("Contract_ACV", impLineAcv.toDecimal()); }
+									if(impPriced) { qMapI.put("Contract_ACV", impContractAcv); }
 									qMapI.put("Quoted_Items", impLinesList);
 									qMapI.put("Quote_Applied_Activity_Keys", impKey);
 									crBodyI = Map(); crDataI = List(); crDataI.add(qMapI); crBodyI.put("data", crDataI); crBodyI.put("trigger", List());
