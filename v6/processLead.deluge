@@ -604,7 +604,10 @@ void automation.processLead(string lead_id)
 		}
 		else
 		{
-			plainResp = automation.processDeal(dealId, "{}");
+			// Pass the controlling Contact so the scaffold Quote (processDeal 8z) binds it.
+			plainCtx = Map();
+			plainCtx.put("contactId", newContactId);
+			plainResp = automation.processDeal(dealId, plainCtx.toString());
 			info "6: plain processDeal (" + bProductKey + ") resp=" + plainResp;
 		}
 	}
@@ -641,12 +644,15 @@ void automation.processLead(string lead_id)
 		}
 	}
 
-	// ---- 6b. F1 (2026-06-24): preserve Lead Product Interest on the Contact by linking each
-	//          resolved SKU to the WRITABLE Products_Linked junction (Products12). The Contact
-	//          field Product_Interest_Staging is a READ-ONLY FORMULA that mirrors these links and
-	//          must NEVER be written directly. Idempotent (no duplicate links); unresolved SKUs ->
-	//          Manual Review (never discarded); supports one or many values. ----
-	if(leadPIStr != "" && newContactId != "" && newContactId != "null")
+	// ---- 6b. Link the Contact to EACH resolved Product via the writable Products_Linked junction
+	//          (Contacts_X_Products / Products12) so the Contact carries product evidence for
+	//          activation. prodBuckets already covers BOTH Product_Interest AND the A/E/R
+	//          Quote_Plan_Products (collectProductEvidence reads both), so A/E/R-only imports also
+	//          give the Contact product evidence -> processContact (step 7) can resolve their
+	//          Product Deals and activate. Product_Interest_Staging is a READ-ONLY FORMULA mirror of
+	//          these links and must NEVER be written directly. Idempotent (no duplicate links);
+	//          unresolved SKUs are routed to Manual Review by the step-6 fan-out (never here). ----
+	if(newContactId != "" && newContactId != "null" && prodBuckets.size() > 0)
 	{
 		alreadyLinkedIds = List();
 		exConLinks = zoho.crm.getRelatedRecords("Products12", "Contacts", newContactId.toLong());
@@ -678,33 +684,17 @@ void automation.processLead(string lead_id)
 				if(exjProdId != "" && !alreadyLinkedIds.contains(exjProdId)) { alreadyLinkedIds.add(exjProdId); }
 			}
 		}
-		for each piName in leadPIStr.toList(",")
+		for each lb in prodBuckets
 		{
-			piClean = piName.trim();
-			if(piClean == "" || piClean == "-None-") { continue; }
-			safePiName = piClean.replaceAll("[\\(\\)\\:\\,]", "").trim();
-			piResolved = false;
-			sProd = zoho.crm.searchRecords("Products", "(Product_Name:equals:" + safePiName + ")");
-			if(!isNull(sProd) && sProd.size() > 0 && !sProd.toString().startsWith("{\"code\""))
-			{
-				piProdId = sProd.get(0).get("id").toString();
-				piResolved = true;
-				if(!alreadyLinkedIds.contains(piProdId))
-				{
-					linkPIMap = Map();
-					linkPIMap.put("Contacts", newContactId);
-					linkPIMap.put("Product_Interest", piProdId);
-					linkPI = zoho.crm.createRecord("Contacts_X_Products", linkPIMap);
-					alreadyLinkedIds.add(piProdId);
-					info "F1: linked Product Interest '" + piClean + "' (" + piProdId + ") to Contact " + newContactId + " via Contacts_X_Products resp=" + linkPI;
-				}
-			}
-			// Unresolved SKU routing is owned by the per-product fan-out (step 6, from the adapter's
-			// unresolved list) as a Contact-only Manual Review [product_unresolved]. Not duplicated here.
-			if(!piResolved)
-			{
-				info "F1: Product Interest '" + piClean + "' unresolved for junction link (review raised by step 6 fan-out).";
-			}
+			lbProdId = ifnull(lb.get("product_id"), "").toString().trim();
+			if(lbProdId == "" || !lbProdId.matches("[0-9]+")) { continue; }
+			if(alreadyLinkedIds.contains(lbProdId)) { continue; }
+			linkPIMap = Map();
+			linkPIMap.put("Contacts", newContactId);
+			linkPIMap.put("Product_Interest", lbProdId);
+			linkPI = zoho.crm.createRecord("Contacts_X_Products", linkPIMap);
+			alreadyLinkedIds.add(lbProdId);
+			info "6b: linked Product '" + ifnull(lb.get("product_name"), lbProdId).toString() + "' (" + lbProdId + ") to Contact " + newContactId + " resp=" + linkPI;
 		}
 	}
 
@@ -715,8 +705,18 @@ void automation.processLead(string lead_id)
 	// conflicts + unresolved evidence via createManualReview. There is no account-level Deal to host a
 	// single flat import call, and terms are encoded per-bucket by normalizeToProductQuoteTuples.
 
-	// ---- 7. Contact pipeline handoff ----
-	// processLead constructs/reuses the Contact-Account-Deal graph and maps Lead data.
-	// WF001b2 Contacts-create invokes processContact after conversion; do not call it
-	// inline here or conversion creates duplicate Sequence Activation Tasks.
+	// ---- 7. Contact activation handoff ----
+	// The per-product fan-out (step 6) created the Product Deals and step 6b linked the Contact to
+	// each resolved Product, so the Contact now carries product evidence. Run processContact ONCE
+	// here so activation / [multi_product_sequence_ambiguous] evaluates AFTER that evidence exists.
+	// WF001b2 fires processContact on Contact CREATE -- before these links exist -- so that run
+	// returns mql_no_product_deal and never activates; the product fan-out now happens post-convert,
+	// which is why the old "do not call inline" guidance no longer holds. processContact dedups
+	// Sequence Activation Tasks and runs a duplicate sweep, so the concurrent WF001b2 run cannot
+	// create a second activation Task. A multi-product Decision Maker gets the ambiguity review,
+	// never an auto-picked sequence; a non-DM gets no activation.
+	if(newContactId != "" && newContactId != "null")
+	{
+		automation.processContact(newContactId);
+	}
 }

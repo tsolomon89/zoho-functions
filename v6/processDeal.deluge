@@ -1597,6 +1597,103 @@ string automation.processDeal(string deal_id, string contextJson)
 	}
 
 	// ===================================================================
+	// 8z. SCAFFOLD QUOTE -- invariant: no (Open) Product Deal without at least one Quote.
+	//     A Product Deal created from product evidence alone (Product_Interest, no A/E/R contract
+	//     term) has no Quote after 5b. Preserve the invariant by creating ONE Draft Acquisition
+	//     scaffold Quote for it. NON-IMPORT calls only (an isImport run owns Quote creation via 5b);
+	//     the async WF001d plain run that fires on the un-suppressed Deal create still covers an
+	//     import Deal whose terms produced no Quote. Idempotent + concurrency-safe self-guard: fires
+	//     only when the Deal is Open, has a resolved Deal_Product, and -- per a FULL-record read of
+	//     each existing Deal Quote (getRelatedRecords omits Quote_Stage / Quote_Applied_Activity_Keys)
+	//     -- the Deal has NO non-Closed-Lost Quote AND no Quote already carrying this scaffold key
+	//     (mirrors 5b's impKey check). Unpriced (Contract_ACV 0, List_Price 0) so it never fabricates
+	//     an Amount; the Deal.Amount hierarchy (8b) still derives the pipeline value from the Account
+	//     Company Tier. Quote_Product = the canonical Deal_Product (no [quote_product_mismatch]).
+	// ===================================================================
+	scafDealState = ifnull(targetDeal.get("Opportunity_State"), "Open").toString().trim();
+	scafProdId = "";
+	scafProdName = "";
+	dpScaf = targetDeal.get("Deal_Product");
+	if(!isNull(dpScaf) && !isNull(dpScaf.get("id")))
+	{
+		scafProdId = dpScaf.get("id").toString();
+		scafProdName = ifnull(dpScaf.get("name"), "").toString();
+	}
+	if(!isImport && scafDealState == "Open" && scafProdId != "" && accountId != "")
+	{
+		// Idempotency key for THIS Deal+product scaffold (searched below, stamped on create).
+		scafKey = "Scaffold:Deal:" + targetDealId + ":Acquisition:" + scafProdId;
+		scafSkip = false;
+		scafQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
+		if(!isNull(scafQuotes) && scafQuotes.size() > 0 && !scafQuotes.toString().startsWith("{\"code\""))
+		{
+			for each sq in scafQuotes
+			{
+				sqId = "";
+				if(!isNull(sq.get("id"))) { sqId = sq.get("id").toString(); }
+				if(sqId == "" || !sqId.matches("[0-9]+")) { continue; }
+				// getRelatedRecords omits custom fields (Quote_Stage, Quote_Applied_Activity_Keys) ->
+				// fetch the full Quote. Skip the scaffold if the Deal already has ANY non-Closed-Lost
+				// Quote (invariant already satisfied -- an import Quote just written by 5b, or a prior
+				// scaffold) OR any Quote already carrying this exact scaffold key (idempotent re-run /
+				// concurrent-fire guard, mirroring 5b's impKey check).
+				sqFull = zoho.crm.getRecordById("Quotes", sqId.toLong());
+				if(isNull(sqFull)) { continue; }
+				sqStg = ifnull(sqFull.get("Quote_Stage"), "").toString().trim();
+				if(sqStg != "Closed Lost") { scafSkip = true; }
+				sqKeys = ifnull(sqFull.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+				for each sk in sqKeys.toList("\n") { if(sk.trim() == scafKey) { scafSkip = true; } }
+			}
+		}
+		if(!scafSkip)
+		{
+			// Company-Tier Target-ACV benchmark (Account is authoritative for tier).
+			scafTierNum = ifnull(accRec.get("Company_Tier"), "").toString().trim();
+			scafTarget = 0;
+			if(scafTierNum == "1") { scafTarget = 26000; }
+			else if(scafTierNum == "2") { scafTarget = 16500; }
+			else if(scafTierNum == "3") { scafTarget = 10500; }
+
+			scafLine = Map();
+			scafLinePm = Map(); scafLinePm.put("id", scafProdId); scafLine.put("Product_Name", scafLinePm);
+			scafLine.put("Quantity", 1);
+			scafLine.put("Quoted_Item_Pricing_Tier", "Base");
+			// List_Price 0 so Zoho does not inherit the Product Unit_Price and fabricate a total.
+			scafLine.put("List_Price", 0);
+			scafLines = List(); scafLines.add(scafLine);
+
+			scafMap = Map();
+			scafMap.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + scafProdName + " (Acquisition scaffold)");
+			scafMap.put("Quote_Stage", "Draft");
+			scafMap.put("Quote_Type", "Acquisition");
+			scafAccM = Map(); scafAccM.put("id", accountId); scafMap.put("Account_Name", scafAccM);
+			scafDealM = Map(); scafDealM.put("id", targetDealId); scafMap.put("Deal_Name", scafDealM);
+			scafQpM = Map(); scafQpM.put("id", scafProdId); scafMap.put("Quote_Product", scafQpM);
+			scafMap.put("Opportunity_Type", quoteOppType);
+			scafMap.put("Quote_Target_ACV", scafTarget);
+			scafMap.put("Quote_Last_Deal_ID", targetDealId);
+			scafCid = "";
+			if(sourceContactId != "") { scafCid = sourceContactId; }
+			else if(primaryContactId != "") { scafCid = primaryContactId; }
+			if(scafCid != "") { scafScM = Map(); scafScM.put("id", scafCid); scafMap.put("Contact_Name", scafScM); }
+			scafMap.put("Contract_ACV", 0);
+			scafMap.put("Quoted_Items", scafLines);
+			scafMap.put("Quote_Applied_Activity_Keys", scafKey);
+			scafBody = Map(); scafDataL = List(); scafDataL.add(scafMap); scafBody.put("data", scafDataL); scafBody.put("trigger", List());
+			scafHdrM = Map(); scafHdrM.put("Content-Type", "application/json");
+			scafResp = invokeurl
+			[
+				url: "https://www.zohoapis.eu/crm/v6/Quotes"
+				type: POST
+				parameters: scafBody.toString()
+				connection: "zoho_crm"
+				headers: scafHdrM
+			];
+			automation.logAutomationEvent("processDeal", "Deals", targetDealId, "scaffold_quote_created", scafProdName, {"target_acv":scafTarget.toString(), "resp":ifnull(scafResp, "").toString()});
+		}
+	}
+
+	// ===================================================================
 	// 9. Confirmed prerequisites + Contract_ACV / Contract_Signed_Date establishment
 	//    For each Confirmed Quote: require BOTH dates; else demote to On Hold + Manual Review.
 	//    On first valid Confirmed: stamp Contract_ACV (pre-existing positive preserved) + Contract_Signed_Date.

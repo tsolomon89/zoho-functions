@@ -81,21 +81,51 @@ void automation.processAccount(string account_id)
 
 	if(!isNull(relDeals) && relDeals.size() > 0 && !relDeals.toString().startsWith("{\"code\""))
 	{
-		// Pass 1: elect the lowest-id live Deal per product_key.
+		// Resolve each related Deal's live-state + product key ONCE. getRelatedRecords may omit
+		// custom fields (Opportunity_State / Deal_Key / Deal_Product_Key); when ANY is missing we
+		// fetch the full Deal so the dedup keys are reliable (otherwise pass-1 skips every Deal on
+		// a blank Deal_Key and real duplicates are never silenced). If Deal_Product_Key is still
+		// blank we derive it from the Deal_Product lookup name. A Deal whose product key is STILL
+		// blank after full resolution is not a product identity and NEVER participates in dedup
+		// (two blank-key Deals are not duplicates of each other).
+		resolvedDeals = List();
 		for each d in relDeals
 		{
 			dId = "";
 			if(!isNull(d.get("id"))) { dId = d.get("id").toString(); }
 			if(dId == "" || !dId.matches("[0-9]+")) { continue; }
-			// getRelatedRecords may omit custom fields -> default Open keeps the Deal in scope,
-			// but a live Deal also requires a non-blank Deal_Key (the product-scoped key).
-			dState = ifnull(d.get("Opportunity_State"), "Open").toString();
+			dState = ifnull(d.get("Opportunity_State"), "").toString().trim();
 			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
-			if(dState != "Open" || dKey == "") { continue; }
 			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
-			// Only real product-scoped Deals participate in dedup. A blank product key is not a
-			// product identity, so two blank-key Deals must NOT be treated as duplicates.
+			if(dState == "" || dKey == "" || pKey == "")
+			{
+				dFull = zoho.crm.getRecordById("Deals", dId.toLong());
+				if(!isNull(dFull) && !isNull(dFull.get("id")))
+				{
+					dState = ifnull(dFull.get("Opportunity_State"), "Open").toString().trim();
+					dKey = ifnull(dFull.get("Deal_Key"), "").toString().trim();
+					pKey = ifnull(dFull.get("Deal_Product_Key"), "").toString().trim();
+					if(pKey == "")
+					{
+						dpL = dFull.get("Deal_Product");
+						if(!isNull(dpL) && !isNull(dpL.get("name"))) { pKey = automation.computeProductKey(dpL.get("name").toString()); }
+					}
+				}
+			}
+			if(dState == "") { dState = "Open"; }
+			if(dState != "Open" || dKey == "") { continue; }
 			if(pKey == "") { continue; }
+			rMap = Map();
+			rMap.put("id", dId);
+			rMap.put("pKey", pKey);
+			resolvedDeals.add(rMap);
+		}
+
+		// Pass 1: elect the lowest-id live Deal per product_key.
+		for each rd in resolvedDeals
+		{
+			dId = rd.get("id").toString();
+			pKey = rd.get("pKey").toString();
 			dIdLong = dId.toLong();
 			if(minIdByProduct.get(pKey) == null || dIdLong < minIdByProduct.get(pKey))
 			{
@@ -105,16 +135,10 @@ void automation.processAccount(string account_id)
 		}
 
 		// Pass 2: silence any other live Deal sharing a product_key with its canonical.
-		for each d in relDeals
+		for each rd in resolvedDeals
 		{
-			dId = "";
-			if(!isNull(d.get("id"))) { dId = d.get("id").toString(); }
-			if(dId == "" || !dId.matches("[0-9]+")) { continue; }
-			dState = ifnull(d.get("Opportunity_State"), "Open").toString();
-			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
-			if(dState != "Open" || dKey == "") { continue; }
-			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
-			if(pKey == "") { continue; }
+			dId = rd.get("id").toString();
+			pKey = rd.get("pKey").toString();
 			keepId = ifnull(canonicalByProduct.get(pKey), "").toString();
 			if(keepId != "" && dId != keepId)
 			{
