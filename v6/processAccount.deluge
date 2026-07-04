@@ -93,6 +93,9 @@ void automation.processAccount(string account_id)
 			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
 			if(dState != "Open" || dKey == "") { continue; }
 			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
+			// Only real product-scoped Deals participate in dedup. A blank product key is not a
+			// product identity, so two blank-key Deals must NOT be treated as duplicates.
+			if(pKey == "") { continue; }
 			dIdLong = dId.toLong();
 			if(minIdByProduct.get(pKey) == null || dIdLong < minIdByProduct.get(pKey))
 			{
@@ -111,6 +114,7 @@ void automation.processAccount(string account_id)
 			dKey = ifnull(d.get("Deal_Key"), "").toString().trim();
 			if(dState != "Open" || dKey == "") { continue; }
 			pKey = ifnull(d.get("Deal_Product_Key"), "").toString().trim();
+			if(pKey == "") { continue; }
 			keepId = ifnull(canonicalByProduct.get(pKey), "").toString();
 			if(keepId != "" && dId != keepId)
 			{

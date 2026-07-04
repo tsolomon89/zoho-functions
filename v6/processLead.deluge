@@ -60,14 +60,15 @@ void automation.processLead(string lead_id)
 	leadReferrer = ifnull(leadRecord.get("Lead_Referrer"), "").toString().trim();
 	importedRecordType = ifnull(leadRecord.get("Imported_Record_Type"), "").toString().trim();
 	leadCompanyTier = ifnull(leadRecord.get("Company_Tier"), "").toString().trim();
-	// CONTRACT EVIDENCE (2026-06-26 import-bootstrap fix): read the REAL split-contract Lead
-	// fields. The prior reads (Contract_Start_Date / Contract_ACV_Intial / Contract_Type /
-	// Contract_Currency) targeted fields that DO NOT EXIST on Leads (phantom) and the matching
-	// Deal writes also hit phantom Deal fields — both silent no-ops. The canonical Deal contract
-	// ledger (Contract_Initial_*/Contract_Current_*) is DERIVED from Confirmed Quotes, so we do
-	// NOT write it directly from the Lead. Instead these tuples feed the import_bootstrap Quote
-	// engine in processDeal (step 6c below). Contract_Target_ACV is a Company-Tier benchmark and
-	// is intentionally NEVER read here.
+	// CONTRACT EVIDENCE (canonical v6): the Lead's structured contract terms live in the
+	// Acquisition_/Expansion_/Renewal_ Quote groups ({G}_Quote_ACV, _Contract_Date_Start/_End,
+	// _Plan_Products/_Plan_Type/_Plan_Brands/_Plan_Frequency, _Stage, ...). We do NOT read them
+	// inline here and we do NOT write any legacy Contract_Initial_*/Current_* Deal ledger — that
+	// ledger is derived from Confirmed Quotes downstream. Instead the adapter
+	// automation.normalizeToProductQuoteTuples("Leads", id) reads those groups (via
+	// collectLegacyQuoteEvidence) and returns per-product tuples that feed the import_bootstrap
+	// Quote engine in processDeal (step 6c below). Quote_Target_ACV is a Company-Tier benchmark
+	// derived in processDeal from the Account tier, so it is intentionally NEVER read here.
 	mqCompletedAt = null;
 	mqVal = leadRecord.get("Contact_Completed_Marketing_Qualification_At");
 	if(mqVal != null)
@@ -247,7 +248,7 @@ void automation.processLead(string lead_id)
 
 	// ---- 1c. Import-contract tuple extraction: REMOVED (v6-product-deal) ----
 	// The inline flat single-Deal termsEncoded builder that lived here is DELETED. Evidence
-	// collection (Product_Interest + Contract_Initial_*/Contract_Current_* split-contract fields)
+	// collection (Product_Interest + the Acquisition/Expansion/Renewal Quote groups)
 	// and the "~"/";" encoding are now owned by the adapter automation.normalizeToProductQuoteTuples
 	// ("Leads", lead_id), which returns PER-PRODUCT buckets (each with its own terms_encoded), the
 	// unresolved list, and the plan-type conflicts list. See step 6 (per-product fan-out). This keeps
@@ -313,6 +314,10 @@ void automation.processLead(string lead_id)
 		if(website != "") { createAccMap.put("Website", website); }
 		if(phone != "") { createAccMap.put("Phone", phone); }
 		if(importedRecordType != "") { createAccMap.put("Account_Source_Class", importedRecordType); }
+		// Seed Company_Tier at Account creation so it is authoritative BEFORE the product
+		// fan-out: processDeal(import_bootstrap) derives Quote_Target_ACV from the Account
+		// tier. Seeding here (not only in 6a below) avoids imported Quotes getting Target ACV 0.
+		if(leadCompanyTier != "") { createAccMap.put("Company_Tier", leadCompanyTier); }
 		if(leadCompanyAOOContinent.size() > 0) { createAccMap.put("Company_AOO_Continent", leadCompanyAOOContinent); }
 		if(leadCompanyAOORegion.size() > 0) { createAccMap.put("Company_AOO_Region", leadCompanyAOORegion); }
 		if(leadCompanyAOOCountry.size() > 0) { createAccMap.put("Company_AOO_Country", leadCompanyAOOCountry); }
@@ -361,6 +366,9 @@ void automation.processLead(string lead_id)
 		if(leadCompanyExpansionSubRegion.size() > 0 && (accountRecord.get("Company_Expansion_Sub_Region") == null || accountRecord.get("Company_Expansion_Sub_Region").size() == 0)) { updAcc.put("Company_Expansion_Sub_Region", leadCompanyExpansionSubRegion); }
 		if(leadCompanyExpansionRegional != null && accountRecord.get("Company_Expansion_Regional") == null) { updAcc.put("Company_Expansion_Regional", leadCompanyExpansionRegional); }
 		if(leadCompanyExpansionTimeline != null && accountRecord.get("Company_Expansion_Timeline") == null) { updAcc.put("Company_Expansion_Timeline", leadCompanyExpansionTimeline); }
+		// Seed Company_Tier onto a reused Account when it has none, BEFORE the product fan-out,
+		// so processDeal(import_bootstrap) can derive Quote_Target_ACV from a live Account tier.
+		if(leadCompanyTier != "" && ifnull(accountRecord.get("Company_Tier"), "").toString().trim() == "") { updAcc.put("Company_Tier", leadCompanyTier); }
 		if(updAcc.size() > 0)
 		{
 			zoho.crm.updateRecord("Accounts", accountId.toLong(), updAcc, {"trigger": List()});
@@ -612,7 +620,10 @@ void automation.processLead(string lead_id)
 		automation.logAutomationEvent("processLead", "Contacts", newContactId, "contract_product_conflict", cfFamily, {"detail":cfDetail});
 	}
 
-	// ---- 6a. Company Tier: the ACCOUNT is authoritative ----
+	// ---- 6a. Company Tier: the ACCOUNT is authoritative (SAFETY NET) ----
+	// Primary seeding now happens at Account create/reuse ABOVE (before the product fan-out) so
+	// processDeal(import_bootstrap) sees a live Account tier when deriving Quote_Target_ACV. This
+	// block remains as an idempotent safety net for paths that bypass the create/reuse seeding.
 	// Company_Tier is an Account-level attribute; Deal.Company_Tier is only a mirror/cache for the
 	// Target-ACV benchmark. Seed the Lead's tier onto the canonical ACCOUNT when the Account has
 	// none, so the Account becomes the live source of truth. processDeal §8a2 then keeps the Deal
