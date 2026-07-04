@@ -719,4 +719,15 @@ void automation.processLead(string lead_id)
 	{
 		automation.processContact(newContactId);
 	}
+
+	// ---- 8. Account rollup (EXPLICIT -- does not depend on WF001c firing on Account edits) ----
+	// Now that every Product Deal + Quote exists and the Contact has been reconciled/activated,
+	// refresh Account.State / Account_Status directly. rollupAccountState reads each Deal via
+	// getRecordById (robust to getRelatedRecords field omission) and writes trigger-suppressed, so
+	// the Account lands at Prospect / Active Customer / Churned even though WF001c/processAccount
+	// does not re-fire on API Account edits in this org.
+	if(accountId != "" && accountId != "null")
+	{
+		automation.rollupAccountState(accountId);
+	}
 }
