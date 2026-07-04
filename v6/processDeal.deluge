@@ -17,7 +17,7 @@ string automation.processDeal(string deal_id, string contextJson)
 	//   primary-Contact selection (role tiebreak)
 	//   RTP floor (durable; everRTP via Contact completion history)
 	//   activity Product NAME resolution -> Products_Linked + Deal Products + per-Product Quote upsert
-	//   Deal.Amount recompute = SUM of non-Closed-Lost quote totals (stage-sensitive)
+	//   Deal.Amount recompute = SUM of OPEN quote totals (non-Closed-Lost AND non-Closed-Won)
 	//   contractual-term ledger (Initial / Current; Confirmed/Closed-Won only)
 	//   Confirmed prerequisites + Contract_ACV / Contract_Signed_Date establishment
 	//   term-completion transition gates (Delivered->commercial:sent, Signed->commercial:signed)
@@ -1172,7 +1172,7 @@ string automation.processDeal(string deal_id, string contextJson)
 	//     -> skip. Never create a duplicate OPEN Quote for the same Deal + Quote_Type + product +
 	//     term (existing Deal Quotes are searched by Quote_Type + Quote_Product + dates first).
 	//     Opportunity_Type (FTP/RTP) is still written so downstream §9/§6/§7 term ledger derive.
-	//     Downstream §9 (Confirmed stamp), §6 (Amount = sum non-Closed-Lost), §7 (ledger) derive
+	//     Downstream §9 (Confirmed stamp), §6 (Amount = sum of OPEN quotes), §7 (ledger) derive
 	//     Deal.Amount and the Contract_Initial_*/Current_* ledger from the resulting Quotes.
 	// ===================================================================
 	if(isImport)
@@ -1711,13 +1711,18 @@ string automation.processDeal(string deal_id, string contextJson)
 			if(dqId == "") { continue; }
 			fullQ = zoho.crm.getRecordById("Quotes", dqId.toLong());
 			if(isNull(fullQ) || isNull(fullQ.get("id"))) { continue; }
-			if(ifnull(fullQ.get("Quote_Stage"), "").toString() != "Confirmed") { continue; }
+			// D1: Confirmed = terms agreed (NOT signed); Closed Won = SIGNED. Both may establish
+			// Contract_ACV; ONLY Closed Won stamps Contract_Signed_Date. Confirmed still requires
+			// both dates (else On Hold); a Closed Won with missing dates is still signed here and its
+			// successor-date gap is surfaced by the 10 lifecycle review, not demoted.
+			qStageEstab = ifnull(fullQ.get("Quote_Stage"), "").toString();
+			if(qStageEstab != "Confirmed" && qStageEstab != "Closed Won") { continue; }
 
 			cStart = ifnull(fullQ.get("Contract_Date_Start"), "").toString();
 			cEnd = ifnull(fullQ.get("Contract_Date_End"), "").toString();
-			if(cStart == "" || cEnd == "")
+			if(qStageEstab == "Confirmed" && (cStart == "" || cEnd == ""))
 			{
-				// Confirmed requires BOTH dates -> move to On Hold + Manual Review; no ACV/Signed/ledger.
+				// Confirmed requires BOTH dates -> move to On Hold + Manual Review; no ACV/ledger.
 				zoho.crm.updateRecord("Quotes", dqId.toLong(), {"Quote_Stage":"On Hold"}, noTrigger);
 				result.put("reviewRequired", true);
 				if(!reviewReasons.contains("confirmed_missing_dates")) { reviewReasons.add("confirmed_missing_dates"); }
@@ -1736,21 +1741,43 @@ string automation.processDeal(string deal_id, string contextJson)
 					if(g > 0) { stampAcv = g; } else { stampAcv = s; }
 					if(stampAcv > 0) { qUpd2.put("Contract_ACV", stampAcv); }
 				}
-				if(ifnull(fullQ.get("Contract_Signed_Date"), "").toString() == "")
+				// D1: Contract_Signed_Date is the SIGNED event -> ONLY on Closed Won, NEVER on Confirmed.
+				if(qStageEstab == "Closed Won" && ifnull(fullQ.get("Contract_Signed_Date"), "").toString() == "")
 				{
 					qUpd2.put("Contract_Signed_Date", zoho.currentdate.toString("yyyy-MM-dd"));
 				}
 				if(qUpd2.size() > 0)
 				{
 					zoho.crm.updateRecord("Quotes", dqId.toLong(), qUpd2, noTrigger);
-					automation.logAutomationEvent("processDeal", "Deals", targetDealId, "confirmed_stamped", dqId, qUpd2);
+					automation.logAutomationEvent("processDeal", "Deals", targetDealId, "signed_or_confirmed_stamped", dqId, qUpd2);
 				}
 			}
 		}
 	}
 
 	// ===================================================================
-	// 6. Recalculate Deal.Amount = SUM of non-Closed-Lost quote totals (stage-sensitive)
+	// 10. A/E/R TRANSITION LIFECYCLE (Phase 3) -- Closed Won is the SIGNED trigger.
+	//     Acq CW -> ensure the single open Renewal; Exp CW -> update it (no new slot);
+	//     Ren CW -> next open Renewal; Ren CL -> churn (Deal Lost iff no other open Quote).
+	//     Idempotent via Quote_Applied_Lifecycle_Keys. Runs AFTER 9 (signed establishment)
+	//     and BEFORE 6 (Amount) so a newly-created successor Renewal is counted. Self-guards
+	//     (Deal/Quote existence + per-transition idempotency keys), so it is safe on the import
+	//     call and the async WF001d re-fire alike.
+	// ===================================================================
+	automation.applyQuoteLifecycle(targetDealId);
+	// applyQuoteLifecycle may have CHURNED the Deal (Renewal Closed Lost -> Lost + Lost_Reasons) or
+	// added a successor Renewal Quote. Re-read targetDeal so the Amount recompute (6), viability (8),
+	// and valuation hierarchy (8b) all see the LIVE post-lifecycle state -- otherwise a churn leaves a
+	// Lost Deal valued at the pre-contract tier pipeline (stale Open state) instead of 0.
+	targetDeal = zoho.crm.getRecordById("Deals", targetDealId.toLong());
+	if(isNull(targetDeal) || isNull(targetDeal.get("id")))
+	{
+		result.put("outcome", "deal_vanished_post_lifecycle");
+		return result.toString();
+	}
+
+	// ===================================================================
+	// 6. Recalculate Deal.Amount = SUM of OPEN quote totals (non-Closed-Lost AND non-Closed-Won)
 	//    Re-read Quotes (after Quoted_Items writes) so calculated totals are current.
 	// ===================================================================
 	totalAmount = 0.0;
@@ -1774,7 +1801,10 @@ string automation.processDeal(string deal_id, string contextJson)
 			fullQ = zoho.crm.getRecordById("Quotes", dqId.toLong());
 			if(isNull(fullQ) || isNull(fullQ.get("id"))) { continue; }
 			qStg = ifnull(fullQ.get("Quote_Stage"), "").toString();
-			if(qStg == "Closed Lost") { continue; }   // excluded
+			// OPEN pipeline only (user decision): exclude Closed Lost AND Closed Won. A signed
+			// (Closed Won) Quote is contract history -> reported from Quote/contract reporting, not
+			// carried in the active Deal.Amount; its value lives on via the successor Renewal (10).
+			if(qStg == "Closed Lost" || qStg == "Closed Won") { continue; }
 			quoteCount = quoteCount + 1;
 
 			grand = ifnull(fullQ.get("Grand_Total"), "0").toDecimal();
@@ -1816,7 +1846,7 @@ string automation.processDeal(string deal_id, string contextJson)
 		}
 	}
 
-	// Deal.Amount is the SUM of active non-Closed-Lost Quote totals, full stop. The prior
+	// Deal.Amount is the SUM of active OPEN (non-Closed-Lost, non-Closed-Won) Quote totals. The prior
 	// provisional Product.Unit_Price sum (when zero Quotes existed) is REMOVED (Root Cause D):
 	// it fabricated a contractual Amount from list prices, concealed the absence of a real
 	// contract Quote, and violated the Amount invariant. With no Quotes, Amount is 0.
@@ -1925,7 +1955,11 @@ string automation.processDeal(string deal_id, string contextJson)
 
 			if(qOppT == quoteOppType) { relevantQuotes.add(fullQ); }
 
-			// ledger contributors: Confirmed / Closed Won only
+			// ledger contributors: Confirmed / Closed Won. (D1 governs the SIGNED EVENT - see 9
+			// Contract_Signed_Date + 10 transitions, both Closed-Won-only - but the contract-term
+			// ledger stays Confirmed-inclusive so imported Confirmed contracts keep their aggregates
+			// and existing ledgers are never wiped. Making the ledger signed-only would require the
+			// import to emit Closed Won for genuinely-signed contracts; that is a coupled decision.)
 			if(qStg == "Confirmed" || qStg == "Closed Won")
 			{
 				hasAnyConfirmed = true;
@@ -2045,7 +2079,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 
 	currentAmount = ifnull(targetDeal.get("Amount"), "0").toDecimal();
 	// Deal.Amount is set by the valuation-hierarchy block AFTER viability is resolved (it needs the
-	// final Lost/Open state), not here. `totalAmount` (active non-Closed-Lost priced Quote sum) is
+	// final Lost/Open state), not here. `totalAmount` (active OPEN priced Quote sum, non-CL/non-CW) is
 	// carried forward as the Quote-authority input.
 
 	// primary Contact
@@ -2228,7 +2262,7 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	// 8b. Deal.Amount valuation hierarchy (Amount is BOTH the contracted value AND the
 	//     pre-contract pipeline value). Precedence:
 	//       1) Lost (any type) -> 0  (lost override wins over Quotes/Target/imported ACV)
-	//       2) active non-Closed-Lost PRICED Quotes -> SUM of their totals (totalAmount > 0;
+	//       2) active OPEN (non-CL, non-CW) PRICED Quotes -> SUM of their totals (totalAmount > 0;
 	//          includes Confirmed imported-ACV Quotes — value comes from the Quote)
 	//       3) Open + Opportunity Type in {MQL,SQL,FTP} + no priced Quote -> Target ACV (from tier)
 	//       4) Open RTP + no priced Quote -> 0 (NEVER Target ACV as an actual renewal value)

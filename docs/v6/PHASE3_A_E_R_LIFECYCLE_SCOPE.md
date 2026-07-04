@@ -106,8 +106,11 @@ Reuse the §8z/§5b invokeurl POST pattern (Quoted_Items line, `List_Price` poli
   stamps a deterministic key on the triggering (won/lost) Quote; a present key ⇒ skip. Mirrors the
   proven `impKey` (§5b) and `scafKey` (§8z) patterns; safe under WF re-fire and the async WF001d run.
 - **Confirmed is NOT signed. Only Closed Won triggers the signed lifecycle.** See §7.
-- **Deal.Amount = SUM of non-Closed-Lost Quote totals** — unchanged (§6/§8b). Note §4a/§4c ADD an
-  open Renewal alongside a Closed-Won predecessor; both are non-Closed-Lost ⇒ both counted. See D2.
+- **Deal.Amount = SUM of OPEN Quote totals** — OPEN = `Quote_Stage != Closed Lost` AND `!= Closed Won`
+  (D1 decision). A signed (Closed Won) Quote is contract history (reported from Quote/contract
+  reporting), NOT carried in the active Deal.Amount; its value lives on via the successor Renewal
+  (which carries the predecessor ACV, D2). Result: Amount stays ≈ 1× current contract value, never
+  double-counts signed year + renewal. Included stages: Draft/Negotiation/Delivered/On Hold/Confirmed.
 - **Deals never Won.** `Opportunity_State ∈ {Open, Lost}` only. Closed Won lives on the Quote, not the Deal.
 
 ## 7. Confirmed → Closed Won semantic shift (touches §9 — needs sign-off)  **[DECISION D1]**
