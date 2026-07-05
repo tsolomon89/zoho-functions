@@ -283,11 +283,13 @@ void automation.applyQuoteLifecycle(string dealId)
 				churnUpd = Map();
 				churnUpd.put("Opportunity_State", "Lost");
 				churnUpd.put("Opportunity_Status", "Closed");
-				// Lost_Reasons is the v6 loss field processDeal 8 reads for hasLossReason (durable text).
-				// Reason_For_Loss__s is a stock PICKLIST that silently drops a non-option value like this,
-				// so it must NOT be relied on. Setting Lost_Reasons makes the churn survive processDeal 8's
-				// contact-viability recompute (an open Contact must never re-open a churned Deal).
-				churnUpd.put("Lost_Reasons", "Churn / Not Renewed");
+				// Lost_Reasons is the v6 loss field processDeal 8 reads for hasLossReason. It is a
+				// PICKLIST whose approved churn option is EXACTLY "Churned / Did Not Renew" (verified in
+				// live metadata; same value used by routeContactSequence / resolveActivityLoss). Setting
+				// it makes the churn survive processDeal 8's contact-viability recompute (an open Contact
+				// must never re-open a churned Deal). Reason_For_Loss__s is deliberately NOT written: its
+				// picklist has no "Churned / Did Not Renew" option and we never create one.
+				churnUpd.put("Lost_Reasons", "Churned / Did Not Renew");
 				zoho.crm.updateRecord("Deals", dId.toLong(), churnUpd, noTrigger);
 				automation.logAutomationEvent("applyQuoteLifecycle", "Deals", dId, "deal_churned", dealProdName, {"from":transKey});
 			}

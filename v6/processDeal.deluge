@@ -2539,6 +2539,15 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		zoho.crm.updateRecord("Accounts", accountId.toLong(), accUpd, noTrigger);
 	}
 
+	// ---- Account customer classification rollup (Account_Status) ----
+	// Deal state + Amount + lifecycle are now committed, so refresh the Account's customer
+	// classification directly. This makes Quote-driven Closed Won (-> Active Customer) and churn
+	// (all Product Deals Lost -> Churned) reflect on Accounts.Account_Status WITHOUT depending on
+	// WF001c firing on Account edits. rollupAccountState writes ONLY Accounts.State (Open/Lost) and
+	// Accounts.Account_Status (Prospect/Active Customer/Churned) trigger-suppressed; it NEVER touches
+	// Accounts.Status (New/Working/Closed, maintained by the operational rollup above).
+	automation.rollupAccountState(accountId);
+
 	// ===================================================================
 	// 11. Term-completion transition gates (route AT MOST ONE; verify by re-read)
 	//     Quote-source reconciliations never route a transition (handled by adapter).

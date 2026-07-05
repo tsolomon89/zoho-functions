@@ -10,10 +10,11 @@ void automation.rollupAccountState(string accountId)
 	//                          = "Active Customer" when >=1 Deal is signed/active (RTP)
 	//                          = "Prospect"        otherwise (open, none signed yet)
 	//
-	// "Signed/active" is inferred from Opportunity_Stage in {Onboarding, Renewal}
-	// (RTP) -- the canonical single-L values used across the codebase and confirmed
-	// in live Deal data (matches syncConfirmedQuoteToDeal's RTP check). Silenced
-	// duplicate Deals (blank Deal_Key) are excluded.
+	// "Signed/active" = the Deal reached the RTP floor (Opportunity_Stage in {Onboarding,
+	// Renewal}) OR carries at least one Closed Won Quote (D1: Closed Won is the SIGNED event, so a
+	// Deal signed via a Closed Won Quote whose Contact has not yet reached Onboarding still counts as
+	// an Active Customer). Silenced duplicate Deals (blank Deal_Key) are excluded.
+	// Writes ONLY Accounts.State (Open/Lost) + Accounts.Account_Status; NEVER Accounts.Status.
 	//
 	// Writes use trigger suppression so the Account WFC does not cascade. Does not
 	// touch Account.Status (New/Working/Closed) -- that value set is not part of the
@@ -54,8 +55,26 @@ void automation.rollupAccountState(string accountId)
 			total = total + 1;
 			st = ifnull(full.get("Opportunity_State"), "Open").toString();
 			if(st == "Lost") { lost = lost + 1; }
+			// signed/active = RTP-floor stage OR >=1 Closed Won Quote on the Deal (D1 signed event).
+			// Only fetch Quotes when the stage check hasn't already proven it (avoids extra reads).
 			stage = ifnull(full.get("Opportunity_Stage"), "").toString();
-			if(stage == "Onboarding" || stage == "Renewal") { signed = signed + 1; }
+			isSignedDeal = (stage == "Onboarding" || stage == "Renewal");
+			if(!isSignedDeal)
+			{
+				dQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", did.toLong());
+				if(!isNull(dQuotes) && dQuotes.size() > 0 && !dQuotes.toString().startsWith("{\"code\""))
+				{
+					for each dqx in dQuotes
+					{
+						dqxId = "";
+						if(!isNull(dqx.get("id"))) { dqxId = dqx.get("id").toString(); }
+						if(dqxId == "" || !dqxId.matches("[0-9]+")) { continue; }
+						dqxFull = zoho.crm.getRecordById("Quotes", dqxId.toLong());
+						if(!isNull(dqxFull) && ifnull(dqxFull.get("Quote_Stage"), "").toString() == "Closed Won") { isSignedDeal = true; }
+					}
+				}
+			}
+			if(isSignedDeal) { signed = signed + 1; }
 		}
 	}
 

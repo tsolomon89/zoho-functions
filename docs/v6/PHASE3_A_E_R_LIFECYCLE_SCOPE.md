@@ -72,11 +72,12 @@ Account Company Tier benchmark (1→26000, 2→16500, 3→10500, else 0), reused
 - Stamp `Lifecycle:RenCW:<wonId>` on `won`.
 
 ### 4d. Renewal → Closed Lost  ⇒  churn/loss rules
-- The renewal slot is lost. **[DECISION D4]** Recommend: if the Deal has NO other non-Closed-Lost
-  Quote, set the Deal `Opportunity_State="Lost"`, `Opportunity_Status="Closed"`,
-  `Reason_For_Loss__s="Churn / Not Renewed"` (Deals never Won — Lost is allowed). If other live
-  Quotes remain, leave the Deal Open. `rollupAccountState` then churns the Account only when ALL
-  its Product Deals are Lost.
+- The renewal slot is lost. **[DECISION D4]** If the Deal has NO other OPEN (non-Closed-Lost,
+  non-Closed-Won) Quote, set the Deal `Opportunity_State="Lost"`, `Opportunity_Status="Closed"`,
+  `Lost_Reasons="Churned / Did Not Renew"` (the exact approved picklist option; `Reason_For_Loss__s`
+  is NOT written — it has no such option and none is created). Deals never Won — Lost is allowed. If
+  other OPEN Quotes remain, leave the Deal Open. `rollupAccountState` then churns the Account only
+  when ALL its Product Deals are Lost.
 - Stamp `Lifecycle:RenCL:<wonId>` on the lost Quote.
 
 ## 5. Successor Quote template (create)
