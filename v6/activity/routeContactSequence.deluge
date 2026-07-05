@@ -1235,6 +1235,11 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				callMap.put("Call_Type", "Outbound");
 				callMap.put("Call_Start_Time", callDue);
 				callMap.put("Outgoing_Call_Status", "Scheduled");
+				// Field-update contract for the rep: the ONLY user action is logging the result on
+				// Call Task State (Won/Lost) + Call Task Lost Reasons; commercial evidence is optional
+				// and universal (Call Task Contract *). Everything else is automation-owned. handleCallOutcome
+				// reads these fields on save and advances the sequence / upserts the Quote.
+				callMap.put("Description", "Automation-managed call for the " + nextStage + " sequence (attempt " + callStep + ").\nLog the result on this Call:\n- Reached and progressed -> set Call Task State = Won\n- Could not progress -> set Call Task State = Lost + choose Call Task Lost Reasons\n- Try again later -> set Next Follow-Up Date and leave Call Task State = Open\nIf commercial terms were discussed, quoted or agreed, also fill the Call Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won.\nDo not edit Call Task Status, Outgoing Call Status, or the Stage / Pipeline / Sequence fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
 				// activity mirror fields (automation-owned)
 				if(mirrorPipeline != "") { callMap.put("Call_Task_Pipeline", mirrorPipeline); }
 				if(mirrorOppType != "")  { callMap.put("Call_Task_Opportunity", mirrorOppType); }
@@ -1336,7 +1341,20 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				stTask.put("Task_Type", stTaskType);
 				stTask.put("Task_Sequence_Stage", nextStage);
 				stTask.put("Blocks_Sequence", "Yes");
-				stTask.put("Description", "Task-First route for " + nextStage + ". Complete with Task_State=Won to advance the Contact sequence.");
+				// Field-update contract for the rep. Draft Commercials REQUIRES the commercial-evidence
+				// fields (handleTaskCompletion builds the Draft Quote package from them and bounces the
+				// task back if they are missing); other stage tasks just need Task State = Won. All other
+				// fields are automation-owned.
+				stDesc = "Automation-managed task for the " + nextStage + " stage.\nWhen the work is done, set Task State = Won (or Task State = Lost + Task Lost Reasons if it cannot proceed).\nIf commercial terms were discussed, quoted or agreed, also fill the Task Contract fields (Products / Brands / Date Start / Date End / Frequency).\nDo not edit Task Status, Status, or the Stage / Pipeline / Sequence fields - automation advances the sequence (and updates any Quote from the Contract fields) after you save.";
+				if(stTaskType == "Draft Commercials")
+				{
+					stDesc = "Automation-managed task: capture the commercial terms for this Deal, then set Task State = Won.\nRequired before Won:\n- Task Contract Products (one or more quoted products)\n- Task Contract Brands\n- Task Contract Date Start and Task Contract Date End\n- Task Contract Frequency (Jurnii 360 lines only)\nOn Won, automation builds/updates the Draft Quote, recalculates the Deal value, and raises the Send Commercials task; missing terms bounce the task back with a Manual Review note.\nDo not edit Task Status, Status, the Stage / Pipeline / Sequence fields, or the Quote directly.";
+				}
+				else if(stTaskType == "Onboarding Setup")
+				{
+					stDesc = "Automation-managed task for the " + nextStage + " stage.\nWhen onboarding setup is complete, set Task State = Won - automation then marks the sequence Complete.\nIf commercial terms were discussed or agreed, also fill the Task Contract fields (Products / Brands / Date Start / Date End / Frequency).\nDo not edit Task Status, Status, or the Stage / Pipeline / Sequence fields - automation advances the record after you save.";
+				}
+				stTask.put("Description", stDesc);
 				// activity mirror fields (automation-owned)
 				if(mirrorPipeline != "") { stTask.put("Task_Pipeline", mirrorPipeline); }
 				if(mirrorOppType != "")  { stTask.put("Task_Opportunity", mirrorOppType); }

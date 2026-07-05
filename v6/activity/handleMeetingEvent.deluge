@@ -289,6 +289,14 @@ void automation.handleMeetingEvent(string eventIdStr)
 	if(reminderAt != null) { evUpd.put("Reminder_Send_At", reminderAt); }
 	if(dealPipeline != "") { evUpd.put("Meeting_Task_Pipeline", dealPipeline); }
 	if(dealOppType != "")  { evUpd.put("Meeting_Task_Opportunity", dealOppType); }
+	// Field-update contract for the rep. v6 does not CREATE meetings (they are booked externally), so
+	// stamp the guidance on the first UPCOMING pass - but ONLY when the rep has not written their own
+	// agenda/notes into Description (never overwrite user content). handleMeetingEvent reads Meeting Task
+	// State (+ Contract fields) on save and advances the sequence / upserts the Quote.
+	if(ifnull(event.get("Description"), "").toString().trim() == "")
+	{
+		evUpd.put("Description", "Automation-managed meeting.\nAfter it happens, log the result on this Event:\n- Went ahead / qualified -> set Meeting Task State = Won\n- Did not happen / lost -> set Meeting Task State = Lost + choose Meeting Task Lost Reasons\nIf commercial terms were discussed, quoted or agreed, also fill the Meeting Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won.\nDo not edit Meeting Task Status, Reminder Send At, or the Stage / Pipeline fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
+	}
 	if(mStage != "" && ifnull(event.get("Meeting_Task_Stage"), "").toString() == "") { evUpd.put("Meeting_Task_Stage", mStage); }
 	if(ifnull(event.get("Meeting_Task_Status"), "").toString() == "") { evUpd.put("Meeting_Task_Status", "New"); }
 	if(evUpd.size() > 0) { zoho.crm.updateRecord("Events", eventId, evUpd, noTrigger); }

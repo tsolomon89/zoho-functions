@@ -69,7 +69,10 @@ string automation.createManualReview(string contactIdStr, string dealIdStr, stri
 		coMap.put("$se_module", "Contacts");
 		coMap.put("Task_Type", "Manual Review");
 		coMap.put("Blocks_Sequence", "Yes");
-		coMap.put("Description", note);
+		// Contact-only review (no What_Id/Deal): handleTaskCompletion returns at its no-related-deal
+		// guard, so completing THIS task does not itself drive automation. Say so plainly rather than
+		// promising a Task State trigger that will not fire.
+		coMap.put("Description", note + "\n\n--- Automation-raised review. No Deal is linked, so completing this task does not advance a sequence by itself; resolve the data issue above (then re-processing will resume the correct Deal flow).");
 		coMap.put("Task_Status", "Working");
 		coMap.put("Task_State", "Open");
 		coResp = zoho.crm.createRecord("Tasks", coMap);

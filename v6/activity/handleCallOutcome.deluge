@@ -191,6 +191,8 @@ void automation.handleCallOutcome(string callIdStr)
 			rescheduledCall.put("Call_Task_Status", "Working");
 			rescheduledCall.put("Outgoing_Call_Status", "Scheduled");
 			rescheduledCall.put("Call_Task_State", "Open");
+			// Same field-update contract as the sequence-created Call (see routeContactSequence create_call).
+			rescheduledCall.put("Description", "Automation-managed call for the " + contactStage + " sequence (attempt " + callSeqAttempt + ").\nLog the result on this Call:\n- Reached and progressed -> set Call Task State = Won\n- Could not progress -> set Call Task State = Lost + choose Call Task Lost Reasons\n- Try again later -> set Next Follow-Up Date and leave Call Task State = Open\nIf commercial terms were discussed, quoted or agreed, also fill the Call Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won.\nDo not edit Call Task Status, Outgoing Call Status, or the Stage / Pipeline / Sequence fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
 			// Part E: carry the complete commercial evidence bundle onto the rescheduled Call.
 			rsProds = call.get("Call_Task_Contract_Products");
 			if(!isNull(rsProds)) { rescheduledCall.put("Call_Task_Contract_Products", rsProds); }
