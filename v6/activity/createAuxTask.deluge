@@ -17,6 +17,11 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	if(!isNull(dealIdStr) && dealIdStr != "") { dealId = dealIdStr.toLong(); }
 	if(contactId == 0 || dealId == 0 || isNull(taskType) || taskType == "") { return ""; }
 
+	// Real newline for rep-facing Description text. This org's Deluge stores a literal backslash-n
+	// sequence instead of a line break (verified live 2026-07-07), so line breaks must come from an
+	// actual newline character. hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here).
+	nl = hextoText("0A");
+
 	existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
 	if(isNull(existingTasks) || existingTasks.size() == 0 || existingTasks.toString().startsWith("{\"code\""))
 	{
@@ -49,7 +54,7 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 					if(!alreadyPresent)
 					{
 						updDesc = curDesc;
-						if(updDesc.trim() != "") { updDesc = updDesc + "\n"; }
+						if(updDesc.trim() != "") { updDesc = updDesc + nl; }
 						updDesc = updDesc + newNote;
 						noTriggerA = Map();
 						noTriggerA.put("trigger", List());
@@ -71,11 +76,28 @@ string automation.createAuxTask(string contactIdStr, string dealIdStr, string ta
 	tkMap.put("Task_Sequence_Managed", true);
 	tkMap.put("Task_Type", taskType);
 	tkMap.put("Blocks_Sequence", "Yes");
-	// Field-update contract for the rep. The specific issue/instruction (note) leads; the standard
-	// footer states the ONE user action (Task State = Won, or Lost + reasons) plus the universal
-	// commercial-evidence fields. The dedup/append logic above matches on the note text only, so the
-	// footer is safe. handleTaskCompletion reads Task State on save and advances the record.
-	auxHelp = "\n\n--- Automation-managed task. When resolved, set Task State = Won (or Task State = Lost + Task Lost Reasons). If commercial terms were discussed, quoted or agreed, also fill the Task Contract fields (Products / Brands / Date Start / Date End / Frequency). Do not edit Task Status, Status, or the Stage / Pipeline / Sequence fields - automation advances the record and updates any Quote after you save.";
+	// Field-update contract footer for the rep. The specific issue/instruction (note) leads; the
+	// footer states the ONE user action + exactly what automation does on save, tailored to the task
+	// TYPE so it never promises behaviour the handler does not perform:
+	//   - resume types (Manual Review / Data Repair / Review Reply / Suppression Review / Enrichment)
+	//     only resume the sequence on Won and NEVER read the Contract fields -> no commercial claim.
+	//   - Send Commercials delivers the already-drafted Quote on Won -> "sent" wording, no re-entry.
+	//   - any other (evidence-driven) type advances via task:positive and DOES read the Contract
+	//     fields -> keep the commercial-evidence line.
+	// The dedup/append logic above matches on the note text only, so a constant per-type footer is safe.
+	resumeTypes = {"Manual Review", "Data Repair", "Review Reply", "Suppression Review", "Enrichment"};
+	if(resumeTypes.contains(taskType))
+	{
+		auxHelp = nl + nl + "--- Automation-managed task." + nl + "Your action: resolve the item above, then set Task State = Won (or Task State = Lost + Task Lost Reasons if it cannot proceed)." + nl + "Do not edit Task Status, Status, or the Stage / Pipeline / Sequence fields - automation owns them." + nl + "On save: automation resumes the Contact sequence. No commercial / Contract fields are read on this task.";
+	}
+	else if(taskType == "Send Commercials")
+	{
+		auxHelp = nl + nl + "--- Automation-managed task." + nl + "Your action: once the commercials have been sent to the customer, set Task State = Won." + nl + "Do not re-enter the Contract fields, and do not edit the Quote, Task Status, Status, or the Stage / Pipeline / Sequence fields." + nl + "On save: automation marks the Quote Delivered and advances the Deal to Commercial Agreement.";
+	}
+	else
+	{
+		auxHelp = nl + nl + "--- Automation-managed task." + nl + "Your action: when the work is done, set Task State = Won (or Task State = Lost + Task Lost Reasons)." + nl + "If commercial terms were discussed, quoted or agreed, also fill the Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won." + nl + "Do not edit Task Status, Status, or the Stage / Pipeline / Sequence fields - automation advances the record and updates any Quote after you save.";
+	}
 	tkMap.put("Description", ifnull(note, "").toString() + auxHelp);
 	tkMap.put("Task_Status", "Working");
 	tkMap.put("Task_State", "Open");

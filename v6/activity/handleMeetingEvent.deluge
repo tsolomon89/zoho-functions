@@ -58,6 +58,11 @@ void automation.handleMeetingEvent(string eventIdStr)
 	noTrigger = Map();
 	noTrigger.put("trigger", List());
 
+	// Real newline for rep-facing Description text. This org's Deluge stores a literal backslash-n
+	// instead of a line break (verified live 2026-07-07), so line breaks must come from an actual
+	// newline character. hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here).
+	nl = hextoText("0A");
+
 	mState = ifnull(event.get("Meeting_Task_State"), "").toString().trim();
 	if(mState == "-None-") { mState = ""; }
 	mReason = ifnull(event.get("Meeting_Task_Lost_Reasons"), "").toString().trim();
@@ -295,7 +300,7 @@ void automation.handleMeetingEvent(string eventIdStr)
 	// State (+ Contract fields) on save and advances the sequence / upserts the Quote.
 	if(ifnull(event.get("Description"), "").toString().trim() == "")
 	{
-		evUpd.put("Description", "Automation-managed meeting.\nAfter it happens, log the result on this Event:\n- Went ahead / qualified -> set Meeting Task State = Won\n- Did not happen / lost -> set Meeting Task State = Lost + choose Meeting Task Lost Reasons\nIf commercial terms were discussed, quoted or agreed, also fill the Meeting Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won.\nDo not edit Meeting Task Status, Reminder Send At, or the Stage / Pipeline fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
+		evUpd.put("Description", "Automation-managed meeting." + nl + "After it happens, log the result on this Event:" + nl + "- Went ahead / qualified -> set Meeting Task State = Won" + nl + "- Did not happen / lost -> set Meeting Task State = Lost + choose Meeting Task Lost Reasons" + nl + "If commercial terms were discussed, quoted or agreed, also fill the Meeting Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won." + nl + "Do not edit Meeting Task Status, Reminder Send At, or the Stage / Pipeline fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
 	}
 	if(mStage != "" && ifnull(event.get("Meeting_Task_Stage"), "").toString() == "") { evUpd.put("Meeting_Task_Stage", mStage); }
 	if(ifnull(event.get("Meeting_Task_Status"), "").toString() == "") { evUpd.put("Meeting_Task_Status", "New"); }

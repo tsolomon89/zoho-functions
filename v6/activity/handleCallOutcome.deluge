@@ -107,6 +107,12 @@ void automation.handleCallOutcome(string callIdStr)
 	noTrigger = Map();
 	noTrigger.put("trigger", List());
 
+	// Real newline for rep-facing Description text. This org's Deluge stores a literal backslash-n
+	// instead of a line break (verified live 2026-07-07), so line breaks must come from an actual
+	// newline character. hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here). The rescheduled-Call
+	// Description below is kept byte-identical to routeContactSequence create_call (shared contract).
+	nl = hextoText("0A");
+
 	// Deal context for activity mirror fields (Pipeline / Opportunity Type).
 	dealRec = zoho.crm.getRecordById("Deals", dealId);
 	dealPipeline = "";
@@ -192,7 +198,7 @@ void automation.handleCallOutcome(string callIdStr)
 			rescheduledCall.put("Outgoing_Call_Status", "Scheduled");
 			rescheduledCall.put("Call_Task_State", "Open");
 			// Same field-update contract as the sequence-created Call (see routeContactSequence create_call).
-			rescheduledCall.put("Description", "Automation-managed call for the " + contactStage + " sequence (attempt " + callSeqAttempt + ").\nLog the result on this Call:\n- Reached and progressed -> set Call Task State = Won\n- Could not progress -> set Call Task State = Lost + choose Call Task Lost Reasons\n- Try again later -> set Next Follow-Up Date and leave Call Task State = Open\nIf commercial terms were discussed, quoted or agreed, also fill the Call Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won.\nDo not edit Call Task Status, Outgoing Call Status, or the Stage / Pipeline / Sequence fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
+			rescheduledCall.put("Description", "Automation-managed call for the " + contactStage + " sequence (attempt " + callSeqAttempt + ")." + nl + "Log the result on this Call:" + nl + "- Reached and progressed -> set Call Task State = Won" + nl + "- Could not progress -> set Call Task State = Lost + choose Call Task Lost Reasons" + nl + "- Try again later -> set Next Follow-Up Date and leave Call Task State = Open" + nl + "If commercial terms were discussed, quoted or agreed, also fill the Call Task Contract fields (Products / Brands / Date Start / Date End / Frequency) before Won." + nl + "Do not edit Call Task Status, Outgoing Call Status, or the Stage / Pipeline / Sequence fields - automation advances the sequence (and creates/updates the Quote from the Contract fields) once you save the result.");
 			// Part E: carry the complete commercial evidence bundle onto the rescheduled Call.
 			rsProds = call.get("Call_Task_Contract_Products");
 			if(!isNull(rsProds)) { rescheduledCall.put("Call_Task_Contract_Products", rsProds); }

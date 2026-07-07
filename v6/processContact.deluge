@@ -339,7 +339,10 @@ void automation.processContact(string contact_id)
 			// Route is chosen by the rep on the Activation Task via Task_Sequence_Type. The Task is
 			// ALWAYS created with Task_Sequence_Type blank so the rep explicitly selects Email/Call/Manual;
 			// the Contact's residual Sequence_Type must never auto-activate a route.
-			actDesc = "Activate the Contact sequence.\nContact: " + cName + "\nStage: " + contactStage + "\nLead Source (context only): " + leadSrc + "\n\nSet Task Sequence Type to choose the route:\n- Email\n- Call\n- Manual\n\nNo other field update is required.\n";
+			// Real newline for rep-facing Description text (this org's Deluge stores a literal
+			// backslash-n instead of a line break). hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here).
+			nl = hextoText("0A");
+			actDesc = "Automation-managed activation task." + nl + "Contact: " + cName + nl + "Stage: " + contactStage + nl + "Lead Source (context only): " + leadSrc + nl + nl + "Your action: set Task Sequence Type to choose how the sequence runs:" + nl + "- Email = automation sends the opener email, then books the first Call" + nl + "- Call = automation books the first Call" + nl + "- Manual = you run the sequence yourself" + nl + "No other field needs changing; automation starts the sequence when you save.";
 			actTask = Map();
 			actTask.put("Subject", "Activate sequence: " + cName + " — " + contactStage);
 			actTask.put("Status", "Not Started");

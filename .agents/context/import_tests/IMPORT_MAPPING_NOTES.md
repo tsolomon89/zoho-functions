@@ -1,63 +1,66 @@
 # Import Contract / Zoho Schema-Alignment Report (v6)
 
 **Template (the recurring import contract):** `Jurnii LTD Pipeline - Copy of Contact.csv`
-(111 columns, 260 rows). The CSV header shape is the contract — **adapt Zoho to it**, do not
-reshape the CSV. `…- CLEANED.csv` from the earlier pass is a throwaway dry-run artifact, NOT the template.
+(111 columns, 260 rows). The CSV header shape is the contract — **adapt Zoho to it**; do not reshape the
+CSV. `…- CLEANED.csv` is a throwaway dry-run artifact, NOT the template.
+
+**Guiding principle:** a CSV column existing does **not** mean a Zoho field must exist. Only columns the
+v6 engine actually needs become fields. Source/helper columns stay in the template, intentionally unmapped.
 
 The template already resolves the earlier value problems: **no `Contract Signed` Stage**, **no `ERROR`
-cells**, and `Product Interest` values are already canonical. So there are **no CSV value corrections**
-outstanding — the work is Zoho-side.
+cells**, `Product Interest` values already canonical. **No CSV value corrections outstanding.**
 
-## Column classification (111 cols)
-- **A — maps directly to an existing Lead field by label (92 cols).** All core, geography (Contact AOR /
-  Company AOO / Company Expansion), 8 completion timestamps, and every A/E/R quote input
+## Column classification (111)
+- **A — maps directly to an existing Lead field by label (92).** Core, geography (Contact AOR / Company
+  AOO / Company Expansion), 8 completion timestamps, every A/E/R quote input
   (`Stage / Plan Products / Plan Type / Plan Brands / Plan Frequency / Contract Date Start/End/Renewal /
-  ACV`). Import maps these 1:1; no action.
-- **B — map via manual import mapping (2 cols):** `Company Employee Count → No_of_Employees`
-  (Zoho label "Company Employees Count"); `Jurnii Report → Jurnii_Report_Created` (Zoho label
-  "Jurnii Report Created"). Optional: rename the Zoho **labels** to the CSV headers for auto-map.
-- **C — Zoho schema change / decision (see "Actions"):** `Product Interest`, `State`, `Current Job`,
-  `Email Guess`, `Last Contact`.
-- **D — preserve in template, DO NOT map (system-computed) (12 cols):** `{Acquisition|Renewal|Expansion}
-  Quote {Target ACV | ACV Gap | Contract Date End Days Remaining | Contract Date Renewal Days Remaining}`.
-  These Lead fields exist and are technically writable, but the **engine/formulas are authoritative**
-  (Target ACV from Company Tier; ACV Gap = Target − Contract ACV; Days Remaining = date math). Keep the
-  columns in the template; leave them **unmapped** at import.
+  ACV`). No action.
+- **B — map via manual import mapping (2):** `Company Employee Count → No_of_Employees`,
+  `Jurnii Report → Jurnii_Report_Created`.
+- **C — Zoho schema change (1):** `Product Interest` — align picklist options to canonical (below).
+- **D — preserved in template, intentionally UNMAPPED / not system-required (16):**
+  - `State` — informational lifecycle column. Loss is **inferred** (see below), NOT stored in a State
+    field. **No State field created** (Zoho also reserves the label "State" for the address field).
+  - `Current Job`, `Email Guess`, `Last Contact` — source/helper columns; do not drive the engine → **no
+    fields created**.
+  - 12 computed quote columns `{Acquisition|Renewal|Expansion} Quote {Target ACV | ACV Gap |
+    Contract Date End Days Remaining | Contract Date Renewal Days Remaining}` — engine/formulas are
+    authoritative (Target ACV from Company Tier; ACV Gap = Target − Contract ACV; Days Remaining = date
+    math). Keep in template, leave unmapped.
 - **E — CSV value correction:** none.
 - **F — rejected from model:** none.
 
-## Loss handling (State = Lost)
-CSV `State` (Open/Lost) is lifecycle data; there is **no** Lead field labelled "State" (the standard
-address field's label is "Address - State / Province", which the `Address - State / Province` column maps
-to). 7 rows are `State=Lost`:
-- **Renewal churn (auto-handled):** `45 Group - RVBet` (jaime@) and `River Tech` carry
-  `Renewal Quote Stage = Closed Lost` → the Phase-3 lifecycle churns the Deal to Lost + stamps
-  `Lost_Reasons = "Churned / Did Not Renew"` automatically. No column needed for these.
-- **Lost with no quote (needs an explicit path):** `45 Group - RVBet` (mike@, joao@) and
-  `BoyleSports ×3` (Proposal Preparation) have `State=Lost` but no Closed-Lost quote → nothing drives
-  the loss. These import as **Open** unless the contract carries loss info.
+## Loss / lifecycle (how the engine infers it — verified in code)
+processLead does NOT read a `State` field. Loss is inferred from:
+1. **Lead `Lost_Reasons`** (`processLead` L57): if set → Contact `State=Lost`/`Status=Closed` and the
+   seeded Product Deal `Opportunity_State=Lost`/`Opportunity_Status=Closed` (L452-457, L579-584).
+2. **`Renewal Quote Stage = Closed Lost`** → Phase-3 churn sets the Deal Lost +
+   `Lost_Reasons="Churned / Did Not Renew"` automatically.
 
-## Proposed minimal Zoho changes (nothing done yet — awaiting sign-off)
-1. **`Product_Interest` picklist → canonical options** (manual UI; no API tool for this).
-   Remove the 6 variant options; final set = `Jurnii UX, Jurnii 360, Jurnii Cortex, Partnership`.
-   Import setting: "automatically add new picklist values" **OFF**. (CSV values already canonical.)
-2. **State lifecycle path** — recommended:
-   (a) create Lead field **`Lead_State`** (picklist `Open/Lost`) and map CSV `State` → it (captures
-   lifecycle on the Lead; header maps cleanly), **and**
-   (b) add a **`Lost_Reasons`** column to the template contract (map → `Lost_Reasons`) so any `State=Lost`
-   row is deterministically Lost. Populate: renewal-churn → `Churned / Did Not Renew`; ambiguous → report.
-   (`Lost_Reasons` picklist already has `Churned / Did Not Renew`.)
-3. **Create Lead fields for the 3 no-target columns** (so the template maps fully; `createFields` is
-   available): `Current Job` (4 filled), `Email Guess` (27), `Last Contact` (52). Suggested types: text,
-   text, date. Or leave unmapped if you'd rather not store them.
-4. **B-columns:** either map manually each import, or align the two Zoho labels to the CSV headers.
+Implication for THIS template (no `Lost_Reasons` column):
+- `45 Group - RVBet`(jaime@) + `River Tech` → have `Renewal Quote = Closed Lost` → **auto-churn to Lost**.
+- `45 Group - RVBet`(mike@, joao@) + `BoyleSports ×3` → `State=Lost` but no `Lost_Reasons` / no closing
+  quote → would import **Open**.
+- **Decision (final):** the 5 evidence-less `State=Lost` rows (`45 Group` mike@/joao@, `BoyleSports ×3`)
+  **import Open for this load** — `State` alone is NOT an operational loss signal. `State` stays
+  preserved-but-unmapped; the engine never infers a reason from it.
+- **Future-template rule:** a row imports Lost only with an operational signal —
+  (a) `Renewal Quote Stage = Closed Lost` (→ Phase-3 churn stamps `Lost_Reasons = "Churned / Did Not
+  Renew"`), or (b) `Lost_Reasons` populated with an approved existing value. Never guess a reason.
+
+## The only Zoho change required
+**`Product_Interest` picklist → canonical options** (owner does manually in Zoho UI; no field-metadata
+API available). Remove the 6 variant options; final set = `Jurnii UX, Jurnii 360, Jurnii Cortex,
+Partnership`. Import setting "automatically add new picklist values" **OFF**. (CSV values already canonical.)
 
 ## Guardrails held
-No new Stage value, no `Churn / Not Renewed`, no variant `Product_Interest` values, no product+plan
-Product identities, no dropped template columns.
+No `State`/`Lead State`/`Current Job`/`Email Guess`/`Last Contact` fields created; no new Stage value; no
+`Churn / Not Renewed`; no variant `Product_Interest` values; no product+plan Product identities; no
+template columns dropped.
 
-## Then
-Dry-run 5 representative rows **from the template shape** (FTP Acq, RTP Renewal, churned Renewal-CL,
-Expansion, multi-product) after (1)-(2) land; validate no auto-added picklist values, canonical
-Account×Product Deals, `Quote_Product` canonical, plan detail on `Quote_Plan_*`, churn `Lost_Reasons`,
-`Account_Status` ≠ `Status`. Clean up, then full 260-row load.
+## Dry run (after owner fixes Product_Interest)
+5 template-shaped rows (FTP Acq, RTP Renewal, churned Renewal-CL, Expansion, multi-product). Validate:
+canonical Product_Interest imports with no auto-added values; canonical Account×Product Deals;
+`Quote_Product` canonical; plan detail on `Quote_Plan_*`; Closed-Lost Renewal drives churn +
+`Lost_Reasons="Churned / Did Not Renew"`; `Current Job`/`Email Guess`/`Last Contact` unmapped (no fields
+created); computed columns unmapped; `Account_Status` ≠ `Status`. Clean up, then full 260-row load.

@@ -20,6 +20,10 @@ string automation.createManualReview(string contactIdStr, string dealIdStr, stri
 	det = ifnull(detail, "").toString().trim();
 	if(det != "") { note = code + " " + det; }
 
+	// Real newline for rep-facing Description text (this org's Deluge stores a literal backslash-n
+	// instead of a line break). hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here).
+	nl = hextoText("0A");
+
 	cId = ifnull(contactIdStr, "").toString().replaceAll("zcrm_", "").trim();
 	dId = ifnull(dealIdStr, "").toString().replaceAll("zcrm_", "").trim();
 
@@ -72,7 +76,7 @@ string automation.createManualReview(string contactIdStr, string dealIdStr, stri
 		// Contact-only review (no What_Id/Deal): handleTaskCompletion returns at its no-related-deal
 		// guard, so completing THIS task does not itself drive automation. Say so plainly rather than
 		// promising a Task State trigger that will not fire.
-		coMap.put("Description", note + "\n\n--- Automation-raised review. No Deal is linked, so completing this task does not advance a sequence by itself; resolve the data issue above (then re-processing will resume the correct Deal flow).");
+		coMap.put("Description", note + nl + nl + "--- Automation-raised review. No Deal is linked, so completing this task does not advance a sequence by itself. Resolve the data issue described above; automation resumes the correct Deal flow when the record is re-processed.");
 		coMap.put("Task_Status", "Working");
 		coMap.put("Task_State", "Open");
 		coResp = zoho.crm.createRecord("Tasks", coMap);
