@@ -151,5 +151,40 @@ Reuse the `ZZ DESC SMOKE` cascade (Contact → `Contacts_X_Products` junction �
 6. Deletion pass (Layer 4) — separate approval.
 
 ## What I need from you to proceed
-- **Layer 1/2:** apply from this spec yourself, or say "execute" and I'll attempt the reversible API writes I can do safely (and flag anything only doable in the Zoho UI).
-- **Layer 3:** approve this diff plan (and the §3.1 fetch-fields mitigation choice) → I make the edits on `codex/activity-field-cleanup`, you publish, then we smoke. No commit until you confirm.
+- **Layer 1/2:** admin-UI only (see capability note) — apply from this spec.
+- **Layer 3:** diff staged on `codex/activity-field-cleanup` (mitigation (a) implemented). You publish, then we smoke. No commit until you confirm.
+- **Layer 4:** approve the safe-delete batch below (deletion is admin-UI; no MCP delete tool).
+
+---
+
+## API-capability finding (2026-07-08)
+ToolSearch confirms the available MCP toolset has **no** endpoint for: field label edit, picklist-value
+edit, layout section/field edit, per-profile field permission, or **field deletion**. `getFields` /
+`getLayouts` are read-only. Therefore **Layers 1, 2, and 4 are admin-UI operations** — I cannot execute
+them via API. The only cleanup I can execute is the Layer-3 code (done, on branch, awaiting your publish).
+
+## Layer 4 — Safe-delete batch (evidence; deletion = admin UI + explicit approval)
+Gate = custom + 0 Deluge reads + 0 Deluge writes (post-diff) + 0 workflow criteria + 0 layout usage +
+0 report/dashboard/import usage + no data to preserve.
+
+| Field (API) | Module | Field ID | Custom | Deluge reads | Deluge writes | WF criteria | On layout | Data rows | Gate verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| `Task_Outcome` | Tasks | 991103000000786020 | yes | 0 | 0 | 0 | **no** | **0** | ✅ passes all machine checks now |
+| `Meeting_Type` (label "DEP - Meeting Type") | Events | 991103000000784078 | yes | 0 | 0 | 0 | **no** | **0** | ✅ passes all machine checks now |
+| `Follow_Up_Required` | Events | 991103000000793003 | yes | 0 | 0 | 0 | YES (Meeting Additional Information) | 0 | ⏳ passes after layout removal |
+| `Follow_Up_Stage` | Events | 991103000000793015 | yes | 0 | 0 | 0 | YES (Meeting Additional Information) | 0 | ⏳ passes after layout removal |
+| `Block_Email_Until_Done` | Calls | 991103000000789090 | yes | 0 | 1 (removed on branch; publish pending) | 0 | YES (Purpose Of Outgoing Call) | 1 (ZZ DESC SMOKE scratch call) | ⏳ passes after publish + layout removal + scratch cleanup |
+
+**Do NOT delete (native, read-only):** `Check_In_State` (991103000000035011), `Check_In_Status`
+(991103000000035023) — `custom=false`. Remove from the Events layout only.
+
+**Already absent (no field exists — nothing to delete):** `Call_Outcome`, `Meeting_Status`,
+`Meeting_Outcome`.
+
+**Cannot verify via API (you must confirm before deleting):** reports, dashboards, and
+import/templates usage — there is no MCP tool to list these. The Zoho delete-field UI will also surface
+any remaining dependency blocker at delete time.
+
+**Rollback/backup note:** data rows are 0 (Block_Email = 1 scratch value), so no export is materially
+needed. Zoho retains deleted custom fields for restore for a limited window; still, record each field's
+`id` / api_name / picklist values (captured above) before deletion for quick re-create if required.

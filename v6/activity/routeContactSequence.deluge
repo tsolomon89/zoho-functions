@@ -309,10 +309,14 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// ---- resume must not advance past an open blocking Task for this Contact ----
 	if(trig == "resume")
 	{
-		blkTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+		// Full-record scan: searchRecords returns all custom fields the isBlockingTask predicate reads
+		// (getRelatedRecords related-list payloads can omit control fields). Scoped to What_Id=Deal, so
+		// contact-only Manual Reviews (no What_Id) are correctly excluded. Fall back to the related list
+		// only if the search index momentarily returns nothing.
+		blkTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
 		if(isNull(blkTasks) || blkTasks.size() == 0 || blkTasks.toString().startsWith("{\"code\""))
 		{
-			blkTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+			blkTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
 		}
 		if(!isNull(blkTasks) && blkTasks.size() > 0 && !blkTasks.toString().startsWith("{\"code\""))
 		{
@@ -323,10 +327,16 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				if(!isNull(whoL) && !isNull(whoL.get("id"))) { btWho = whoL.get("id").toString(); }
 				btStatus = ifnull(bt.get("Status"), "").toString();
 				btSeqStage = ifnull(bt.get("Task_Sequence_Stage"), "").toString();
-				// A blocking Task only blocks if it belongs to THIS Contact, is open
-				// (not Completed/Cancelled/Deferred), and is NOT an old-Stage leftover
-				// (supersede defers those; this also excludes any that slipped through).
-				if(btWho == contactId.toString() && ifnull(bt.get("Blocks_Sequence"), "No").toString() == "Yes" && btStatus != "Completed" && btStatus != "Cancelled" && btStatus != "Deferred" && (btSeqStage == "" || btSeqStage == stage))
+				// isBlockingTask (computed; replaces persisted Blocks_Sequence): an automation-managed
+				// human-action Task (Task_Sequence_Managed=true, not Scheduled Send / Email Sent) that is
+				// still open (native Status not Completed/Cancelled/Deferred AND Task_Status not Closed).
+				// A blocking Task only blocks THIS Contact and is NOT an old-Stage leftover
+				// (Task_Sequence_Stage blank or == this Stage; supersede defers those).
+				btManaged = ifnull(bt.get("Task_Sequence_Managed"), false).toString();
+				btType = ifnull(bt.get("Task_Type"), "").toString();
+				btTaskStatus = ifnull(bt.get("Task_Status"), "").toString();
+				btIsBlocking = (btManaged == "true" && btType != "Scheduled Send" && btType != "Email Sent" && btStatus != "Completed" && btStatus != "Cancelled" && btStatus != "Deferred" && btTaskStatus != "Closed");
+				if(btWho == contactId.toString() && btIsBlocking && (btSeqStage == "" || btSeqStage == stage))
 				{
 					automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "guard", "blocked_by_task", {"task":bt.get("id").toString()});
 					return;
@@ -1125,10 +1135,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		// re-read open blocking Tasks for Contact+Deal
 		if(!suppressOuter)
 		{
-			rrTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
+			// Full-record scan (see resume guard above): searchRecords returns the control fields the
+			// isBlockingTask predicate needs; scoped to What_Id=Deal so contact-only Manual Reviews are
+			// excluded. No Stage-scope here (preserves prior dispatch-gate behavior).
+			rrTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
 			if(isNull(rrTasks) || rrTasks.size() == 0 || rrTasks.toString().startsWith("{\"code\""))
 			{
-				rrTasks = zoho.crm.searchRecords("Tasks", "(What_Id:equals:" + dealId + ")");
+				rrTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId);
 			}
 			if(!isNull(rrTasks) && rrTasks.size() > 0 && !rrTasks.toString().startsWith("{\"code\""))
 			{
@@ -1138,7 +1151,12 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 					rwl = rt.get("Who_Id");
 					if(!isNull(rwl) && !isNull(rwl.get("id"))) { rtWho = rwl.get("id").toString(); }
 					rtStatus = ifnull(rt.get("Status"), "").toString();
-					if(rtWho == contactId.toString() && ifnull(rt.get("Blocks_Sequence"), "No").toString() == "Yes" && rtStatus != "Completed" && rtStatus != "Cancelled" && rtStatus != "Deferred") { suppressOuter = true; suppressWhy = "blocking_task_present"; }
+					// isBlockingTask (computed; replaces persisted Blocks_Sequence)
+					rtManaged = ifnull(rt.get("Task_Sequence_Managed"), false).toString();
+					rtType = ifnull(rt.get("Task_Type"), "").toString();
+					rtTaskStatus = ifnull(rt.get("Task_Status"), "").toString();
+					rtIsBlocking = (rtManaged == "true" && rtType != "Scheduled Send" && rtType != "Email Sent" && rtStatus != "Completed" && rtStatus != "Cancelled" && rtStatus != "Deferred" && rtTaskStatus != "Closed");
+					if(rtWho == contactId.toString() && rtIsBlocking) { suppressOuter = true; suppressWhy = "blocking_task_present"; }
 				}
 			}
 		}
@@ -1235,7 +1253,6 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 				callMap.put("Sequence_Managed", "Yes");
 				callMap.put("Sequence_Stage", nextStage);
 				callMap.put("Sequence_Attempt", callStep);
-				callMap.put("Block_Email_Until_Done", "Yes");
 				callMap.put("Call_Purpose_Detail", ifnull(purposeMap.get(nextStage), "Data Completion").toString());
 				callMap.put("Call_Type", "Outbound");
 				callMap.put("Call_Start_Time", callDue);

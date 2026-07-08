@@ -342,7 +342,7 @@ void automation.processContact(string contact_id)
 			// Real newline for rep-facing Description text (this org's Deluge stores a literal
 			// backslash-n instead of a line break). hextoText("0A") = line feed (a raw newline in a string literal is not valid Deluge here).
 			nl = hextoText("0A");
-			actDesc = "Automation-managed activation task." + nl + "Contact: " + cName + nl + "Stage: " + contactStage + nl + "Lead Source (context only): " + leadSrc + nl + nl + "Your action: set Task Sequence Type to choose how the sequence runs:" + nl + "- Email = automation sends the opener email, then books the first Call" + nl + "- Call = automation books the first Call" + nl + "- Manual = you run the sequence yourself" + nl + "No other field needs changing; automation starts the sequence when you save.";
+			actDesc = "Automation-managed activation task." + nl + "Contact: " + cName + nl + "Stage: " + contactStage + nl + "Lead Source (context only): " + leadSrc + nl + nl + "Your action:" + nl + "1. Set Task Sequence Type to choose the route:" + nl + "   - Email = automation sends the opener email, then books the first Call" + nl + "   - Call = automation books the first Call" + nl + "   - Manual = you run the sequence yourself (automated emails/calls stay off)" + nl + "2. Set Task State = Won to start." + nl + "On save, automation starts the selected route and completes this task for you." + nl + "Do not edit Task Status, Status, Blocks Sequence, or the Stage / Pipeline / Sequence fields.";
 			actTask = Map();
 			actTask.put("Subject", "Activate sequence: " + cName + " — " + contactStage);
 			actTask.put("Status", "Not Started");
