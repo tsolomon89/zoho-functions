@@ -167,24 +167,72 @@ them via API. The only cleanup I can execute is the Layer-3 code (done, on branc
 Gate = custom + 0 Deluge reads + 0 Deluge writes (post-diff) + 0 workflow criteria + 0 layout usage +
 0 report/dashboard/import usage + no data to preserve.
 
-| Field (API) | Module | Field ID | Custom | Deluge reads | Deluge writes | WF criteria | On layout | Data rows | Gate verdict |
-|---|---|---|---|---|---|---|---|---|---|
-| `Task_Outcome` | Tasks | 991103000000786020 | yes | 0 | 0 | 0 | **no** | **0** | ✅ passes all machine checks now |
-| `Meeting_Type` (label "DEP - Meeting Type") | Events | 991103000000784078 | yes | 0 | 0 | 0 | **no** | **0** | ✅ passes all machine checks now |
-| `Follow_Up_Required` | Events | 991103000000793003 | yes | 0 | 0 | 0 | YES (Meeting Additional Information) | 0 | ⏳ passes after layout removal |
-| `Follow_Up_Stage` | Events | 991103000000793015 | yes | 0 | 0 | 0 | YES (Meeting Additional Information) | 0 | ⏳ passes after layout removal |
-| `Block_Email_Until_Done` | Calls | 991103000000789090 | yes | 0 | 1 (removed on branch; publish pending) | 0 | YES (Purpose Of Outgoing Call) | 1 (ZZ DESC SMOKE scratch call) | ⏳ passes after publish + layout removal + scratch cleanup |
+### FULL deletion audit (2026-07-09) — all custom activity fields tiered
+Enumerated every custom field on Tasks (17) / Calls (18) / Events (16). Workflow criteria = none on any
+activity workflow. Code = full `v6` grep. Layout = live `getLayouts`. Data = live COQL COUNT.
 
-**Do NOT delete (native, read-only):** `Check_In_State` (991103000000035011), `Check_In_Status`
-(991103000000035023) — `custom=false`. Remove from the Events layout only.
+**TIER 1 — deletable NOW** (custom · 0 code reads · 0 code writes · 0 WF criteria · NOT on layout · 0 data):
+| Field | Module | Field ID | Data | Note |
+|---|---|---|---|---|
+| `Task_Outcome` | Tasks | 991103000000786020 | 0 | legacy outcome (WF008 desc: "not a lifecycle command") |
+| `Meeting_Type` | Events | 991103000000784078 | 0 | already labeled "DEP - Meeting Type" |
 
-**Already absent (no field exists — nothing to delete):** `Call_Outcome`, `Meeting_Status`,
-`Meeting_Outcome`.
+**TIER 2 — deletable after LAYOUT removal only** (custom · 0 code · 0 WF · 0 data · but ON a layout):
+| Field | Module | Field ID | On layout | Data |
+|---|---|---|---|---|
+| `Email_Trigger_Template` | Calls | 991103000000789065 | Purpose Of Outgoing Call | 0 |
+| `Outcome_Notes` | Calls | 991103000000789049 | Purpose Of Outgoing Call | 0 |
+| `Follow_Up_Required` | Events | 991103000000793003 | Meeting Additional Information | 0 |
+| `Follow_Up_Stage` | Events | 991103000000793015 | Meeting Additional Information | 0 |
+| `Ext_Calendar_Booking_ID` | Events | 991103000000793032 | Meeting Additional Information | 0 |
+| `Block_Email_Until_Done` | Calls | 991103000000789090 | Purpose Of Outgoing Call | 1 (ZZ DESC SMOKE scratch → 0 after scratch cleanup) |
+> `Block_Email_Until_Done` write is already removed + published (commit 939b1b2), so it now has 0 active writes.
+> (Whether `deleteCustomField` auto-removes an on-layout field or errors will be confirmed by a first attempt.)
 
-**Cannot verify via API (you must confirm before deleting):** reports, dashboards, and
-import/templates usage — there is no MCP tool to list these. The Zoho delete-field UI will also surface
-any remaining dependency blocker at delete time.
+**TIER 3 — NOT deletable yet** (custom but still WRITTEN by code — need Phase B / mirror-stop first):
+`Blocks_Sequence` (still written in Phase A); write-only mirrors `Task_Stage`, `Call_Task_Stage`,
+`Task_Pipeline`, `Task_Opportunity`, `Call_Task_Pipeline`, `Call_Task_Opportunity`,
+`Meeting_Task_Pipeline`, `Meeting_Task_Opportunity`, `Call_Purpose_Detail`, `Reminder_Send_At`.
 
-**Rollback/backup note:** data rows are 0 (Block_Email = 1 scratch value), so no export is materially
-needed. Zoho retains deleted custom fields for restore for a limited window; still, record each field's
-`id` / api_name / picklist values (captured above) before deletion for quick re-create if required.
+**NEVER delete (actively used custom, or native):** all `*_Task_State` / `*_Lost_Reasons` /
+`*_Contract_*` / `*_Task_Status` / `Task_Sequence_Managed` / `Sequence_Managed` / `Task_Sequence_Stage` /
+`Sequence_Stage` / `Sequence_Attempt` / `Task_Type` / `Task_Sequence_Type` / `Next_Follow_Up_Date` /
+`Meeting_Task_Stage`; native `Status`, `Outgoing_Call_Status`, `Check_In_State`, `Check_In_Status`,
+`Start_DateTime`, `End_DateTime`, `Due_Date`.
+
+**Already absent (no field exists):** `Call_Outcome`, `Meeting_Status`, `Meeting_Outcome`.
+
+**Cannot verify via API (you must confirm before deleting):** reports, dashboards, import/templates
+usage — no MCP tool lists these. `deleteCustomField` will also surface any Zoho dependency blocker at
+delete time. **Rollback:** all candidate data rows are 0 (Block_Email = 1 scratch); Zoho keeps deleted
+custom fields restorable for a limited window; field ids/values are recorded above for re-create.
+
+---
+
+## Layer 4 — Deletion log
+
+### Tier 1 execution (approved 2026-07-09)
+Pre-deletion confirmation (both): custom=yes; Deluge reads=0, writes=0 (full `v6` grep); workflow
+criteria=0 (no activity workflow uses field criteria); on layout=no; data rows=0. No code/workflow/
+layout/data dependency exists for either.
+
+| Field API | Module | Field ID | Data count | Dependency result | Zoho response | Deleted (timestamp) |
+|---|---|---|---|---|---|---|
+| `Task_Outcome` | Tasks | 991103000000786020 | 0 rows | none — 0 Deluge reads/writes, 0 workflow criteria, not on layout | `SUCCESS: field deleted` (no blocker) | 2026-07-09 |
+| `Meeting_Type` | Events | 991103000000784078 | 0 rows | none — 0 Deluge reads/writes, 0 workflow criteria, not on layout | `SUCCESS: field deleted` (no blocker) | 2026-07-09 |
+
+### Tier 2 — PENDING (blocked on layout removal; do NOT delete yet)
+`Email_Trigger_Template`, `Outcome_Notes`, `Block_Email_Until_Done` (Calls); `Follow_Up_Required`,
+`Follow_Up_Stage`, `Ext_Calendar_Booking_ID` (Events). All are still on layouts — remove from layouts
+first (admin UI), then delete. Do not use `deleteCustomField` as a probe on on-layout fields.
+`Block_Email_Until_Done`: write-removal IS published (commit 939b1b2) and smoke-validated (Call creation
+unaffected), so it is code-ready; it still needs layout removal + the last scratch data row cleared.
+The single remaining `Block_Email_Until_Done="Yes"` row is on **Call `991103000002287359`** ("Marketing
+Consent Call 1"), Who=`ZZ DESC SMOKE - MC Call 20260707` (`991103000002320040`), What=Deal
+`991103000002287355`. After layout removal, clear that one value (or delete that scratch Call), re-check
+`COUNT(Block_Email_Until_Done is not null)=0`, then delete the field.
+
+### Tier 3 — NOT approved for deletion
+`Blocks_Sequence`, `Task_Stage`, `Call_Task_Stage`, `Task_Pipeline`, `Task_Opportunity`,
+`Call_Task_Pipeline`, `Call_Task_Opportunity`, `Meeting_Task_Pipeline`, `Meeting_Task_Opportunity`,
+`Call_Purpose_Detail`, `Reminder_Send_At` — hide/read-only or future-cleanup only.
