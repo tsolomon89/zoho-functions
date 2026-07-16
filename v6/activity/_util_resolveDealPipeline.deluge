@@ -6,18 +6,22 @@ string automation.resolveDealPipeline(string dealIdStr)
 	// Resolve the Deal Pipeline (B2B / Partnership) for the activity mirror fields
 	// (Task_Pipeline / Call_Task_Pipeline / Meeting_Task_Pipeline).
 	//
-	// Deluge's native getRecordById OMITS the special Pipeline field (returns blank),
-	// so this reads the Deal via ONE REST full GET (the same invokeurl pattern that
-	// processDeal / handleTaskCompletion use for Quotes). Verified live 2026-07-16:
-	// GET /crm/v6/Deals/{id} returns Pipeline (plain string "B2B") AND every field the
-	// partner-signal fallback needs, in a single call.
+	// READ = COQL. Inside the Deluge function runtime, Deluge-native getRecordById AND
+	// a REST full GET both return Pipeline BLANK (Pipeline is a special field the
+	// runtime omits), so only a COQL `select ... Pipeline ...` surfaces it. Verified
+	// live 2026-07-16: a REST full GET defaulted a Partnership Deal to "B2B" on the
+	// activity mirror, while COQL reads the real value. (Earlier this looked like the
+	// field was simply unreadable — that was the wrong "zohocrm" connection making every
+	// invokeurl fail; with "zoho_crm" the COQL read works.)
 	//
-	// HISTORY: this function previously stacked SEVEN read paths (native, searchRecords,
-	// 4x REST variants, COQL) because "every activity had a blank pipeline." The real
-	// cause was that all the invokeurl paths used a WRONG connection name ("zohocrm",
-	// a connector from an unrelated project); every REST read silently failed and the
-	// function hardcoded "B2B". With the connection corrected to "zoho_crm" the single
-	// REST GET works, so the other six paths were removed (2026-07-16).
+	// The Deal record is still read once via native getRecordById, used ONLY for the
+	// partner-signal fallback (Deal_Name / Deal_Key / Type / Lead_Source / $layout_id)
+	// when COQL returns nothing. Its blank Pipeline is ignored.
+	//
+	// HISTORY: this stacked SEVEN read paths (native, searchRecords, 4x REST, COQL) with
+	// per-path logging to find the working one. With the connection fixed the answer is
+	// COQL, so the six non-working paths were removed (2026-07-16). 2 calls (native + COQL),
+	// down from up to 7.
 	//
 	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent /
 	// unmapped. An unmapped value (not in the live activity Pipeline picklist) is LOGGED
@@ -29,47 +33,45 @@ string automation.resolveDealPipeline(string dealIdStr)
 	if(dealId == 0) { return ""; }
 
 	pipeline = "";
-	dealRec = null;   // full record; source for BOTH Pipeline and the partner-signal fallback
 
-	// ---- (1) REST full GET — the proven Pipeline read ----
-	resp = null;
+	// ---- Deal record (native) — for the partner-signal fallback only; Pipeline is blank here ----
+	nativeDeal = zoho.crm.getRecordById("Deals", dealId);
+
+	// ---- (1) COQL read — the only method that surfaces Pipeline inside the runtime ----
+	coqlRaw = "";
 	try
 	{
-		resp = invokeurl
+		coqlBody = Map();
+		coqlBody.put("select_query", "select id, Pipeline from Deals where id = " + dealId + " limit 1");
+		coqlHeaders = Map();
+		coqlHeaders.put("Content-Type", "application/json");
+		coqlResp = invokeurl
 		[
-			url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
-			type   : GET
+			url: "https://www.zohoapis.eu/crm/v6/coql"
+			type: POST
+			body: coqlBody.toString()
 			connection: "zoho_crm"
+			headers: coqlHeaders
 		];
+		coqlRaw = ifnull(coqlResp, "").toString();
+		if(!isNull(coqlResp) && coqlResp.toString().startsWith("{") && !isNull(coqlResp.get("data")) && coqlResp.get("data").size() > 0)
+		{
+			cRaw = coqlResp.get("data").get(0).get("Pipeline");
+			if(!isNull(cRaw))
+			{
+				// COQL returns Pipeline as a plain string; guard for a map form defensively.
+				if(cRaw.toString().startsWith("{")) { pipeline = ifnull(cRaw.get("name"), ifnull(cRaw.get("display_value"), "")).toString().trim(); }
+				else { pipeline = cRaw.toString().trim(); }
+			}
+		}
 	}
 	catch (e)
 	{
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", "invokeurl_failed", {"error":e.toString()});
-		resp = null;
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "failed", {"error":e.toString()});
+		pipeline = "";
 	}
-	if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
-	{
-		dealRec = resp.get("data").get(0);
-		pRaw = dealRec.get("Pipeline");
-		if(!isNull(pRaw))
-		{
-			// Pipeline may serialize as a plain string ("B2B") or a map (name / display_value).
-			if(pRaw.toString().startsWith("{")) { pipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
-			else { pipeline = pRaw.toString().trim(); }
-		}
-	}
-	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", if(pipeline != "", "got", "blank"), {"pipeline":pipeline});
 	if(pipeline == "null") { pipeline = ""; }
-
-	// ---- (2) Backup record for the partner-signal fallback if the REST read failed ----
-	// Native getRecordById omits Pipeline, so it cannot resolve the pipeline itself; it only
-	// gives the signal fields when the REST call returned nothing (e.g. a transient connection
-	// error). Pipeline stays blank on this branch -> the B2B default below applies.
-	if(isNull(dealRec))
-	{
-		nativeDeal = zoho.crm.getRecordById("Deals", dealId);
-		if(!isNull(nativeDeal) && !isNull(nativeDeal.get("id"))) { dealRec = nativeDeal; }
-	}
+	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", if(pipeline != "", "got", "blank"), {"pipeline":pipeline, "raw":coqlRaw});
 
 	// ---- Final pragmatic fallback: partner-signal -> leave blank, else default "B2B" ----
 	// Workflow-created canonical Deals in this automation are B2B unless their visible context
@@ -80,13 +82,13 @@ string automation.resolveDealPipeline(string dealIdStr)
 		try
 		{
 			sig = "";
-			if(!isNull(dealRec))
+			if(!isNull(nativeDeal))
 			{
-				sig = sig + " " + ifnull(dealRec.get("Deal_Name"), "").toString();
-				sig = sig + " " + ifnull(dealRec.get("Deal_Key"), "").toString();
-				sig = sig + " " + ifnull(dealRec.get("Type"), "").toString();
-				sig = sig + " " + ifnull(dealRec.get("Lead_Source"), "").toString();
-				layoutMap = dealRec.get("$layout_id");
+				sig = sig + " " + ifnull(nativeDeal.get("Deal_Name"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Deal_Key"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Type"), "").toString();
+				sig = sig + " " + ifnull(nativeDeal.get("Lead_Source"), "").toString();
+				layoutMap = nativeDeal.get("$layout_id");
 				if(!isNull(layoutMap))
 				{
 					sig = sig + " " + ifnull(layoutMap.get("name"), "").toString();
@@ -105,7 +107,7 @@ string automation.resolveDealPipeline(string dealIdStr)
 			return "";
 		}
 		pipeline = "B2B";
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"pipeline_read_blank"});
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"coql_read_blank"});
 	}
 
 	// Validate against the live activity Pipeline picklist value set. Do NOT silently discard an
