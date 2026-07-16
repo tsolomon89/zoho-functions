@@ -65,9 +65,9 @@ void automation.processLead(string lead_id)
 	// _Plan_Products/_Plan_Type/_Plan_Brands/_Plan_Frequency, _Stage, ...). We do NOT read them
 	// inline here and we do NOT write any legacy Contract_Initial_*/Current_* Deal ledger — that
 	// ledger is derived from Confirmed Quotes downstream. Instead the adapter
-	// automation.normalizeToProductQuoteTuples("Leads", id) reads those groups (via
-	// collectLegacyQuoteEvidence) and returns per-product tuples that feed the import_bootstrap
-	// Quote engine in processDeal (step 6c below). Quote_Target_ACV is a Company-Tier benchmark
+	// automation.normalizeToProductQuoteTuples("Leads", id) reads those groups (inline;
+	// formerly the collectLegacyQuoteEvidence helper) and returns per-product tuples that feed
+	// the import_bootstrap Quote engine in processDeal (step 6c below). Quote_Target_ACV is a Company-Tier benchmark
 	// derived in processDeal from the Account tier, so it is intentionally NEVER read here.
 	mqCompletedAt = null;
 	mqVal = leadRecord.get("Contact_Completed_Marketing_Qualification_At");

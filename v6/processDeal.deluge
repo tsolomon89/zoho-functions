@@ -134,6 +134,10 @@ string automation.processDeal(string deal_id, string contextJson)
 		result.put("outcome", "missing_account_key");
 		return result.toString();
 	}
+	// Authoritative base for every Quote Subject built below (see _util_buildQuoteSubject).
+	// NEVER compose a Subject from Deal_Name + product: Deal_Name is already
+	// "<Account> - <Product>", which is what duplicated the product name.
+	accountName = ifnull(accRec.get("Account_Name"), "").toString();
 	// Deal_Key is PRODUCT-SCOPED: accountKey + "::" + productKey. The productKey is resolved from
 	// the Deal's own Deal_Product / else EXACTLY ONE unique non-lost child Quote product (§6b below),
 	// so Deal_Key is composed there — never here, and NEVER the legacy "::active" account-level key.
@@ -815,6 +819,12 @@ string automation.processDeal(string deal_id, string contextJson)
 						upQid = updatableMatches.get(0);
 						existingQ = zoho.crm.getRecordById("Quotes", upQid.toLong());
 						qUpd = Map();
+						// Re-assert the canonical Subject so a Quote written by an earlier
+						// (product-duplicating) build self-repairs as soon as activity evidence
+						// touches it. Recomputed from parts -> no-op once already canonical. The
+						// Quote's own Quote_Type is the label, so a scaffold that has since taken
+						// real evidence settles on its true type.
+						qUpd.put("Subject", automation.buildQuoteSubject(accountName, prodName, ifnull(existingQ.get("Quote_Type"), "").toString(), ifnull(targetDeal.get("Deal_Name"), "").toString()));
 						qHeaderProd = Map();
 						qHeaderProd.put("id", prodId);
 						qUpd.put("Quote_Product", qHeaderProd);
@@ -1050,7 +1060,7 @@ string automation.processDeal(string deal_id, string contextJson)
 						}
 						lineList = List(); lineList.add(line);
 						qMap = Map();
-						qMap.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + prodName);
+						qMap.put("Subject", automation.buildQuoteSubject(accountName, prodName, "", ifnull(targetDeal.get("Deal_Name"), "").toString()));
 						qMap.put("Quote_Stage", "Draft");
 						accMap = Map(); accMap.put("id", accountId); qMap.put("Account_Name", accMap);
 						dMap = Map(); dMap.put("id", targetDealId); qMap.put("Deal_Name", dMap);
@@ -1456,6 +1466,10 @@ string automation.processDeal(string deal_id, string contextJson)
 									}
 									if(exLineIdI != "") { impLine.put("id", exLineIdI); }
 									qUpdI = Map();
+									// Re-assert the canonical Subject on update so a Quote written by an
+									// earlier (product-duplicating) build self-repairs. Recomputed from
+									// parts, so this is a no-op once the Subject is already canonical.
+									qUpdI.put("Subject", automation.buildQuoteSubject(accountName, impProdName, impTerm, ifnull(targetDeal.get("Deal_Name"), "").toString()));
 									qpHI = Map(); qpHI.put("id", impProdId); qUpdI.put("Quote_Product", qpHI);
 									qUpdI.put("Opportunity_Type", quoteOppType);
 									if(impQuoteType != "") { qUpdI.put("Quote_Type", impQuoteType); }
@@ -1490,7 +1504,7 @@ string automation.processDeal(string deal_id, string contextJson)
 								else
 								{
 									qMapI = Map();
-									qMapI.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + impProdName + " (" + impTerm + ")");
+									qMapI.put("Subject", automation.buildQuoteSubject(accountName, impProdName, impTerm, ifnull(targetDeal.get("Deal_Name"), "").toString()));
 									qMapI.put("Quote_Stage", impStage);
 									accMapI = Map(); accMapI.put("id", accountId); qMapI.put("Account_Name", accMapI);
 									dMapI = Map(); dMapI.put("id", targetDealId); qMapI.put("Deal_Name", dMapI);
@@ -1663,7 +1677,7 @@ string automation.processDeal(string deal_id, string contextJson)
 			scafLines = List(); scafLines.add(scafLine);
 
 			scafMap = Map();
-			scafMap.put("Subject", ifnull(targetDeal.get("Deal_Name"), "Quote").toString() + " - " + scafProdName + " (Acquisition scaffold)");
+			scafMap.put("Subject", automation.buildQuoteSubject(accountName, scafProdName, "Acquisition scaffold", ifnull(targetDeal.get("Deal_Name"), "").toString()));
 			scafMap.put("Quote_Stage", "Draft");
 			scafMap.put("Quote_Type", "Acquisition");
 			scafAccM = Map(); scafAccM.put("id", accountId); scafMap.put("Account_Name", scafAccM);

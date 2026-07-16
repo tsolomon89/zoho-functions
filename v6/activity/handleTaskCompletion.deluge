@@ -130,6 +130,16 @@ void automation.handleTaskCompletion(string taskIdStr)
 			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "guard", "activation_already_processed", {"status":tStatus});
 			return;
 		}
+
+		// ---- HARDENED COMMIT MODEL: Task_Sequence_Type is the route PARAMETER; Task_State = Won is the
+		//      COMMIT. Editing Task_Sequence_Type alone (State not yet Won) is a NO-OP — do not start the
+		//      sequence or defer sibling activation tasks until the rep commits with Task_State = Won. ----
+		if(taskState != "Won")
+		{
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activation_awaiting_commit", ifnull(taskSeqType, "").toString(), {"contact":contactId.toString(), "task_state":taskState});
+			return;
+		}
+
 		// ---- D1 FIX (2026-06-22): race-proof backstop. processContact §6b tries to defer
 		//      duplicate activation tasks at creation, but two concurrent processContact runs
 		//      (processLead's inline call + the WF001b2 Contacts-create trigger) can both create
@@ -156,11 +166,15 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
-		// ---- 1. Resolve route: Task_Sequence_Type is the sole activation selector. ----
+		// ---- 1. Resolve route: Task_Sequence_Type is the route parameter for this Won commit.
+		//      Task_State = Won with a blank/invalid route -> reopen the activation task and raise a
+		//      Manual Review so the rep picks a route, then commits Task_State = Won again. ----
 		routeType = taskSeqType;
 		if(routeType != "Email" && routeType != "Call" && routeType != "Manual")
 		{
-			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "unknown_route", "no_task_sequence_type", {"task_sequence_type":taskSeqType});
+			zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
+			automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[activation_no_route] Activation task " + taskId + " was set to Task State = Won without choosing Task Sequence Type. Choose Email / Call / Manual, then set Task State = Won again.");
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activation_no_route", ifnull(taskSeqType, "").toString(), {"contact":contactId.toString()});
 			return;
 		}
 
@@ -511,10 +525,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 				fbCreatedQuoteIds = List();
 				fbDeal = zoho.crm.getRecordById("Deals", dealId);
 				fbAccountId = "";
+				fbAccountName = "";
 				if(!isNull(fbDeal) && !isNull(fbDeal.get("id")))
 				{
 					fbAcc = fbDeal.get("Account_Name");
-					if(!isNull(fbAcc) && !isNull(fbAcc.get("id"))) { fbAccountId = fbAcc.get("id").toString(); }
+					if(!isNull(fbAcc) && !isNull(fbAcc.get("id"))) { fbAccountId = fbAcc.get("id").toString(); fbAccountName = ifnull(fbAcc.get("name"), "").toString(); }
 				}
 				if(fbAccountId == "") { fbReasons.add("missing_account"); }
 				fbQuoteOppType = "FTP";
@@ -729,7 +744,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbLines.add(fbLine);
 
 						fbQ = Map();
-						fbQ.put("Subject", ifnull(fbDeal.get("Deal_Name"), "Quote").toString() + " - " + fbProdName);
+						fbQ.put("Subject", automation.buildQuoteSubject(fbAccountName, fbProdName, "", ifnull(fbDeal.get("Deal_Name"), "").toString()));
 						fbQ.put("Quote_Stage", "Draft");
 						fbAccMap = Map(); fbAccMap.put("id", fbAccountId); fbQ.put("Account_Name", fbAccMap);
 						fbDealMap = Map(); fbDealMap.put("id", dealId.toString()); fbQ.put("Deal_Name", fbDealMap);
