@@ -9,7 +9,8 @@ string automation.collectProductEvidence(string moduleName, string recordId)
 	//
 	// Returns raw, distinct (case-insensitive) product name / key strings seen on
 	// the record. This is product-INTEREST evidence only; contract TERMS are
-	// collected separately by collectLegacyQuoteEvidence.
+	// collected separately by the A/E/R group reader inlined in
+	// normalizeToProductQuoteTuples (formerly the _util_collectLegacyQuoteEvidence helper).
 	//
 	// Per module:
 	//   Leads:    Product_Interest (multiselect; jsonarray or bracketed string) +

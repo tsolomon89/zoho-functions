@@ -525,10 +525,11 @@ void automation.handleTaskCompletion(string taskIdStr)
 				fbCreatedQuoteIds = List();
 				fbDeal = zoho.crm.getRecordById("Deals", dealId);
 				fbAccountId = "";
+				fbAccountName = "";
 				if(!isNull(fbDeal) && !isNull(fbDeal.get("id")))
 				{
 					fbAcc = fbDeal.get("Account_Name");
-					if(!isNull(fbAcc) && !isNull(fbAcc.get("id"))) { fbAccountId = fbAcc.get("id").toString(); }
+					if(!isNull(fbAcc) && !isNull(fbAcc.get("id"))) { fbAccountId = fbAcc.get("id").toString(); fbAccountName = ifnull(fbAcc.get("name"), "").toString(); }
 				}
 				if(fbAccountId == "") { fbReasons.add("missing_account"); }
 				fbQuoteOppType = "FTP";
@@ -743,7 +744,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 						fbLines.add(fbLine);
 
 						fbQ = Map();
-						fbQ.put("Subject", ifnull(fbDeal.get("Deal_Name"), "Quote").toString() + " - " + fbProdName);
+						fbQ.put("Subject", automation.buildQuoteSubject(fbAccountName, fbProdName, "", ifnull(fbDeal.get("Deal_Name"), "").toString()));
 						fbQ.put("Quote_Stage", "Draft");
 						fbAccMap = Map(); fbAccMap.put("id", fbAccountId); fbQ.put("Account_Name", fbAccMap);
 						fbDealMap = Map(); fbDealMap.put("id", dealId.toString()); fbQ.put("Deal_Name", fbDealMap);

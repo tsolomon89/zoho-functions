@@ -223,11 +223,32 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	seqState = ifnull(contact.get("Sequence_State"), "").toString();
 	seqStage = ifnull(contact.get("Sequence_Stage"), "").toString();
 	seqStep  = ifnull(contact.get("Sequence_Step"), "None").toString();
+
 	if(stage == "")
 	{
 		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "guard", "no_stage", null);
 		return;
 	}
+
+	// =====================================================================
+	// ACTIVATION EVIDENCE (authoritative persisted state).
+	//
+	// Sequence_Activated_At is the ONLY proof a Contact was activated. It is
+	// stamped in exactly one place — the activate:email/call/manual block below,
+	// reached only from handleTaskCompletion after a rep completed the Sequence
+	// Activation Task with a valid Task_Sequence_Type. Nothing else may write it.
+	//
+	// It exists because none of the pre-existing signals is trustworthy evidence:
+	//   Sequence_State == "Running"  — written by the SHARED entry block for ANY
+	//     doEntry trigger (commercial:signed, demo:*, call:positive...), so a
+	//     never-activated Contact routed straight to Onboarding was stamped Running.
+	//     That is exactly how the signed-confirmation email escaped (Contact
+	//     991103000002491263: Running + Sequence_Type null + zero activation Tasks).
+	//   Sequence_Type                — cleared on Stop/Complete, so blank is ambiguous.
+	//   an activation Task existing  — creation is not completion.
+	// =====================================================================
+	seqActivatedAt = ifnull(contact.get("Sequence_Activated_At"), "").toString().trim();
+	activationEstablished = (seqActivatedAt != "");
 
 	// =====================================================================
 	// source=="activity" Lost: apply the INLINED scoped loss matrix
@@ -818,16 +839,36 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	}
 
 	// =====================================================================
-	// DISPATCH SUPPRESSION SWITCH #1 — Sequence_State == "Stopped".
-	// Suppresses sequence DISPATCH only (next Call / Task / cadence email). It does
-	// NOT suppress the authoritative Stage/Sequence-field writes, Product linking,
-	// Quote/Amount/ledger reconciliation, Contact loss, or commercial:signed
-	// reaching Onboarding. We compute this BEFORE the activity blocks below and gate
-	// only the create_* / send_* actions on it. Note: the CURRENT seqState (not the
-	// computed nextSeqState) controls dispatch — a Stopped Contact stays dispatch-
-	// suppressed even when a commercial transition advances its Stage.
+	// DISPATCH SUPPRESSION — two independent switches, both suppressing DISPATCH
+	// only (next Call / Task / cadence email). Neither suppresses the authoritative
+	// Stage/Sequence-field writes, Product linking, Quote/Amount/ledger
+	// reconciliation, Contact loss, or commercial:signed reaching Onboarding. We
+	// compute both BEFORE the activity blocks below and gate only the create_* /
+	// send_* actions on them.
+	//
+	// SWITCH #1 — Sequence_State == "Stopped".
+	//   The CURRENT seqState (not the computed nextSeqState) controls dispatch — a
+	//   Stopped Contact stays dispatch-suppressed even when a commercial transition
+	//   advances its Stage.
+	//
+	// SWITCH #2 — ACTIVATION NOT ESTABLISHED (the routing gate).
+	//   A Contact may not enter or advance a managed sequence until activation is
+	//   proven by Sequence_Activated_At. The activate:* triggers are the establishing
+	//   event and are therefore exempt (they stamp the evidence below).
+	//
+	//   This is the gate the signed-confirmation email walked through:
+	//   commercial:signed arrives from processDeal's term gate, which keys on
+	//   Contact.Stage — a field an IMPORT sets directly. An imported Contact at Stage
+	//   "Commercial Agreement" with Confirmed Quotes therefore routed
+	//   commercial:signed and dispatched email without ever having been activated.
 	// =====================================================================
+	isActivationTrigger = (trigLc == "activate:email" || trigLc == "activate:call" || trigLc == "activate:manual");
 	dispatchSuppressed = (sState == "Stopped");
+	if(!activationEstablished && !isActivationTrigger)
+	{
+		dispatchSuppressed = true;
+		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "dispatch_gate", "activation_not_established", {"deal":dealId.toString(), "trigger":trig, "seq_state":sState, "seq_type":sType});
+	}
 	// commercial:* (driven by processDeal after a verified term gate) and an explicit
 	// loss still perform their structural writes; only the auto next-action dispatch
 	// is suppressed. A manually-controlled Stopped Contact may reach Onboarding with
@@ -937,6 +978,39 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	//         authoritative Stage/Sequence writes, not a dispatch. ----
 	cUpd = Map();
 	cUpd.put("Stage", nextStage);
+
+	// ---- ACTIVATION STAMP: the SINGLE writer of Sequence_Activated_At. ----
+	// Set once, on the activation trigger, and never cleared — a Stop/Complete/re-entry
+	// must not erase the fact that the rep activated this Contact, or the router would
+	// have to re-derive activation from the same untrustworthy signals all over again.
+	if(isActivationTrigger && !activationEstablished)
+	{
+		// Local CRM time without an explicit timezone — same convention as the stage
+		// completion timestamps below (an offset or a literal Z stores an hour out).
+		cUpd.put("Sequence_Activated_At", zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss"));
+		automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "activation_stamped", trigLc, {"deal":dealId.toString(), "seq_type":nextSeqType});
+	}
+
+	// STATE-EVIDENCE INTEGRITY: a Contact that was never activated must NEVER be
+	// stamped Running/Complete. The shared entry block sets nextSeqState="Running"
+	// for any doEntry trigger, which is what wrote Running onto a never-activated
+	// Contact and made the corrupt state (Running + Sequence_Type null) look live.
+	// Business Stage still advances above — only the sequence-state lie is refused.
+	//
+	// wouldRun preserves the PRE-gate intent purely for the Status=Working derivation
+	// below. Being worked and running a sequence are different things: an imported
+	// customer sitting at Onboarding is legitimately Working even though it was never
+	// activated, and the Deal/Account rollup reads Status via anyContactWorking. Gating
+	// the sequence lie must not silently drop those Deals out of the rollup.
+	wouldRun = (nextSeqState == "Running");
+	if(!activationEstablished && !isActivationTrigger)
+	{
+		nextSeqState = "Not Activated";
+		nextSeqStage = "None";
+		nextStep = "None";
+		nextSeqType = "";
+	}
+
 	// TASK-1 cleanup: when the sequence Stops or Completes, CLEAR Sequence_Type so a
 	// residual Email/Call value cannot pre-arm a future Activation Task. EXCEPT a Manual
 	// type (manual activation / call:manualonly), which is an intentional standing mode,
@@ -982,12 +1056,14 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		cUpd.put("Status", "Closed");
 		if(ifnull(contact.get("Lost_Reasons"), "").toString() == "" && contactLostReason != "") { cUpd.put("Lost_Reasons", contactLostReason); }
 	}
-	else if((nextSeqState == "Running" || forceWorking == "true") && ifnull(contact.get("Status"), "").toString() != "Working")
+	else if((wouldRun || forceWorking == "true") && ifnull(contact.get("Status"), "").toString() != "Working")
 	{
 		// Status derives from activity: a running sequence means Working (canonical
 		// "Open implies New or Working"). Manual activation (forceWorking) also sets
 		// Working even though Sequence_State is Stopped — dispatch stays suppressed but the
 		// Contact is being worked, so the Deal/Account can roll up via anyContactWorking.
+		// wouldRun (not nextSeqState) so that a Contact held back by the activation gate is
+		// still Working: the rollup must not change just because dispatch is gated.
 		// State stays Open; Lost/Closed handled above.
 		cUpd.put("Status", "Working");
 	}
@@ -1092,14 +1168,15 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 	}
 
-	// The signed confirmation is part of the commercial term-complete transition, not a
-	// cadence follow-up. Send it before the generic dispatch gate; sendSequencedEmail
-	// owns SendKey idempotency, so a replay cannot duplicate it.
-	if(trigLc == "commercial:signed" && sideEmailKind == "commercials_signed_confirmation")
-	{
-		automation.sendSequencedEmail(contactId.toString(), dealId.toString(), "Onboarding", 0, "commercials_signed_confirmation", "");
-		sideEmailKind = "";
-	}
+	// NOTE (defect fix): the signed-confirmation send USED TO RUN HERE, deliberately
+	// ahead of the dispatch gate, on the reasoning that it is part of the commercial
+	// transition rather than a cadence follow-up and that SendKey idempotency made it
+	// safe. Idempotency only bounds a send to ONCE — it never established that the
+	// send was ALLOWED. Sitting outside the gate, this was an unconditional send on
+	// any commercial:signed, which is how a never-activated imported Contact received
+	// onboarding:0:signed-confirmation. It is now dispatched with every other side
+	// email inside the (!dispatchSuppressed && !suppressOuter) block below, where the
+	// activation gate applies. sendSequencedEmail re-checks activation independently.
 
 	// =====================================================================
 	// 6. POST-RECONCILIATION NEXT-ACTION DISPATCH GATE.
@@ -1168,7 +1245,8 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// 7. DEFERRED NEXT-ACTION DISPATCH (side cadence email + primary action).
 	// Runs AFTER processDeal + the suppressOuter gate so we guarantee "exactly one
 	// downstream action" (T38). Dispatch ONLY when BOTH suppression switches allow it:
-	//   !dispatchSuppressed -> pre-reconcile switch #1 (Contact Sequence_State == "Stopped")
+	//   !dispatchSuppressed -> pre-reconcile switch #1 (Sequence_State == "Stopped") OR
+	//                          switch #2 (activation not established — the routing gate)
 	//   !suppressOuter      -> post-reconcile gate (activity Won only): defaults false, so
 	//                          non-activity calls (resume / commercial:*) dispatch as before;
 	//                          set true when transitionRouted / processDeal !success /
@@ -1183,8 +1261,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		// the Demo Hosted recovery opener resolves to demo-hosted:1:initial even when the
 		// Contact arrived from Demo Confirmation. Non-cadence side emails (demo_qualified,
 		// commercials_terms, demo_confirmation, ...) continue to key off the source stage.
+		// The signed confirmation likewise keys off the stage it ENTERS (Onboarding), which
+		// is the stage its former pre-gate call site passed explicitly; the template itself
+		// is stage-independent (kind -> onboarding:0:signed-confirmation) but the audit
+		// Task's Task_Sequence_Stage mirror must stay Onboarding.
 		sideEmailStage = stage;
 		if(sideEmailKind == "cadence") { sideEmailStage = nextStage; }
+		else if(sideEmailKind == "commercials_signed_confirmation") { sideEmailStage = nextStage; }
 		if(sideEmailKind != "")
 		{
 			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "");

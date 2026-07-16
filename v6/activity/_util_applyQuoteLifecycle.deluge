@@ -47,8 +47,9 @@ void automation.applyQuoteLifecycle(string dealId)
 	if(!isNull(dpLk) && !isNull(dpLk.get("id"))) { dealProdId = dpLk.get("id").toString(); dealProdName = ifnull(dpLk.get("name"), "").toString(); }
 
 	accId = "";
+	accName = "";
 	accLk = deal.get("Account_Name");
-	if(!isNull(accLk) && !isNull(accLk.get("id"))) { accId = accLk.get("id").toString(); }
+	if(!isNull(accLk) && !isNull(accLk.get("id"))) { accId = accLk.get("id").toString(); accName = ifnull(accLk.get("name"), "").toString(); }
 
 	primaryContactId = "";
 	pcLk = deal.get("Deal_Primary_Contact");
@@ -181,7 +182,7 @@ void automation.applyQuoteLifecycle(string dealId)
 
 				originKey = "Origin:" + transKey;
 				renewMap = Map();
-				renewMap.put("Subject", ifnull(deal.get("Deal_Name"), "Quote").toString() + " - " + dealProdName + " (Renewal)");
+				renewMap.put("Subject", automation.buildQuoteSubject(accName, dealProdName, "Renewal", ifnull(deal.get("Deal_Name"), "").toString()));
 				renewMap.put("Quote_Stage", "Draft");
 				renewMap.put("Quote_Type", "Renewal");
 				renewMap.put("Opportunity_Type", "RTP");

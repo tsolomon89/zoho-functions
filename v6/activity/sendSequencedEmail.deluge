@@ -135,6 +135,43 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	// ---- contact + consent guards ----
 	contact = zoho.crm.getRecordById("Contacts", contactId);
 	if(isNull(contact) || isNull(contact.get("id"))) { return ""; }
+
+	// =========================================================================
+	// SEND-TIME ACTIVATION GATE — independent of the caller.
+	//
+	// INVARIANT: no automated sequence email may be sent until the Contact's
+	// activation Task has been explicitly completed with a valid Task Sequence Type.
+	//
+	// This re-reads the authoritative evidence itself rather than trusting the
+	// caller, because the caller is exactly what failed: routeContactSequence sent
+	// onboarding:0:signed-confirmation from OUTSIDE its own dispatch gate. Any
+	// second gate that trusts its arguments would have passed that call through.
+	// Sequence_Activated_At is written only by routeContactSequence's activate:*
+	// block; blank means activation never happened, whatever the Contact's
+	// Sequence_State / Sequence_Type / Stage claim.
+	//
+	// Blocked = NO send, NO audit Task, NO sequence advance, and a visible Manual
+	// Review naming the contact, the attempted step and the missing condition.
+	// =========================================================================
+	activatedAt = ifnull(contact.get("Sequence_Activated_At"), "").toString().trim();
+	if(activatedAt == "")
+	{
+		blockedSeqState = ifnull(contact.get("Sequence_State"), "").toString();
+		blockedSeqType = ifnull(contact.get("Sequence_Type"), "").toString();
+		// Caller attribution: Deluge cannot introspect its call stack, so derive the
+		// origin from the call's own shape. Each kind is reachable from exactly one
+		// dispatch site, and a non-blank existingAuditTaskId only ever comes from the
+		// scheduled-send wake-up path.
+		callerHint = "routeContactSequence (cadence dispatch)";
+		if(auditTaskId != "")                           { callerHint = "sendScheduledEmailFromTask (Task " + auditTaskId + ")"; }
+		else if(k == "commercials_signed_confirmation") { callerHint = "routeContactSequence (commercial:signed side email)"; }
+		else if(k == "commercials_terms")               { callerHint = "routeContactSequence (commercial:sent side email)"; }
+		else if(k == "demo_reminder")                   { callerHint = "sendDemoReminder (scheduled)"; }
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "blocked_not_activated", {"deal":dealId.toString(), "key":canonicalKey, "stage":stage, "step":step, "kind":kind, "seq_state":blockedSeqState, "seq_type":blockedSeqType, "caller":callerHint});
+		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "[send_blocked_not_activated] Blocked a sequenced email to this Contact: attempted step '" + canonicalKey + "' (stage=" + stage + ", step=" + step + ", kind=" + kind + "), called from " + callerHint + ". Missing condition: Sequence_Activated_At is blank — the Sequence Activation Task was never completed with a valid Task Sequence Type. Contact reports Sequence_State=" + blockedSeqState + " / Sequence_Type=" + blockedSeqType + ". No email was sent and no sequence state was advanced. To send: complete the Contact's Sequence Activation Task (Task_Sequence_Type = Email/Call/Manual, Task_State = Won).");
+		return "";
+	}
+
 	contactEmail = ifnull(contact.get("Email"), "").toString();
 	if(contactEmail == "")
 	{
@@ -192,7 +229,7 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 			type   : POST
 			parameters : sendPayload.toString()
 			headers : {"Content-Type":"application/json"}
-			connection : "zoho_crm"
+			connection: "zoho_crm"
 		];
 	}
 	catch (e)

@@ -5,13 +5,12 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 	//
 	// THE engine that turns raw product evidence + structured contract terms into
 	// resolved, per-product quote tuples ready for the Product Deal / Quote layer.
-	// Consumers align to this exact contract; the field wiring lives entirely in
-	// collectProductEvidence / collectLegacyQuoteEvidence (swappable without
-	// touching this file).
 	//
 	// Steps:
 	//   pe = collectProductEvidence(module, id).raw   (interest names/keys)
-	//   le = collectLegacyQuoteEvidence(module, id)   (structured contract terms)
+	//   legacy A/E/R contract terms are collected INLINE below (folded 2026-07-16
+	//   from the former single-caller _util_collectLegacyQuoteEvidence helper).
+	//   collectProductEvidence stays a helper (it is self-recursive).
 	//   1) resolve each interest name -> product bucket (or unresolved)
 	//   2) resolve each term family -> bucket (or unresolved + skip);
 	//      else ENCODE the term into that product's bucket.
@@ -58,10 +57,76 @@ string automation.normalizeToProductQuoteTuples(string moduleName, string record
 	if(mod == "" || rid == "" || !rid.matches("[0-9]+")) { return out.toString(); }
 
 	pe = automation.collectProductEvidence(mod, rid).toMap();
-	le = automation.collectLegacyQuoteEvidence(mod, rid).toMap();
-
 	peRaw = ifnull(pe.get("raw"), List());
-	leTerms = ifnull(le.get("terms"), List());
+
+	// ---- INLINED _util_collectLegacyQuoteEvidence (single-caller; folded 2026-07-16) ----
+	// Extract split-contract TERMS from the Lead A/E/R quote groups (Acquisition_/
+	// Expansion_/Renewal_). These group fields live ONLY on Leads, so non-Lead modules
+	// yield no terms. Per group, {P}Quote_Plan_Products (SINGLE picklist) gates emission;
+	// "term" carries the quote-type group name; tier is always "Base". rid is already
+	// validated numeric above. Locals prefixed lqe_ to stay isolated in this larger scope.
+	leTerms = List();
+	if(mod == "Leads")
+	{
+		lqe_lead = zoho.crm.getRecordById("Leads", rid.toLong());
+		if(!isNull(lqe_lead) && !isNull(lqe_lead.get("id")))
+		{
+			lqe_groups = {"Acquisition", "Expansion", "Renewal"};
+			for each lqe_grp in lqe_groups
+			{
+				lqe_p = lqe_grp + "_";
+
+				// Plan Products is a SINGLE picklist; strip bracket/quote noise if present.
+				lqe_famRaw = lqe_lead.get(lqe_p + "Quote_Plan_Products");
+				lqe_fam = "";
+				if(!isNull(lqe_famRaw))
+				{
+					lqe_fam = lqe_famRaw.toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").replaceAll("'", "").trim();
+				}
+				if(lqe_fam == "Jurnii Cortext") { lqe_fam = "Jurnii Cortex"; }
+				if(lqe_fam == "" || lqe_fam == "-None-" || lqe_fam == "null") { continue; }
+
+				lqe_type = ifnull(lqe_lead.get(lqe_p + "Quote_Plan_Type"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+				if(lqe_type == "Flexible") { lqe_type = "Flex"; }
+
+				lqe_brands = ifnull(lqe_lead.get(lqe_p + "Quote_Plan_Brands"), "").toString().trim();
+				if(lqe_brands == "null") { lqe_brands = ""; }
+
+				lqe_startV = lqe_lead.get(lqe_p + "Quote_Contract_Date_Start");
+				lqe_start = ""; if(lqe_startV != null) { lqe_start = lqe_startV.toString().trim(); if(lqe_start.contains("T")) { lqe_start = lqe_start.getPrefix("T"); } }
+
+				lqe_endV = lqe_lead.get(lqe_p + "Quote_Contract_Date_End");
+				lqe_end = ""; if(lqe_endV != null) { lqe_end = lqe_endV.toString().trim(); if(lqe_end.contains("T")) { lqe_end = lqe_end.getPrefix("T"); } }
+
+				lqe_renewalV = lqe_lead.get(lqe_p + "Quote_Contract_Date_Renewal");
+				lqe_renewal = ""; if(lqe_renewalV != null) { lqe_renewal = lqe_renewalV.toString().trim(); if(lqe_renewal.contains("T")) { lqe_renewal = lqe_renewal.getPrefix("T"); } }
+				if(lqe_renewal == "null") { lqe_renewal = ""; }
+
+				lqe_acv = ifnull(lqe_lead.get(lqe_p + "Quote_ACV"), "").toString().trim();
+				if(lqe_acv == "null") { lqe_acv = ""; }
+
+				lqe_freq = ifnull(lqe_lead.get(lqe_p + "Quote_Plan_Frequency"), "").toString().trim();
+				if(lqe_freq == "-None-") { lqe_freq = ""; }
+
+				lqe_stage = ifnull(lqe_lead.get(lqe_p + "Quote_Stage"), "").toString().removeFirstOccurence("[").removeLastOccurence("]").replaceAll("\"", "").trim();
+				if(lqe_stage == "-None-" || lqe_stage == "null") { lqe_stage = ""; }
+
+				lqe_t = Map();
+				lqe_t.put("term", lqe_grp);
+				lqe_t.put("family", lqe_fam);
+				lqe_t.put("type", lqe_type);
+				lqe_t.put("brands", lqe_brands);
+				lqe_t.put("start", lqe_start);
+				lqe_t.put("end", lqe_end);
+				lqe_t.put("date_renewal", lqe_renewal);
+				lqe_t.put("acv", lqe_acv);
+				lqe_t.put("freq", lqe_freq);
+				lqe_t.put("tier", "Base");
+				lqe_t.put("stage", lqe_stage);
+				leTerms.add(lqe_t);
+			}
+		}
+	}
 
 	// buckets keyed by product_key; parallel maps preserve insertion + payload
 	bucketKeys = List();

@@ -24,6 +24,14 @@
 5. Confirm Events has `Meeting_Task_Stage`. If absent, create it as an Events picklist with the v6 stage values and re-read.
 
 ## Publish Set
+
+> **2026-07-16 — this list is the original cutover set and is stale.** For the current
+> push (activation gate + quote-naming + connection fix + consolidation) the authoritative
+> publish set and the Zoho-side actions live in the plan and in `DELETE_IN_ZOHO.md`.
+> In particular: the new `activity/_util_buildQuoteSubject` must be created; `_util_resolveDealPipeline`
+> and `_util_normalizeToProductQuoteTuples` must be republished; the `.ORPHANED` files must
+> NOT be published; and all 27 `invokeurl` calls use `connection: "zoho_crm"` (underscore).
+
 Publish the v6 functions after local edits are complete:
 - `processDeal`
 - `activity/routeContactSequence`
