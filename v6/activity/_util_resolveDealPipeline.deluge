@@ -3,21 +3,25 @@ string automation.resolveDealPipeline(string dealIdStr)
 	// =========================================================================
 	// _util_resolveDealPipeline   (VERSION: v6-shared-utility)
 	//
-	// F3: resolve the Deal Pipeline for activity mirror fields (Task_Pipeline /
-	// Call_Task_Pipeline / Meeting_Task_Pipeline). Live runs showed every activity had a
-	// blank pipeline while Stage/Opportunity populated. Seven read paths are attempted with
-	// diagnostic logging so the working one is self-evident in the function log:
-	//   (1) Deluge-native deal.get("Pipeline");
-	//   (2) Deluge searchRecords(id) fallback;
-	//   (3) REST record GET with explicit fields=Pipeline;
-	//   (4) REST Search API with explicit fields=Pipeline;
-	//   (5) REST v8 record GET with explicit fields=Pipeline;
-	//   (6) REST full GET (v6) fallback;
-	//   (7) COQL fallback, because external COQL can read Pipeline even when Deluge GET cannot.
+	// Resolve the Deal Pipeline (B2B / Partnership) for the activity mirror fields
+	// (Task_Pipeline / Call_Task_Pipeline / Meeting_Task_Pipeline).
 	//
-	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent/unmapped.
-	// An unmapped value (not in the live activity Pipeline picklist) is LOGGED (never silently
-	// discarded) and "" is returned so the caller leaves the field blank.
+	// Deluge's native getRecordById OMITS the special Pipeline field (returns blank),
+	// so this reads the Deal via ONE REST full GET (the same invokeurl pattern that
+	// processDeal / handleTaskCompletion use for Quotes). Verified live 2026-07-16:
+	// GET /crm/v6/Deals/{id} returns Pipeline (plain string "B2B") AND every field the
+	// partner-signal fallback needs, in a single call.
+	//
+	// HISTORY: this function previously stacked SEVEN read paths (native, searchRecords,
+	// 4x REST variants, COQL) because "every activity had a blank pipeline." The real
+	// cause was that all the invokeurl paths used a WRONG connection name ("zohocrm",
+	// a connector from an unrelated project); every REST read silently failed and the
+	// function hardcoded "B2B". With the connection corrected to "zoho_crm" the single
+	// REST GET works, so the other six paths were removed (2026-07-16).
+	//
+	// Returns the validated Pipeline display value (e.g. "B2B"), or "" when absent /
+	// unmapped. An unmapped value (not in the live activity Pipeline picklist) is LOGGED
+	// (never silently discarded) and "" is returned so the caller leaves the field blank.
 	// =========================================================================
 	dealId = 0;
 	cleanDealId = ifnull(dealIdStr, "").toString().replaceAll("zcrm_", "").trim();
@@ -25,264 +29,71 @@ string automation.resolveDealPipeline(string dealIdStr)
 	if(dealId == 0) { return ""; }
 
 	pipeline = "";
+	dealRec = null;   // full record; source for BOTH Pipeline and the partner-signal fallback
 
-	// (1) Deluge-native read first (cheapest). Diagnostic log records exactly what it returns.
-	nativeDeal = zoho.crm.getRecordById("Deals", dealId);
-	nativePipeline = "";
-	if(!isNull(nativeDeal) && !isNull(nativeDeal.get("id"))) { nativePipeline = ifnull(nativeDeal.get("Pipeline"), "").toString().trim(); }
-	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "native_read", if(nativePipeline != "", "got", "blank"), {"pipeline":nativePipeline});
-	if(nativePipeline != "" && nativePipeline != "null") { pipeline = nativePipeline; }
-
-	// (2) Fallback: Deluge searchRecords can expose fields omitted by getRecordById in some
-	//     runtimes. Live external API reads show Deals.Pipeline is present even when native
-	//     getRecordById and REST full GET log blank inside the function runtime.
-	if(pipeline == "")
+	// ---- (1) REST full GET — the proven Pipeline read ----
+	resp = null;
+	try
 	{
-		searchPipeline = "";
-		try
-		{
-			sDeal = zoho.crm.searchRecords("Deals", "(id:equals:" + dealId + ")");
-			if(!isNull(sDeal) && sDeal.size() > 0 && !sDeal.toString().startsWith("{\"code\""))
-			{
-				sRaw = sDeal.get(0).get("Pipeline");
-				if(!isNull(sRaw))
-				{
-					if(sRaw.toString().startsWith("{")) { searchPipeline = ifnull(sRaw.get("name"), ifnull(sRaw.get("display_value"), "")).toString().trim(); }
-					else { searchPipeline = sRaw.toString().trim(); }
-				}
-			}
-		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "search_read", "failed", {"error":e.toString()});
-			searchPipeline = "";
-		}
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "search_read", if(searchPipeline != "", "got", "blank"), {"pipeline":searchPipeline});
-		if(searchPipeline != "" && searchPipeline != "null") { pipeline = searchPipeline; }
+		resp = invokeurl
+		[
+			url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
+			type   : GET
+			connection: "zoho_crm"
+		];
 	}
-
-	// (3) Fallback: REST record GET with explicit fields=Pipeline. Pipeline is a special
-	//     field that may be omitted from full/native reads unless explicitly requested.
-	if(pipeline == "")
+	catch (e)
 	{
-		fieldsResp = null;
-		try
-		{
-			fieldsResp = invokeurl
-			[
-				url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId + "?fields=Pipeline"
-				type   : GET
-				connection: "zoho_crm"
-			];
-		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_fields_read", "failed", {"error":e.toString()});
-			fieldsResp = null;
-		}
-		fieldsPipeline = "";
-		try
-		{
-			if(!isNull(fieldsResp) && fieldsResp.toString().startsWith("{") && !isNull(fieldsResp.get("data")) && fieldsResp.get("data").size() > 0)
-			{
-				fRaw = fieldsResp.get("data").get(0).get("Pipeline");
-				if(!isNull(fRaw))
-				{
-					if(fRaw.toString().startsWith("{")) { fieldsPipeline = ifnull(fRaw.get("name"), ifnull(fRaw.get("display_value"), "")).toString().trim(); }
-					else { fieldsPipeline = fRaw.toString().trim(); }
-				}
-			}
-		}
-		catch (e)
-		{
-			fieldsPipeline = "";
-		}
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_fields_read", if(fieldsPipeline != "", "got", "blank"), {"pipeline":fieldsPipeline});
-		if(fieldsPipeline != "" && fieldsPipeline != "null") { pipeline = fieldsPipeline; }
-	}
-
-	// (4) Fallback: REST Search API with explicit fields. This mirrors the external API
-	// path that can read Pipeline in live tests.
-	if(pipeline == "")
-	{
-		searchResp = null;
-		try
-		{
-			searchResp = invokeurl
-			[
-				url    : "https://www.zohoapis.eu/crm/v6/Deals/search?criteria=(id:equals:" + dealId + ")&fields=Pipeline"
-				type   : GET
-				connection: "zoho_crm"
-			];
-		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_search_read", "failed", {"error":e.toString()});
-			searchResp = null;
-		}
-		restSearchPipeline = "";
-		try
-		{
-			if(!isNull(searchResp) && searchResp.toString().startsWith("{") && !isNull(searchResp.get("data")) && searchResp.get("data").size() > 0)
-			{
-				rsRaw = searchResp.get("data").get(0).get("Pipeline");
-				if(!isNull(rsRaw))
-				{
-					if(rsRaw.toString().startsWith("{")) { restSearchPipeline = ifnull(rsRaw.get("name"), ifnull(rsRaw.get("display_value"), "")).toString().trim(); }
-					else { restSearchPipeline = rsRaw.toString().trim(); }
-				}
-			}
-		}
-		catch (e)
-		{
-			restSearchPipeline = "";
-		}
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_search_read", if(restSearchPipeline != "", "got", "blank"), {"pipeline":restSearchPipeline});
-		if(restSearchPipeline != "" && restSearchPipeline != "null") { pipeline = restSearchPipeline; }
-	}
-
-	// (5) Fallback: REST v8 explicit field read. External tooling reads Pipeline reliably
-	// through current CRM APIs; this keeps that path isolated and logged.
-	if(pipeline == "")
-	{
-		v8Resp = null;
-		try
-		{
-			v8Resp = invokeurl
-			[
-				url    : "https://www.zohoapis.eu/crm/v8/Deals/" + dealId + "?fields=Pipeline"
-				type   : GET
-				connection: "zoho_crm"
-			];
-		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_v8_fields_read", "failed", {"error":e.toString()});
-			v8Resp = null;
-		}
-		v8Pipeline = "";
-		try
-		{
-			if(!isNull(v8Resp) && v8Resp.toString().startsWith("{") && !isNull(v8Resp.get("data")) && v8Resp.get("data").size() > 0)
-			{
-				v8Raw = v8Resp.get("data").get(0).get("Pipeline");
-				if(!isNull(v8Raw))
-				{
-					if(v8Raw.toString().startsWith("{")) { v8Pipeline = ifnull(v8Raw.get("name"), ifnull(v8Raw.get("display_value"), "")).toString().trim(); }
-					else { v8Pipeline = v8Raw.toString().trim(); }
-				}
-			}
-		}
-		catch (e)
-		{
-			v8Pipeline = "";
-		}
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_v8_fields_read", if(v8Pipeline != "", "got", "blank"), {"pipeline":v8Pipeline});
-		if(v8Pipeline != "" && v8Pipeline != "null") { pipeline = v8Pipeline; }
-	}
-
-	// (6) Fallback: REST full GET (v6, no ?fields= — matching the working invokeurl pattern across
-	//     processDeal / handleTaskCompletion). The external REST full record includes Pipeline.
-	if(pipeline == "")
-	{
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", "invokeurl_failed", {"error":e.toString()});
 		resp = null;
-		try
-		{
-			resp = invokeurl
-			[
-				url    : "https://www.zohoapis.eu/crm/v6/Deals/" + dealId
-				type   : GET
-				connection: "zoho_crm"
-			];
-		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "fetch", "invokeurl_failed", {"error":e.toString()});
-			resp = null;
-		}
-		restPipeline = "";
-		try
-		{
-			if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
-			{
-				pRaw = resp.get("data").get(0).get("Pipeline");
-				if(!isNull(pRaw))
-				{
-					// Pipeline may serialize as a plain string ("B2B") or a map (name / display_value).
-					if(pRaw.toString().startsWith("{")) { restPipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
-					else { restPipeline = pRaw.toString().trim(); }
-				}
-			}
-		}
-		catch (e)
-		{
-			restPipeline = "";
-		}
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", if(restPipeline != "", "got", "blank"), {"pipeline":restPipeline});
-		if(restPipeline != "" && restPipeline != "null") { pipeline = restPipeline; }
 	}
-
-	// (7) Fallback: COQL can read Deals.Pipeline in this org even when Deluge native and
-	// REST full GET both return blank inside the function runtime.
-	if(pipeline == "")
+	if(!isNull(resp) && resp.toString().startsWith("{") && !isNull(resp.get("data")) && resp.get("data").size() > 0)
 	{
-		coqlPipeline = "";
-		coqlRaw = "";
-		try
+		dealRec = resp.get("data").get(0);
+		pRaw = dealRec.get("Pipeline");
+		if(!isNull(pRaw))
 		{
-			coqlBody = Map();
-			coqlBody.put("select_query", "select id, Pipeline from Deals where id = '" + dealId + "' limit 1");
-			coqlHeaders = Map();
-			coqlHeaders.put("Content-Type", "application/json");
-			coqlResp = invokeurl
-			[
-				url: "https://www.zohoapis.eu/crm/v6/coql"
-				type: POST
-				body: coqlBody.toString()
-				connection: "zoho_crm"
-				headers: coqlHeaders
-			];
-			coqlRaw = ifnull(coqlResp, "").toString();
-			if(!isNull(coqlResp) && coqlResp.toString().startsWith("{") && !isNull(coqlResp.get("data")) && coqlResp.get("data").size() > 0)
-			{
-				cRaw = coqlResp.get("data").get(0).get("Pipeline");
-				if(!isNull(cRaw)) { coqlPipeline = cRaw.toString().trim(); }
-			}
+			// Pipeline may serialize as a plain string ("B2B") or a map (name / display_value).
+			if(pRaw.toString().startsWith("{")) { pipeline = ifnull(pRaw.get("name"), ifnull(pRaw.get("display_value"), "")).toString().trim(); }
+			else { pipeline = pRaw.toString().trim(); }
 		}
-		catch (e)
-		{
-			automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "failed", {"error":e.toString()});
-			coqlPipeline = "";
-		}
-		if(coqlPipeline != "") { automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "got", {"pipeline":coqlPipeline}); }
-		else { automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "coql_read", "blank", {"pipeline":coqlPipeline, "raw":coqlRaw}); }
-		if(coqlPipeline != "" && coqlPipeline != "null") { pipeline = coqlPipeline; }
+	}
+	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "rest_read", if(pipeline != "", "got", "blank"), {"pipeline":pipeline});
+	if(pipeline == "null") { pipeline = ""; }
+
+	// ---- (2) Backup record for the partner-signal fallback if the REST read failed ----
+	// Native getRecordById omits Pipeline, so it cannot resolve the pipeline itself; it only
+	// gives the signal fields when the REST call returned nothing (e.g. a transient connection
+	// error). Pipeline stays blank on this branch -> the B2B default below applies.
+	if(isNull(dealRec))
+	{
+		nativeDeal = zoho.crm.getRecordById("Deals", dealId);
+		if(!isNull(nativeDeal) && !isNull(nativeDeal.get("id"))) { dealRec = nativeDeal; }
 	}
 
-	// Final pragmatic fallback. Workflow-created canonical Deals in this automation are B2B
-	// unless their visible context says Partnership. This is deliberately logged so any later
-	// unmapped Partnership case is easy to spot in the function log.
-	if(pipeline == "" || pipeline == "null")
+	// ---- Final pragmatic fallback: partner-signal -> leave blank, else default "B2B" ----
+	// Workflow-created canonical Deals in this automation are B2B unless their visible context
+	// says Partnership. Logged so any later unmapped Partnership case is easy to spot.
+	if(pipeline == "")
 	{
 		partnerSignal = false;
 		try
 		{
 			sig = "";
-			if(!isNull(nativeDeal))
+			if(!isNull(dealRec))
 			{
-				sig = sig + " " + ifnull(nativeDeal.get("Deal_Name"), "").toString();
-				sig = sig + " " + ifnull(nativeDeal.get("Deal_Key"), "").toString();
-				sig = sig + " " + ifnull(nativeDeal.get("Type"), "").toString();
-				sig = sig + " " + ifnull(nativeDeal.get("Lead_Source"), "").toString();
-				layoutMap = nativeDeal.get("$layout_id");
+				sig = sig + " " + ifnull(dealRec.get("Deal_Name"), "").toString();
+				sig = sig + " " + ifnull(dealRec.get("Deal_Key"), "").toString();
+				sig = sig + " " + ifnull(dealRec.get("Type"), "").toString();
+				sig = sig + " " + ifnull(dealRec.get("Lead_Source"), "").toString();
+				layoutMap = dealRec.get("$layout_id");
 				if(!isNull(layoutMap))
 				{
 					sig = sig + " " + ifnull(layoutMap.get("name"), "").toString();
 					sig = sig + " " + ifnull(layoutMap.get("display_label"), "").toString();
 				}
 			}
-			sigLc = sig.toLowerCase();
-			if(sigLc.contains("partner")) { partnerSignal = true; }
+			if(sig.toLowerCase().contains("partner")) { partnerSignal = true; }
 		}
 		catch (e)
 		{
@@ -294,13 +105,11 @@ string automation.resolveDealPipeline(string dealIdStr)
 			return "";
 		}
 		pipeline = "B2B";
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"runtime_pipeline_reads_blank"});
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"pipeline_read_blank"});
 	}
 
-	if(pipeline == "" || pipeline == "null") { return ""; }
-
-	// Validate against the live activity Pipeline picklist value set (B2B / Partnership). Do NOT
-	// silently discard an unmapped value: log it and return "" so no invalid picklist is written.
+	// Validate against the live activity Pipeline picklist value set. Do NOT silently discard an
+	// unmapped value: log it and return "" so no invalid picklist is written.
 	allowedPipelines = {"B2B", "Partnership"};
 	if(!allowedPipelines.contains(pipeline))
 	{
