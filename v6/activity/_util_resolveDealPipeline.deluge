@@ -1,29 +1,25 @@
 string automation.resolveDealPipeline(string dealIdStr)
 {
 	// =========================================================================
-	// _util_resolveDealPipeline   (VERSION: v6-shared-utility)
+	// _util_resolveDealPipeline   (VERSION: v6-product-pipeline)
 	//
 	// Resolve the Deal Pipeline (B2B / Partnership) for the activity mirror fields
-	// (Task_Pipeline / Call_Task_Pipeline / Meeting_Task_Pipeline).
+	// (Task_Pipeline / Call_Task_Pipeline / Meeting_Task_Pipeline), derived from the
+	// authoritative Product -> Pipeline rule.
 	//
-	// IMPORTANT — Pipeline is UNREADABLE inside the Deluge function runtime. Verified
-	// live 2026-07-16 against a Deal whose Pipeline was set to "Partnership":
-	//   - native zoho.crm.getRecordById  -> Pipeline blank
-	//   - invokeurl REST full GET         -> mirror stamped "B2B" (blank in-runtime)
-	//   - invokeurl COQL select Pipeline  -> mirror stamped "B2B" (blank in-runtime)
-	// All three defaulted, even though external API calls (outside Deluge) DO return
-	// "Partnership". The zoho_crm connection used by invokeurl cannot surface the
-	// Pipeline field in the runtime (a connection scope / field-permission limit), so
-	// there is NO working invokeurl read — attempting one only burns an API call to get
-	// nothing. (This also always defaulted to B2B in production; not a new behaviour.)
+	// Product Interest is authoritative for the pipeline. The Deal's own `Pipeline`
+	// field is UNREADABLE inside the Deluge runtime (verified 2026-07-16: native/REST/
+	// COQL all return it blank in-function), but `Deal_Product_Key` IS readable — so we
+	// read the product key and map it via pipelineForProductKey. This is the runtime
+	// form of the authoritative mapping, NOT a name/tag/layout heuristic (that heuristic
+	// has been removed).
 	//
-	// So: read the Deal ONCE (native) purely for the partner-signal heuristic, and
-	// otherwise default to "B2B". To make Partnership Deals read their true value, grant
-	// the zoho_crm connection field read access to Pipeline — that is a connection
-	// configuration change, outside this function.
+	//   product key B2B (jurnii_*) / blank -> "B2B"
+	//   product key "partnership"           -> "Partnership"
+	//   unknown non-blank key               -> "" (leave mirror blank) + log
 	//
-	// Returns "B2B" (the default), or "" when a partner signal is present (we decline to
-	// mislabel a likely-Partnership Deal as B2B and leave the mirror blank instead).
+	// Every call site guards `if(pipeline != "")`, so a blank return leaves the mirror
+	// untouched rather than mislabelling it.
 	// =========================================================================
 	dealId = 0;
 	cleanDealId = ifnull(dealIdStr, "").toString().replaceAll("zcrm_", "").trim();
@@ -31,40 +27,16 @@ string automation.resolveDealPipeline(string dealIdStr)
 	if(dealId == 0) { return ""; }
 
 	nativeDeal = zoho.crm.getRecordById("Deals", dealId);
+	if(isNull(nativeDeal) || isNull(nativeDeal.get("id"))) { return ""; }
 
-	// Partner-signal heuristic — the only in-runtime signal for a non-B2B Deal. Checks the
-	// visible context (name / key / type / lead source / layout) for "partner". When present
-	// we return "" (leave the mirror blank) rather than mislabel the Deal "B2B".
-	partnerSignal = false;
-	try
-	{
-		sig = "";
-		if(!isNull(nativeDeal))
-		{
-			sig = sig + " " + ifnull(nativeDeal.get("Deal_Name"), "").toString();
-			sig = sig + " " + ifnull(nativeDeal.get("Deal_Key"), "").toString();
-			sig = sig + " " + ifnull(nativeDeal.get("Type"), "").toString();
-			sig = sig + " " + ifnull(nativeDeal.get("Lead_Source"), "").toString();
-			layoutMap = nativeDeal.get("$layout_id");
-			if(!isNull(layoutMap))
-			{
-				sig = sig + " " + ifnull(layoutMap.get("name"), "").toString();
-				sig = sig + " " + ifnull(layoutMap.get("display_label"), "").toString();
-			}
-		}
-		if(sig.toLowerCase().contains("partner")) { partnerSignal = true; }
-	}
-	catch (e)
-	{
-		partnerSignal = false;
-	}
+	dealProductKey = ifnull(nativeDeal.get("Deal_Product_Key"), "").toString().trim();
+	pl = automation.pipelineForProductKey(dealProductKey);
 
-	if(partnerSignal)
+	if(pl == "unresolved")
 	{
-		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_unresolved", "partnership_signal_no_default", null);
+		automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_unresolved_product", "blank_mirror", {"product_key":dealProductKey});
 		return "";
 	}
-
-	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_defaulted", "B2B", {"reason":"pipeline_unreadable_in_runtime"});
-	return "B2B";
+	automation.logAutomationEvent("resolveDealPipeline", "Deals", dealId.toString(), "pipeline_resolved", pl, {"product_key":dealProductKey});
+	return pl;
 }

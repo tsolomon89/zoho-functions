@@ -44,6 +44,20 @@ string automation.createOrReuseProductDeal(string accountId, string accountKey, 
 	if(accId == "" || !accId.matches("[0-9]+")) { r.put("reason", "invalid_account_id"); return r.toString(); }
 	if(aKey == "" || pKey == "") { r.put("reason", "missing_key_parts"); return r.toString(); }
 
+	// Product -> Pipeline is authoritative (single source: pipelineForProductKey). An
+	// UNRESOLVED product key must NOT create a Deal: the Pipeline field is mandatory, so a
+	// created Deal would default to B2B = silent misclassification. Return unresolved so the
+	// caller (processLead / processContact / processAccount) logs it + raises a Manual Review
+	// and skips. In practice only the 4 canonical keys reach here (resolveDealProduct filters
+	// upstream), so this is a defensive guard.
+	pipeline = automation.pipelineForProductKey(pKey);
+	if(pipeline == "unresolved")
+	{
+		automation.logAutomationEvent("createOrReuseProductDeal", "Deals", "-", "guard", "pipeline_unresolved_product", {"product_key":pKey, "product":pName});
+		r.put("reason", "pipeline_unresolved_product");
+		return r.toString();
+	}
+
 	dealKey = aKey + "::" + pKey;
 
 	// ---- reuse by Deal_Key (unique) ----
@@ -83,6 +97,10 @@ string automation.createOrReuseProductDeal(string accountId, string accountKey, 
 	dm.put("Deal_Key", dealKey);
 	dm.put("Deal_Product_Key", pKey);
 	if(pId != "" && pId.matches("[0-9]+")) { pm = Map(); pm.put("id", pId); dm.put("Deal_Product", pm); }
+	// Authoritative Pipeline at birth (spike-verified: create-with-Pipeline persists and does
+	// NOT switch layout; both pipelines share the Standard layout + MQL/SQL/FTP/RTP stages).
+	// partnership -> "Partnership"; recognized B2B / blank -> "B2B". Never defaulted silently.
+	dm.put("Pipeline", pipeline);
 	// Deal viability = Opportunity_State / Opportunity_Status (Deals have NO bare State/Status).
 	// Deals are never Won (spec decision 2): Opportunity_State in {Open, Lost} only.
 	dm.put("Opportunity_State", "Open");
