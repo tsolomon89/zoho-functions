@@ -89,6 +89,33 @@ string automation.processDeal(string deal_id, string contextJson)
 		return result.toString();
 	}
 
+	// ---- PIPELINE GATE (Product Interest is authoritative for the pipeline) ----
+	// Hold non-B2B Deals out of the B2B automation BEFORE any Quote / Amount / ledger /
+	// commercial-transition / sequence work below. Keyed on Deal_Product_Key (readable in
+	// the Deluge runtime; the Pipeline field is not) via pipelineForProductKey.
+	//   Partnership -> held pending its own automation (NOT permanently barred).
+	//   unresolved  -> data anomaly: hold + Manual Review; never run B2B on a bad key.
+	//   B2B / blank -> unchanged B2B path continues below.
+	// Distinct from Automation_Suppressed (manual kill-switch, left untouched).
+	dealPipeline = automation.pipelineForProductKey(ifnull(dealRecord.get("Deal_Product_Key"), "").toString().trim());
+	if(dealPipeline == "Partnership")
+	{
+		automation.logAutomationEvent("processDeal", "Deals", cleanId, "guard", "partnership_pipeline_held", {"product_key":ifnull(dealRecord.get("Deal_Product_Key"), "").toString()});
+		result.put("success", true);
+		result.put("outcome", "partnership_held");
+		return result.toString();
+	}
+	if(dealPipeline == "unresolved")
+	{
+		heldContactId = "";
+		hcl = dealRecord.get("Contact_Name");
+		if(!isNull(hcl) && !isNull(hcl.get("id"))) { heldContactId = hcl.get("id").toString(); }
+		automation.createManualReview(heldContactId, cleanId, "product_key_unresolved", "Deal " + cleanId + " has an unrecognised Deal_Product_Key '" + ifnull(dealRecord.get("Deal_Product_Key"), "").toString() + "' that maps to no pipeline; held out of B2B automation. Fix the Product / Deal_Product_Key.");
+		automation.logAutomationEvent("processDeal", "Deals", cleanId, "guard", "product_key_unresolved", {"product_key":ifnull(dealRecord.get("Deal_Product_Key"), "").toString()});
+		result.put("outcome", "product_key_unresolved");
+		return result.toString();
+	}
+
 	stageRanks = {"Marketing Consent":1, "Demo Booking":2, "Demo Confirmation":3, "Demo Hosted":4, "Proposal Preparation":5, "Commercial Agreement":6, "Onboarding":7, "Renewal":8};
 	onboardingRank = 7;
 

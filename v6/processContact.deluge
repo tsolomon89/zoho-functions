@@ -245,6 +245,7 @@ void automation.processContact(string contact_id)
 	// One Product Deal per resolved product; associate THIS Contact to each matching
 	// Deal (HARD RULE 5: evidence matches the Deal product, established by normalize).
 	productDealIds = List();
+	b2bDriverDealIds = List();   // subset eligible to DRIVE the B2B sequence (pipeline == B2B)
 	for each prod in products
 	{
 		pProductId = ifnull(prod.get("product_id"), "").toString();
@@ -266,9 +267,15 @@ void automation.processContact(string contact_id)
 		zoho.crm.updateRelatedRecord("Contact_Roles", cleanId.toLong(), "Deals", pDealId.toLong(), roleMap);
 
 		productDealIds.add(pDealId);
+		// Only B2B-pipeline Deals may DRIVE the Contact's B2B sequence. Partnership (and any
+		// unresolved) Deals are still created + linked + reconciled (held out inside processDeal),
+		// but are EXCLUDED from the sequence-driver count so they never make the Contact ambiguous
+		// or block B2B activation. Product Interest is authoritative (pipelineForProductKey).
+		if(automation.pipelineForProductKey(pProductKey) == "B2B") { b2bDriverDealIds.add(pDealId); }
 
 		// processDeal = sole owner of Contacts, Roles, Products, Primary Contact,
-		// Opportunity_* rollup, Account rollup. Reconcile each Product Deal.
+		// Opportunity_* rollup, Account rollup. Reconcile each Product Deal (a Partnership
+		// Deal is held out by processDeal's pipeline gate).
 		automation.processDeal(pDealId, "{}");
 	}
 
@@ -295,16 +302,25 @@ void automation.processContact(string contact_id)
 	if(contactRoleNow == "") { contactRoleNow = contactRoleVal; }
 	if(contactRoleNow == "Decision Maker" && contactState == "Open" && contactSeqState == "Not Activated")
 	{
-		// HARD RULE 7: ONE active automated sequence per Contact. A multi-Product-Deal
-		// Contact is ambiguous -> Manual Review; never auto-pick which Deal drives it.
-		if(productDealIds.size() > 1)
+		// Only B2B-pipeline Deals drive the sequence. Count the B2B DRIVERS, not all Product
+		// Deals, so a Contact with a B2B product + Partnership activates normally on the B2B Deal.
+		if(b2bDriverDealIds.size() == 0)
 		{
-			automation.createManualReview(cleanId, productDealIds.get(0), "multi_product_sequence_ambiguous", "Contact maps to multiple Product Deals but only one Contact sequence can run; a human must choose which Product Deal drives the sequence.");
+			// Partnership-only (or unresolved-only) Contact: created + linked, but no B2B sequence
+			// to start. Held for the Partnership flow (out of scope); never a B2B Activation Task.
+			automation.logAutomationEvent("processContact", "Contacts", cleanId, "activation", "no_b2b_sequence_driver", {"product_deals":productDealIds.size().toString()});
+			return;
+		}
+		// HARD RULE 7: ONE active automated B2B sequence per Contact. Multiple B2B Deals are
+		// ambiguous -> Manual Review; never auto-pick. Partnership Deals never contribute here.
+		if(b2bDriverDealIds.size() > 1)
+		{
+			automation.createManualReview(cleanId, b2bDriverDealIds.get(0), "multi_product_sequence_ambiguous", "Contact maps to multiple B2B Product Deals but only one Contact sequence can run; a human must choose which Product Deal drives the sequence.");
 			return;
 		}
 
-		// Exactly one Product Deal -> it drives the sequence.
-		dealId = productDealIds.get(0);
+		// Exactly one B2B Product Deal -> it drives the sequence.
+		dealId = b2bDriverDealIds.get(0);
 		// dedup: an open Sequence Activation Task for this Contact + Stage already exists?
 		activationExists = false;
 		existingTasks = zoho.crm.getRelatedRecords("Tasks", "Deals", dealId.toLong());

@@ -187,6 +187,18 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 
 	// ---- "from" = Deal Owner (absorbed _util_sendTemplateToContact) ----
 	deal = zoho.crm.getRecordById("Deals", dealId);
+
+	// PIPELINE DEFENCE (defence-in-depth): a Partnership (or unresolved) Deal must never send a
+	// B2B sequence email, even if an upstream gate is bypassed. Keyed on Deal_Product_Key
+	// (readable in-runtime) via pipelineForProductKey. Log + stop; never fall back to a template.
+	sendPipeline = "B2B";
+	if(!isNull(deal) && !isNull(deal.get("id"))) { sendPipeline = automation.pipelineForProductKey(ifnull(deal.get("Deal_Product_Key"), "").toString().trim()); }
+	if(sendPipeline != "B2B")
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "blocked_non_b2b_pipeline", {"deal":dealId.toString(), "pipeline":sendPipeline, "key":canonicalKey});
+		return "";
+	}
+
 	ownerEmail = "";
 	ownerName = "";
 	ownerId = "";
