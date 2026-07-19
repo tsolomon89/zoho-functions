@@ -97,32 +97,100 @@ string automation.createOrReuseProductDeal(string accountId, string accountKey, 
 	dm.put("Deal_Key", dealKey);
 	dm.put("Deal_Product_Key", pKey);
 	if(pId != "" && pId.matches("[0-9]+")) { pm = Map(); pm.put("id", pId); dm.put("Deal_Product", pm); }
-	// Authoritative Pipeline at birth (spike-verified: create-with-Pipeline persists and does
-	// NOT switch layout; both pipelines share the Standard layout + MQL/SQL/FTP/RTP stages).
-	// partnership -> "Partnership"; recognized B2B / blank -> "B2B". Never defaulted silently.
+	// Pipeline is a mandatory special field. Native zoho.crm.createRecord DROPS it (the Deal
+	// defaults to B2B) — verified 2026-07-19. The v6 Records INSERT API accepts Pipeline when a
+	// compatible Stage is sent in the SAME create payload (MQL is valid under both pipelines), so
+	// Partnership Deals are created via a direct REST Insert (invokeurl POST). B2B/blank keep the
+	// native createRecord (their B2B default is already correct → B2B creation is unchanged).
 	dm.put("Pipeline", pipeline);
 	// Deal viability = Opportunity_State / Opportunity_Status (Deals have NO bare State/Status).
 	// Deals are never Won (spec decision 2): Opportunity_State in {Open, Lost} only.
 	dm.put("Opportunity_State", "Open");
 	dm.put("Opportunity_Status", "New");
-	dm.put("Closing_Date", zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+	closeDate = zoho.currentdate.addDay(30).toString("yyyy-MM-dd");
+	dm.put("Closing_Date", closeDate);
 
-	res = zoho.crm.createRecord("Deals", dm);
 	newId = "";
-	if(!isNull(res) && !isNull(res.get("id"))) { newId = res.get("id").toString(); }
-	else if(!isNull(res) && res.get("code") == "DUPLICATE_DATA" && !isNull(res.get("details")) && !isNull(res.get("details").get("id"))) { newId = res.get("details").get("id").toString(); }
+	createReason = "created";
+	restRaw = "";
+
+	if(pipeline == "Partnership")
+	{
+		// ---- direct REST Deals Insert with Pipeline + Stage together ----
+		// Native zoho.crm.createRecord DROPS the mandatory Pipeline special field (Deal defaults to B2B),
+		// so a Partnership Deal must be created via the v6 Records INSERT API, which accepts Pipeline when a
+		// compatible Stage rides in the SAME payload (MQL is valid under both pipelines). Uses the zoho_crm
+		// connection (needs ZohoCRM.modules.deals scope + an authorized/connected state — verified live
+		// 2026-07-19). trigger:[] suppresses the workflow cascade (parity with native createRecord; avoids a
+		// second processDeal). The full response is logged; on failure we fall back to native + flag the Deal.
+		acctLk = Map(); acctLk.put("id", accId);
+		restRec = Map();
+		restRec.put("Deal_Name", dealName);
+		restRec.put("Account_Name", acctLk);
+		restRec.put("Deal_Key", dealKey);
+		restRec.put("Deal_Product_Key", pKey);
+		if(pId != "" && pId.matches("[0-9]+")) { prodLk = Map(); prodLk.put("id", pId); restRec.put("Deal_Product", prodLk); }
+		restRec.put("Opportunity_State", "Open");
+		restRec.put("Opportunity_Status", "New");
+		restRec.put("Closing_Date", closeDate);
+		restRec.put("Pipeline", "Partnership");
+		restRec.put("Stage", "MQL");
+		restBody = Map(); restData = List(); restData.add(restRec); restBody.put("data", restData); restBody.put("trigger", List());
+		restHdr = Map(); restHdr.put("Content-Type", "application/json");
+		restResp = invokeurl
+		[
+			url: "https://www.zohoapis.eu/crm/v6/Deals"
+			type: POST
+			parameters: restBody.toString()
+			connection: "zoho_crm"
+			headers: restHdr
+		];
+		restRaw = ifnull(restResp, "").toString();
+		if(!isNull(restResp) && restRaw.startsWith("{") && !isNull(restResp.get("data")) && restResp.get("data").size() > 0)
+		{
+			d0 = restResp.get("data").get(0);
+			if(ifnull(d0.get("code"), "").toString() == "SUCCESS" && !isNull(d0.get("details")) && !isNull(d0.get("details").get("id"))) { newId = d0.get("details").get("id").toString(); }
+		}
+		automation.logAutomationEvent("createOrReuseProductDeal", "Deals", ifnull(newId, "-").toString(), "pipeline_rest_insert", if(newId != "", "created_partnership", "failed"), {"deal_key":dealKey, "resp":restRaw});
+		if(newId != "")
+		{
+			createReason = "created_rest_partnership";
+		}
+		else
+		{
+			// REST insert did not create the Deal (e.g. the zoho_crm connection is disconnected / loses its
+			// Deals scope). Fall back to native createRecord so the import is not broken. The Deal is STILL
+			// held out of B2B automation by its Deal_Product_Key == "partnership" (processDeal C1 gate), so only
+			// the Pipeline *field* is wrong (native drops it -> defaults to B2B). Flag it on the Deal for manual
+			// correction; the full REST response is in the automation log (logAutomationEvent above).
+			res = zoho.crm.createRecord("Deals", dm);
+			if(!isNull(res) && !isNull(res.get("id"))) { newId = res.get("id").toString(); }
+			else if(!isNull(res) && res.get("code") == "DUPLICATE_DATA" && !isNull(res.get("details")) && !isNull(res.get("details").get("id"))) { newId = res.get("details").get("id").toString(); }
+			if(newId != "")
+			{
+				zoho.crm.updateRecord("Deals", newId.toLong(), {"Description": "[partnership_pipeline_rest_failed] Partnership Deal created via native fallback; Pipeline defaulted to B2B and needs manual correction to Partnership. Check the zoho_crm connection (Setup > Connections). Full REST response is in the automation log."}, {"trigger": List()});
+			}
+			createReason = "created_native_rest_failed";
+		}
+	}
+	else
+	{
+		res = zoho.crm.createRecord("Deals", dm);
+		if(!isNull(res) && !isNull(res.get("id"))) { newId = res.get("id").toString(); }
+		else if(!isNull(res) && res.get("code") == "DUPLICATE_DATA" && !isNull(res.get("details")) && !isNull(res.get("details").get("id"))) { newId = res.get("details").get("id").toString(); }
+	}
 
 	if(newId == "")
 	{
 		r.put("reason", "create_failed");
-		automation.logAutomationEvent("createOrReuseProductDeal", "Deals", "-", "create", "failed", {"deal_key":dealKey, "resp":ifnull(res, "").toString()});
+		automation.logAutomationEvent("createOrReuseProductDeal", "Deals", "-", "create", "failed", {"deal_key":dealKey, "rest_resp":restRaw});
 		return r.toString();
 	}
 
 	r.put("valid", "true");
 	r.put("deal_id", newId);
 	r.put("created", "true");
-	r.put("reason", "created");
-	automation.logAutomationEvent("createOrReuseProductDeal", "Deals", newId, "create", "product_deal_created", {"deal_key":dealKey, "product":pName});
+	r.put("reason", createReason);
+	automation.logAutomationEvent("createOrReuseProductDeal", "Deals", newId, "create", "product_deal_created", {"deal_key":dealKey, "product":pName, "pipeline":pipeline});
 	return r.toString();
 }
