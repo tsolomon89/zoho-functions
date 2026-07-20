@@ -1274,7 +1274,15 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		else if(sideEmailKind == "commercials_signed_confirmation") { sideEmailStage = nextStage; }
 		if(sideEmailKind != "")
 		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "", "");
+			// Trace the side-email through selection -> attempt -> result so a future silent
+			// non-delivery is visible (sendSequencedEmail owns dedup/idempotency + its own
+			// blocked/failed reviews; a "" return here that is NOT an idempotency skip means the
+			// send did not happen).
+			automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "side_email_selected", sideEmailKind, {"deal":dealId.toString(), "stage":sideEmailStage, "step":sideEmailStep.toString(), "trigger":trig});
+			sideMsgId = automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "", "");
+			sideResult = "not_sent_or_idempotent";
+			if(ifnull(sideMsgId, "").toString() != "") { sideResult = "sent"; }
+			automation.logAutomationEvent("routeContactSequence", "Contacts", contactId.toString(), "side_email_dispatch", sideResult, {"deal":dealId.toString(), "kind":sideEmailKind, "stage":sideEmailStage, "message_id":ifnull(sideMsgId, "").toString()});
 		}
 
 		// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail absorbed) ----

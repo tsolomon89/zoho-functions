@@ -236,7 +236,7 @@ void automation.handleTaskCompletion(string taskIdStr)
 			if(openerVariant == "conflict")
 			{
 				zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
-				automation.createManualReview(contactId.toString(), dealId.toString(), "conflicting_opening_variant", "[conflicting_opening_variant] Activation task " + taskId + "'s latest Note names BOTH 'Warm' and 'Cold' as the opening-email variant, so the sequence was NOT activated. Edit the Note to contain only 'Warm' or 'Cold' (or remove it to use the standard opener), then set Task State = Won again.");
+				automation.createManualReview(contactId.toString(), dealId.toString(), "conflicting_opening_variant", "Activation task " + taskId + "'s latest Note names BOTH 'Warm' and 'Cold' as the opening-email variant, so the sequence was NOT activated. Edit the Note to contain only 'Warm' or 'Cold' (or remove it to use the standard opener), then set Task State = Won again.");
 				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activation_variant_conflict", "blocked", {"contact":contactId.toString(), "note":latestNote});
 				return;
 			}
@@ -661,38 +661,15 @@ void automation.handleTaskCompletion(string taskIdStr)
 						}
 						zoho.crm.updateRelatedRecord("Products", fbProdId.toLong(), "Deals", dealId, Map());
 
-						fbQuoteAlreadyOk = false;
-						fbReusableQuoteIds = List();
-						if(!isNull(fbExistingQuotes) && fbExistingQuotes.size() > 0 && !fbExistingQuotes.toString().startsWith("{\"code\""))
-						{
-							for each fq in fbExistingQuotes
-							{
-								fqId = "";
-								if(!isNull(fq.get("id"))) { fqId = fq.get("id").toString(); }
-								if(fqId == "") { continue; }
-								fqFull = Map();
-								fqGetResp = invokeurl
-								[
-									url: "https://www.zohoapis.eu/crm/v6/Quotes/" + fqId
-									type: GET
-									connection: "zoho_crm"
-								];
-								if(!isNull(fqGetResp) && !isNull(fqGetResp.get("data")) && fqGetResp.get("data").size() > 0) { fqFull = fqGetResp.get("data").get(0); }
-								if(isNull(fqFull) || isNull(fqFull.get("id"))) { continue; }
-								fqProdId = "";
-								fqProd = fqFull.get("Quote_Product");
-								if(!isNull(fqProd) && !isNull(fqProd.get("id"))) { fqProdId = fqProd.get("id").toString(); }
-								if(fqProdId == fbProdId && ifnull(fqFull.get("Opportunity_Type"), "").toString() == fbQuoteOppType && ifnull(fqFull.get("Quote_Stage"), "").toString() == "Draft")
-								{
-									if(!fbReusableQuoteIds.contains(fqId)) { fbReusableQuoteIds.add(fqId); }
-									fqKeys = ifnull(fqFull.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-									for each fkl in fqKeys.toList("\n")
-									{
-										if(fkl.trim() == fbActivityKey) { fbQuoteAlreadyOk = true; }
-									}
-								}
-							}
-						}
+						// ---- canonical reuse detection (SAME resolver as the final verification below) ----
+						// matched  = a Draft Quote for this product already carries this Task's activity key.
+						// reusable = a valid priced Draft Quote for this product missing only the key (adopt it).
+						fbmRaw = automation.matchDraftQuotes(dealId.toString(), fbProdId, fbQuoteOppType, fbActivityKey, "");
+						fbm = Map();
+						if(!isNull(fbmRaw) && fbmRaw.toString().trim() != "") { fbm = fbmRaw.toString().toMap(); }
+						fbMatched = ifnull(fbm.get("matched"), List());
+						fbReusableQuoteIds = ifnull(fbm.get("reusable"), List());
+						fbQuoteAlreadyOk = (fbMatched.size() >= 1);
 						if(fbQuoteAlreadyOk == true)
 						{
 							fbCreated = fbCreated + 1;
@@ -960,6 +937,16 @@ void automation.handleTaskCompletion(string taskIdStr)
 			}
 		}
 
+		// ---- contact-product links (Products12 surfaces the Contacts_X_Products junction) ----
+		// Resolve the linked-product id set ROBUSTLY: a junction record can surface the product as
+		// its own id, Product_Details, or Product_Interest, and Products12 can lag / not surface a
+		// freshly created link, so also read the Contacts_X_Products junction directly. Then
+		// SELF-HEAL: idempotently create the contact-product link (Contact.Products_Linked, i.e. the
+		// Contacts_X_Products junction) for any drafted product not yet linked, BEFORE the
+		// prerequisite is evaluated. This stops the commercial flow from staying permanently blocked
+		// when an earlier processDeal run (gated by incomplete pricing / Company Tier) never
+		// established the link: re-running Draft Commercials once the prerequisites are supplied
+		// establishes it here from the existing product association and continues normally.
 		contactProdIds = List();
 		draftContactProducts = zoho.crm.getRelatedRecords("Products12", "Contacts", contactId);
 		if(isNull(draftContactProducts) || draftContactProducts.size() == 0 || draftContactProducts.toString().startsWith("{\"code\""))
@@ -970,82 +957,62 @@ void automation.handleTaskCompletion(string taskIdStr)
 		{
 			for each cp in draftContactProducts
 			{
-				if(!isNull(cp.get("id"))) { contactProdIds.add(cp.get("id").toString()); }
+				cpProdId = "";
+				if(!isNull(cp.get("id"))) { cpProdId = cp.get("id").toString(); }
+				cpDet = cp.get("Product_Details");
+				if(!isNull(cpDet) && !isNull(cpDet.get("id"))) { cpProdId = cpDet.get("id").toString(); }
+				cpPI = cp.get("Product_Interest");
+				if(!isNull(cpPI) && !isNull(cpPI.get("id"))) { cpProdId = cpPI.get("id").toString(); }
+				if(cpProdId != "" && !contactProdIds.contains(cpProdId)) { contactProdIds.add(cpProdId); }
+			}
+		}
+		// direct junction fallback (Products12 can lag / not surface a freshly-created link)
+		cxpLinks = zoho.crm.searchRecords("Contacts_X_Products", "(Contacts:equals:" + contactId + ")");
+		if(!isNull(cxpLinks) && cxpLinks.size() > 0 && !cxpLinks.toString().startsWith("{\"code\""))
+		{
+			for each cxp in cxpLinks
+			{
+				cxpProdId = "";
+				cxpPI = cxp.get("Product_Interest");
+				if(!isNull(cxpPI) && !isNull(cxpPI.get("id"))) { cxpProdId = cxpPI.get("id").toString(); }
+				if(cxpProdId != "" && !contactProdIds.contains(cxpProdId)) { contactProdIds.add(cxpProdId); }
+			}
+		}
+		// SELF-HEAL: idempotently establish Products_Linked for any drafted product not yet linked.
+		for each healProdId in draftProductIds
+		{
+			if(!contactProdIds.contains(healProdId))
+			{
+				healLinkMap = Map();
+				healLinkMap.put("Contacts", contactId.toString());
+				healLinkMap.put("Product_Interest", healProdId);
+				healResp = zoho.crm.createRecord("Contacts_X_Products", healLinkMap);
+				automation.logAutomationEvent("handleTaskCompletion", "Contacts", contactId.toString(), "draft_commercials_contact_link_healed", healProdId, {"deal":dealId.toString()});
+				contactProdIds.add(healProdId);
 			}
 		}
 
-		// REST related-list read: native getRelatedRecords/getRecordById lag on a freshly-REST-created
-		// record in the SAME execution; the REST API is read-after-write consistent.
-		draftQuotes = List();
-		draftQGetResp = invokeurl
-		[
-			url: "https://www.zohoapis.eu/crm/v6/Deals/" + dealId + "/Quotes"
-			type: GET
-			connection: "zoho_crm"
-		];
-		if(!isNull(draftQGetResp) && !isNull(draftQGetResp.get("data"))) { draftQuotes = draftQGetResp.get("data"); }
-		// The deal-Quotes related list can lag on a quote created THIS run; always include the freshly-
-		// created quote id(s) so they are checked directly (per-record REST GET is read-after-write consistent).
+		// ---- canonical Draft-Quote verification (SAME resolver as the fallback reuse detection) ----
+		// Pass quote(s) created THIS run so a fresh quote is evaluated directly even if the Deal-
+		// Quotes related list still lags. The resolver owns robust retrieval + applied-key parsing
+		// and logs every candidate with its accept/reject reason. Exactly one match -> proceed;
+		// none -> draft_quote_missing; more than one -> a specific ambiguity (never pick arbitrarily).
+		fbCreatedCsv = "";
 		for each fbCqId in fbCreatedQuoteIds
 		{
-			fbCqSeen = false;
-			for each dqChk in draftQuotes { if(ifnull(dqChk.get("id"), "").toString() == fbCqId.toString()) { fbCqSeen = true; } }
-			if(fbCqSeen == false) { fbCqRec = Map(); fbCqRec.put("id", fbCqId); draftQuotes.add(fbCqRec); }
+			if(fbCreatedCsv != "") { fbCreatedCsv = fbCreatedCsv + "," + fbCqId.toString(); }
+			else { fbCreatedCsv = fbCqId.toString(); }
 		}
 		for each draftProdId in draftProductIds
 		{
 			if(!dealProdIds.contains(draftProdId)) { draftReasons.add("deal_product_missing:" + draftProdId); }
 			if(!contactProdIds.contains(draftProdId)) { draftReasons.add("contact_product_missing:" + draftProdId); }
-
-			matchQuoteIds = List();
-			allDraftQuoteIds = List();
-			if(!isNull(draftQuotes) && draftQuotes.size() > 0 && !draftQuotes.toString().startsWith("{\"code\""))
-			{
-				for each dq in draftQuotes
-				{
-					dqId = "";
-					if(!isNull(dq.get("id"))) { dqId = dq.get("id").toString(); }
-					if(dqId == "") { continue; }
-					dqFull = Map();
-					dqGetResp = invokeurl
-					[
-						url: "https://www.zohoapis.eu/crm/v6/Quotes/" + dqId
-						type: GET
-						connection: "zoho_crm"
-					];
-					if(!isNull(dqGetResp) && !isNull(dqGetResp.get("data")) && dqGetResp.get("data").size() > 0) { dqFull = dqGetResp.get("data").get(0); }
-					if(isNull(dqFull) || isNull(dqFull.get("id"))) { continue; }
-					dqProdId = "";
-					dqProd = dqFull.get("Quote_Product");
-					if(!isNull(dqProd) && !isNull(dqProd.get("id"))) { dqProdId = dqProd.get("id").toString(); }
-					if(dqProdId == draftProdId && ifnull(dqFull.get("Opportunity_Type"), "").toString() == draftQuoteOppType && ifnull(dqFull.get("Quote_Stage"), "").toString() == "Draft")
-					{
-						allDraftQuoteIds.add(dqId);
-						keyOk = false;
-						keysRaw = ifnull(dqFull.get("Quote_Applied_Activity_Keys"), "").toString().replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-						for each kLine in keysRaw.toList("\n")
-						{
-							if(kLine.trim() == draftActivityKey) { keyOk = true; }
-						}
-						lineOk = false;
-						qLines = dqFull.get("Quoted_Items");
-						if(!isNull(qLines) && qLines.size() > 0)
-						{
-							for each ql in qLines
-							{
-								qlProdId = "";
-								qlProd = ql.get("Product_Name");
-								if(!isNull(qlProd) && !isNull(qlProd.get("id"))) { qlProdId = qlProd.get("id").toString(); }
-								if(qlProdId == draftProdId) { lineOk = true; }
-							}
-						}
-						if(keyOk == true && lineOk == true) { matchQuoteIds.add(dqId); }
-					}
-				}
-			}
-			if(allDraftQuoteIds.size() > 1) { draftReasons.add("draft_quote_duplicate:" + draftProdId); }
-			else if(matchQuoteIds.size() == 0) { draftReasons.add("draft_quote_missing:" + draftProdId); }
-			else if(matchQuoteIds.size() > 1) { draftReasons.add("draft_quote_duplicate:" + draftProdId); }
+			dqmRaw = automation.matchDraftQuotes(dealId.toString(), draftProdId, draftQuoteOppType, draftActivityKey, fbCreatedCsv);
+			dqm = Map();
+			if(!isNull(dqmRaw) && dqmRaw.toString().trim() != "") { dqm = dqmRaw.toString().toMap(); }
+			dqmMatched = ifnull(dqm.get("matched"), List());
+			if(dqmMatched.size() == 0) { draftReasons.add("draft_quote_missing:" + draftProdId); }
+			else if(dqmMatched.size() > 1) { draftReasons.add("draft_quote_ambiguous:" + draftProdId + ":" + dqmMatched.toString()); }
 		}
 
 		if(draftReasons.size() > 0)

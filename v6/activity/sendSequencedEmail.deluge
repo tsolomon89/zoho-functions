@@ -211,7 +211,8 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	contactEmail = ifnull(contact.get("Email"), "").toString();
 	if(contactEmail == "")
 	{
-		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "no_contact_email", null);
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "no_contact_email", {"key":canonicalKey});
+		automation.createManualReview(contactId.toString(), dealId.toString(), "email_no_recipient", "Sequenced email '" + canonicalKey + "' was not sent: the Contact has no Email address. Add an email, then re-trigger.");
 		return "";
 	}
 	consentRaw = ifnull(contact.get("Marketing_Consent_Status"), "").toString();
@@ -225,13 +226,39 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	deal = zoho.crm.getRecordById("Deals", dealId);
 
 	// PIPELINE DEFENCE (defence-in-depth): a Partnership (or unresolved) Deal must never send a
-	// B2B sequence email, even if an upstream gate is bypassed. Keyed on Deal_Product_Key
-	// (readable in-runtime) via pipelineForProductKey. Log + stop; never fall back to a template.
+	// B2B sequence email, even if an upstream gate is bypassed. Keyed on Deal_Product_Key.
+	// ROBUSTNESS: Deluge getRecordById can return the Deal with Deal_Product_Key BLANK in deeply-
+	// nested runs (e.g. the commercial:signed side email dispatched via
+	// Call -> routeContactSequence -> processDeal -> routeContactSequence). A blank key makes
+	// pipelineForProductKey("") resolve non-B2B and would DROP a legitimate B2B send silently, which
+	// is exactly how commercials_signed_confirmation went missing. When the key reads blank, fall
+	// back to the REST-backed resolveDealPipeline before deciding (never guess a template).
 	sendPipeline = "B2B";
-	if(!isNull(deal) && !isNull(deal.get("id"))) { sendPipeline = automation.pipelineForProductKey(ifnull(deal.get("Deal_Product_Key"), "").toString().trim()); }
+	pipelineVia = "default";
+	if(!isNull(deal) && !isNull(deal.get("id")))
+	{
+		sendDpk = ifnull(deal.get("Deal_Product_Key"), "").toString().trim();
+		if(sendDpk != "")
+		{
+			sendPipeline = automation.pipelineForProductKey(sendDpk);
+			pipelineVia = "product_key";
+		}
+		else
+		{
+			sendPipeline = automation.resolveDealPipeline(dealId.toString());
+			pipelineVia = "rest_fallback";
+			automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "pipeline_fallback", ifnull(sendPipeline, "").toString(), {"deal":dealId.toString(), "key":canonicalKey, "reason":"blank_deal_product_key"});
+		}
+	}
 	if(sendPipeline != "B2B")
 	{
-		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "blocked_non_b2b_pipeline", {"deal":dealId.toString(), "pipeline":sendPipeline, "key":canonicalKey});
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "blocked_non_b2b_pipeline", {"deal":dealId.toString(), "pipeline":ifnull(sendPipeline, "").toString(), "via":pipelineVia, "key":canonicalKey});
+		// Genuine Partnership block is expected and stays silent; an UNRESOLVED pipeline means the
+		// send was dropped without a clean decision -> surface a review rather than fail silently.
+		if(sendPipeline == "" || sendPipeline == "Unresolved" || sendPipeline == "-None-")
+		{
+			automation.createManualReview(contactId.toString(), dealId.toString(), "email_pipeline_unresolved", "Sequenced email '" + canonicalKey + "' was not sent because the Deal pipeline could not be resolved (got '" + ifnull(sendPipeline, "").toString() + "', via " + pipelineVia + "). Verify Deal_Product_Key / pipeline, then re-trigger.");
+		}
 		return "";
 	}
 
