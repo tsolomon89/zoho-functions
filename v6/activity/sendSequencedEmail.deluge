@@ -169,8 +169,32 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	}
 
 	// ---- contact + consent guards ----
+	// ROBUSTNESS: a deeply-nested dispatch (the commercial:signed side email runs
+	// Call -> routeContactSequence -> processDeal -> routeContactSequence -> here, one level deeper
+	// than commercial:sent) can make the native getRecordById return null, which previously DROPPED
+	// the send SILENTLY (no log, no review) — this is how commercials_signed_confirmation went
+	// missing. Fall back to the out-of-process REST GET (unaffected by the nested-runtime object
+	// limit), and never fail silently: raise a review if the Contact still cannot be read.
 	contact = zoho.crm.getRecordById("Contacts", contactId);
-	if(isNull(contact) || isNull(contact.get("id"))) { return ""; }
+	if(isNull(contact) || isNull(contact.get("id")))
+	{
+		crReadResp = invokeurl
+		[
+			url: "https://www.zohoapis.eu/crm/v6/Contacts/" + contactId
+			type: GET
+			connection: "zoho_crm"
+		];
+		if(!isNull(crReadResp) && !isNull(crReadResp.get("data")) && crReadResp.get("data").size() > 0) { contact = crReadResp.get("data").get(0); }
+		crRecovered = "false";
+		if(!isNull(contact) && !isNull(contact.get("id"))) { crRecovered = "true"; }
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "contact_read_fallback", crRecovered, {"deal":dealId.toString(), "key":canonicalKey});
+	}
+	if(isNull(contact) || isNull(contact.get("id")))
+	{
+		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "contact_unreadable", {"deal":dealId.toString(), "key":canonicalKey});
+		automation.createManualReview(contactId.toString(), dealId.toString(), "email_contact_unreadable", "Sequenced email '" + canonicalKey + "' was not sent: the Contact could not be read at send time (native getRecordById + REST GET both returned null, typically a deeply-nested dispatch). Re-trigger to send.");
+		return "";
+	}
 
 	// =========================================================================
 	// SEND-TIME ACTIVATION GATE — independent of the caller.

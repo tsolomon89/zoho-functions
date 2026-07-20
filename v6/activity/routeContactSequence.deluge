@@ -645,7 +645,13 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		else if(trigLc == "commercial:signed")
 		{
 			targetStage = "Onboarding"; doSupersede = "true"; doEntry = true;
-			sideEmailKind = "commercials_signed_confirmation";
+			// NOTE: the signed-confirmation email is NOT dispatched from this function
+			// anymore. sideEmailKind is deliberately left blank so this (deepest,
+			// re-entrant) frame performs only the structural writes (Stage -> Onboarding,
+			// supersede, Onboarding Setup task). processDeal's verified-signed branch is
+			// now the SINGLE dispatch origin for commercials_signed_confirmation - it
+			// calls sendSequencedEmail two frames shallower, where the send + its own
+			// reviews actually run. Dispatching from here silently no-op'd at max depth.
 			reason = "commercial_signed";
 		}
 		else if(trigLc == "commercial:rejected")
@@ -1181,6 +1187,14 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	// onboarding:0:signed-confirmation. It is now dispatched with every other side
 	// email inside the (!dispatchSuppressed && !suppressOuter) block below, where the
 	// activation gate applies. sendSequencedEmail re-checks activation independently.
+	//
+	// UPDATE: the signed-confirmation send has since MOVED OUT of this function
+	// entirely. commercial:signed is only ever routed by processDeal's term gate, which
+	// re-enters routeContactSequence (making this the deepest, 5-frame, re-entrant
+	// dispatch point). At that depth the send + its own reviews silently no-op'd. It is
+	// now dispatched ONCE from processDeal's verified-signed branch (two frames
+	// shallower); this function leaves sideEmailKind blank for commercial:signed, so the
+	// block below performs only the structural writes for that trigger.
 
 	// =====================================================================
 	// 6. POST-RECONCILIATION NEXT-ACTION DISPATCH GATE.
@@ -1265,13 +1279,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		// the Demo Hosted recovery opener resolves to demo-hosted:1:initial even when the
 		// Contact arrived from Demo Confirmation. Non-cadence side emails (demo_qualified,
 		// commercials_terms, demo_confirmation, ...) continue to key off the source stage.
-		// The signed confirmation likewise keys off the stage it ENTERS (Onboarding), which
-		// is the stage its former pre-gate call site passed explicitly; the template itself
-		// is stage-independent (kind -> onboarding:0:signed-confirmation) but the audit
-		// Task's Task_Sequence_Stage mirror must stay Onboarding.
+		// (commercials_signed_confirmation is NO LONGER dispatched here - processDeal's
+		// verified-signed branch owns it; sideEmailKind is blank for commercial:signed.)
 		sideEmailStage = stage;
 		if(sideEmailKind == "cadence") { sideEmailStage = nextStage; }
-		else if(sideEmailKind == "commercials_signed_confirmation") { sideEmailStage = nextStage; }
 		if(sideEmailKind != "")
 		{
 			// Trace the side-email through selection -> attempt -> result so a future silent

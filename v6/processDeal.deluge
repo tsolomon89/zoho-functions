@@ -2677,6 +2677,37 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			dealRankV = ifnull(stageRanks.get(dealStageV), 0).toLong();
 			if((pcStageV == "Onboarding" || pcStageV == "Renewal") && dealRankV >= onboardingRank)
 			{
+				// =========================================================
+				// SIGNED-CONFIRMATION EMAIL - SINGLE DISPATCH ORIGIN.
+				// Dispatched HERE, only after the signing transition is fully
+				// verified (Contact at Onboarding/Renewal AND Deal at/above the
+				// RTP floor). It is NO LONGER dispatched inside the nested
+				// routeContactSequence("commercial:signed") call above; sideEmailKind
+				// for that trigger is now left blank there, so this is the sole origin.
+				//
+				// WHY: that nested dispatch ran 5 frames deep and re-entrant
+				// (handleCallOutcome -> routeContactSequence(call:positive) ->
+				// processDeal -> routeContactSequence(commercial:signed) ->
+				// sendSequencedEmail). At that depth the send AND its own blocked/
+				// failed review both silently no-op'd - the email vanished with no
+				// audit and no review. This frame is two levels shallower (the same
+				// depth at which commercial:sent's terms email dispatches fine).
+				//
+				// sendSequencedEmail stays the SOLE sender and owns SendKey dedup +
+				// its own blocked/failed Manual Reviews, so re-runs idempotency-skip
+				// (no duplicate email/audit) and any real failure surfaces a visible
+				// review instead of disappearing.
+				// =========================================================
+				sigStage = pcStageV;
+				automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_selected", "commercials_signed_confirmation", {"deal":targetDealId, "stage":sigStage, "trigger":"commercial:signed"});
+				sigMsgId = automation.sendSequencedEmail(primaryContactId, targetDealId, sigStage, 0, "commercials_signed_confirmation", "", "");
+				// sent -> a message_id was returned. "" covers deduplicated / blocked /
+				// failed, each logged granularly by sendSequencedEmail (idempotency_skip /
+				// guard / send=failed) which also raises its own review for blocked/failed.
+				sigResult = "not_sent_or_idempotent";
+				if(ifnull(sigMsgId, "").toString() != "") { sigResult = "sent"; }
+				automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_dispatch", sigResult, {"deal":targetDealId, "stage":sigStage, "message_id":ifnull(sigMsgId, "").toString()});
+
 				result.put("transitionRouted", true);
 				result.put("routedTrigger", "commercial:signed");
 				result.put("success", true);
