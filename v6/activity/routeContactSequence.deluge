@@ -57,6 +57,10 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 	if(raw != "" && raw != "{}") { ctx = raw.toMap(); }
 	ctxSource = ifnull(ctx.get("source"), "").toString().trim();
 	isActivityCtx = (ctxSource == "activity");
+	// Opener Warm/Cold variant: set by handleTaskCompletion from the Activation Task's latest
+	// Note on the activate:email path ("" for every other caller). Threaded only to the opener
+	// dispatch below; sendSequencedEmail swaps only the opener template id (SendKey unchanged).
+	openerVariant = ifnull(ctx.get("opener_variant"), "").toString().trim().toLowerCase();
 
 	automation.logAutomationEvent("routeContactSequence", "Contacts", ifnull(contactId, "").toString(), "entry", "in_progress", {"deal":dealId.toString(), "trigger":trig, "source":ctxSource});
 
@@ -1270,14 +1274,14 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		else if(sideEmailKind == "commercials_signed_confirmation") { sideEmailStage = nextStage; }
 		if(sideEmailKind != "")
 		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "");
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), sideEmailStage, sideEmailStep.toLong(), sideEmailKind, "", "");
 		}
 
 		// ---- 3. Primary action (createStageCall / createStageTask / scheduleSequencedEmail absorbed) ----
 		// email-entry opener: send the opener, then fall through to the shared create_call block.
 		if(action == "send_opener_then_call")
 		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, 1, "opener", "");
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, 1, "opener", "", openerVariant);
 			action = "create_call";
 			nextStep = "1";
 			dueOffsetDays = 0;
@@ -1358,7 +1362,7 @@ void automation.routeContactSequence(string contactIdStr, string dealIdStr, stri
 		}
 		else if(action == "send_email_now")
 		{
-			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, emailStep.toLong(), emailKind, "");
+			automation.sendSequencedEmail(contactId.toString(), dealId.toString(), nextStage, emailStep.toLong(), emailKind, "", "");
 		}
 		else if(action == "schedule_email")
 		{

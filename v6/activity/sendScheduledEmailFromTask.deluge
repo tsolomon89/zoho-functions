@@ -60,7 +60,7 @@ void automation.sendScheduledEmailFromTask(string taskIdStr)
 	}
 
 	// delegate everything (template / idempotency / send / audit-Task update) to sendSequencedEmail
-	msgId = automation.sendSequencedEmail(contactId, dealId, stage, step, kind, taskId.toString());
+	msgId = automation.sendSequencedEmail(contactId, dealId, stage, step, kind, taskId.toString(), "");
 
 	if(msgId != "" && kind == "postcall")
 	{

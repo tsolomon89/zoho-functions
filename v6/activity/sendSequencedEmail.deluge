@@ -1,4 +1,4 @@
-string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, string stage, int step, string kind, string existingAuditTaskId)
+string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, string stage, int step, string kind, string existingAuditTaskId, string openerVariant)
 {
 	// =========================================================================
 	// sendSequencedEmail  (sole email owner)
@@ -101,6 +101,20 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 	templateRegistry.put("proposal-preparation:0:post-demo", "991103000001484010");
 	templateRegistry.put("commercial-agreement:0:proposal-sent", "991103000001475003");
 	templateRegistry.put("onboarding:0:signed-confirmation", "991103000001488004");
+	// ---- Warm/Cold OPENER variants (created 2026-07-20). Key = <base opener key>:<variant>.
+	//      Selected only for kind == "opener" via the Activation Task's latest Note (see the
+	//      variant override below). The base :1:initial key still drives SendKey + audit, so
+	//      the variant only swaps the template id — exactly one opener per activation. ----
+	templateRegistry.put("marketing-consent:1:initial:warm", "991103000002749002");
+	templateRegistry.put("marketing-consent:1:initial:cold", "991103000002750001");
+	templateRegistry.put("demo-booking:1:initial:warm", "991103000002751001");
+	templateRegistry.put("demo-booking:1:initial:cold", "991103000002752001");
+	templateRegistry.put("demo-hosted:1:initial:warm", "991103000002753001");
+	templateRegistry.put("demo-hosted:1:initial:cold", "991103000002749005");
+	templateRegistry.put("commercial-agreement:1:initial:warm", "991103000002754001");
+	templateRegistry.put("commercial-agreement:1:initial:cold", "991103000002755001");
+	templateRegistry.put("renewal:1:initial:warm", "991103000002756001");
+	templateRegistry.put("renewal:1:initial:cold", "991103000002757001");
 	templateId = ifnull(templateRegistry.get(canonicalKey), "").toString();
 
 	// ---- missing/invalid template: sole owner of this handling (KISS for every caller) ----
@@ -109,6 +123,28 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "template_missing", {"stage":stage, "step":step, "kind":kind, "key":canonicalKey});
 		automation.createAuxTask(contactId.toString(), dealId.toString(), "Manual Review", "Missing/invalid email template for key '" + canonicalKey + "' (stage=" + stage + ", step=" + step + ", kind=" + kind + ").");
 		return "";
+	}
+
+	// ---- OPENER Warm/Cold VARIANT OVERRIDE (first email only; idempotency-safe) ----
+	// Swaps ONLY the template id for the opener; canonicalKey (and thus SendKey + the audit
+	// Task) is unchanged, so exactly one opener sends per activation regardless of variant.
+	// The variant is chosen upstream from the Activation Task's latest Note; a both-value
+	// conflict never routes here (handleTaskCompletion blocks activation), so only
+	// warm/cold/"" reach this point. A missing variant template falls back to the base opener.
+	openerVar = ifnull(openerVariant, "").toString().trim().toLowerCase();
+	if(k == "opener" && (openerVar == "warm" || openerVar == "cold"))
+	{
+		variantKey = canonicalKey + ":" + openerVar;
+		variantId = ifnull(templateRegistry.get(variantKey), "").toString();
+		if(variantId != "")
+		{
+			templateId = variantId;
+			automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "opener_variant", "selected_" + openerVar, {"key":canonicalKey, "variantKey":variantKey, "templateId":templateId});
+		}
+		else
+		{
+			automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "opener_variant", "fallback_default_missing_" + openerVar, {"key":canonicalKey, "variantKey":variantKey, "templateId":templateId});
+		}
 	}
 
 	// ---- SendKey (absorbed _util_buildSendKey) — key-based, NOT the volatile template id ----

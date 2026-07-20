@@ -75,6 +75,6 @@ void automation.sendDemoReminder(string dealIdStr)
 		return;
 	}
 
-	automation.sendSequencedEmail(primaryId, dealId.toString(), "Demo Confirmation", 0, "demo_reminder", "");
+	automation.sendSequencedEmail(primaryId, dealId.toString(), "Demo Confirmation", 0, "demo_reminder", "", "");
 	automation.logAutomationEvent("sendDemoReminder", "Deals", dealId.toString(), "reminder", "sent", {"contact":primaryId});
 }

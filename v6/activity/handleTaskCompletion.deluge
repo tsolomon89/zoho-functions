@@ -199,9 +199,59 @@ void automation.handleTaskCompletion(string taskIdStr)
 		actTrig = "activate:email";
 		if(routeType == "Call") { actTrig = "activate:call"; }
 		else if(routeType == "Manual") { actTrig = "activate:manual"; }
-		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig, "{}");
+
+		// ---- 4a. Opening-email variant (EMAIL route only). The rep's LATEST native Note on this
+		//      Activation Task selects the opener: exact "warm"/"cold" -> variant; an explicit
+		//      both-value Note -> conflict (reopen this Task + Manual Review, do NOT activate);
+		//      no Note / prose / anything else -> default opener. Only the latest Note (max
+		//      Created_Time) is read, so older/leftover notes never select or conflict. Call and
+		//      Manual routes send no opener, so the Note is irrelevant to them. ----
+		actCtx = "{}";
+		if(routeType == "Email")
+		{
+			latestNote = "";
+			latestNoteNum = 0;
+			relNotes = zoho.crm.getRelatedRecords("Notes", "Tasks", taskId);
+			if(!isNull(relNotes) && relNotes.size() > 0 && !relNotes.toString().startsWith("{\"code\""))
+			{
+				for each nt in relNotes
+				{
+					ntAtRaw = ifnull(nt.get("Created_Time"), "").toString();
+					ntAtNum = 0;
+					if(ntAtRaw.length() >= 19)
+					{
+						ntDigits = ntAtRaw.substring(0, 19).replaceAll("[^0-9]", "");
+						if(ntDigits != "") { ntAtNum = ntDigits.toLong(); }
+					}
+					if(ntAtNum >= latestNoteNum)
+					{
+						latestNoteNum = ntAtNum;
+						ntBody = ifnull(nt.get("Note_Content"), "").toString();
+						if(ntBody.trim() == "") { ntBody = ifnull(nt.get("Note_Title"), "").toString(); }
+						latestNote = ntBody;
+					}
+				}
+			}
+			openerVariant = automation.resolveOpenerVariant(latestNote);
+			if(openerVariant == "conflict")
+			{
+				zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Open", "Task_Status":"Working", "Status":"In Progress"}, noTrigger);
+				automation.createManualReview(contactId.toString(), dealId.toString(), "conflicting_opening_variant", "[conflicting_opening_variant] Activation task " + taskId + "'s latest Note names BOTH 'Warm' and 'Cold' as the opening-email variant, so the sequence was NOT activated. Edit the Note to contain only 'Warm' or 'Cold' (or remove it to use the standard opener), then set Task State = Won again.");
+				automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activation_variant_conflict", "blocked", {"contact":contactId.toString(), "note":latestNote});
+				return;
+			}
+			if(openerVariant == "warm" || openerVariant == "cold")
+			{
+				actCtxMap = Map();
+				actCtxMap.put("opener_variant", openerVariant);
+				actCtx = actCtxMap.toString();
+			}
+			automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "opener_variant_resolved", openerVariant, {"contact":contactId.toString(), "note":latestNote});
+		}
+
+		automation.routeContactSequence(contactId.toString(), dealId.toString(), actTrig, actCtx);
 		zoho.crm.updateRecord("Tasks", taskId, {"Task_State":"Won", "Task_Status":"Closed", "Status":"Completed"}, noTrigger);
-		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":"Task_Sequence_Type"});
+		automation.logAutomationEvent("handleTaskCompletion", "Tasks", taskId.toString(), "activated", actTrig, {"contact":contactId.toString(), "deal":dealId.toString(), "route_via":"Task_Sequence_Type", "opener_variant":actCtx});
 		return;
 	}
 
