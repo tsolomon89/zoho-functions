@@ -2233,6 +2233,13 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	dealHasContacts = dealCandidateIds.size() > 0;
 	info "Deal-Roles viability: resolved=" + dealViabilityResolved + " candidates=" + dealCandidateIds.size() + " anyOpen=" + dealAnyContactOpen + " anyWorking=" + dealAnyContactWorking;
 
+	// SIGNED-CONFIRMATION TRIGGER (part 1 of 2): did the Deal cross into Onboarding for the
+	// FIRST time on THIS reconcile? Set true only at the RTP-floor stage write below when the
+	// stored Opportunity_Stage was BELOW Onboarding and the floor raises it to Onboarding. The
+	// signed-confirmation email is dispatched from part 2 (after termComplete is known), gated on
+	// this flag + termComplete, so it fires exactly on the confirmed-signing crossing.
+	crossedIntoOnboarding = false;
+
 	if(hasLossReason)
 	{
 		// Explicit Deal loss reason is independent confident evidence -> always close.
@@ -2263,6 +2270,9 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 		{
 			dUpd.put("Opportunity_Stage", floorStage);
 			dUpd.put("Stage", effectiveOppType);
+			// FIRST-time crossing into Onboarding (stored stage was below Onboarding, floor
+			// raises it to Onboarding) -> mark for the signed-confirmation dispatch below.
+			if(floorStage == "Onboarding" && currentRank < onboardingRank) { crossedIntoOnboarding = true; }
 		}
 		else if(storedStage != effectiveOppType && effectiveOppType == "RTP")
 		{
@@ -2607,6 +2617,15 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	// (missing dates), and §5 updates changed Quoted_Items. The §7 relevantQuotes snapshot is
 	// stale for stage-gating, so rebuild it from live records before evaluating the gates.
 	relevantQuotes = List();
+	// SIGNING-VERIFIED (oppType-agnostic): the FTP->RTP quoteOppType flip at the RTP floor
+	// EXCLUDES the initial FTP quote from relevantQuotes, so termComplete is false at the signing
+	// crossing (this is why the signed-confirmation gate on termComplete never fired). This flag
+	// verifies signing independently: a Confirmed/Closed-Won quote for the Deal's CURRENT term
+	// (matching Contract_Current_Date), regardless of Opportunity_Type. Used by the
+	// signed-confirmation dispatch below.
+	signedTermExists = false;
+	sigTermStart = ifnull(dealPost.get("Contract_Current_Date_Start"), "").toString();
+	sigTermEnd = ifnull(dealPost.get("Contract_Current_Date_End"), "").toString();
 	gateQuotes = zoho.crm.getRelatedRecords("Quotes", "Deals", targetDealId.toLong());
 	if(gateQuotes != null && gateQuotes.size() > 0 && !gateQuotes.toString().startsWith("{\"code\""))
 	{
@@ -2617,6 +2636,8 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			if(gqId == "") { continue; }
 			gqFull = zoho.crm.getRecordById("Quotes", gqId.toLong());
 			if(isNull(gqFull) || isNull(gqFull.get("id"))) { continue; }
+			sgStg = ifnull(gqFull.get("Quote_Stage"), "").toString();
+			if((sgStg == "Confirmed" || sgStg == "Closed Won") && sigTermStart != "" && ifnull(gqFull.get("Contract_Date_Start"), "").toString() == sigTermStart && ifnull(gqFull.get("Contract_Date_End"), "").toString() == sigTermEnd) { signedTermExists = true; }
 			if(ifnull(gqFull.get("Opportunity_Type"), "").toString() == quoteOppType) { relevantQuotes.add(gqFull); }
 		}
 	}
@@ -2659,6 +2680,37 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 	}
 	termComplete = (termQuoteCount > 0 && termAllConfirmed);
 
+	// =========================================================================
+	// SIGNED-CONFIRMATION EMAIL — SINGLE AUTHORITATIVE DISPATCH (Onboarding floor-crossing).
+	// Fires exactly when THIS reconcile advanced the Deal into Onboarding for the FIRST time
+	// (crossedIntoOnboarding, set at the RTP-floor stage write in section 8) AND the signing is
+	// verified (signedTermExists: a Confirmed/Closed-Won Quote for the current term). We use
+	// signedTermExists, NOT termComplete: at the floor crossing the RTP floor has flipped
+	// quoteOppType to RTP, so the initial FTP Quote is excluded from the termComplete quote set
+	// and termComplete reads false exactly when signing occurs. signedTermExists is oppType-agnostic.
+	//
+	// This is the REAL signing path. The discrete commercial:signed trigger never fires: the RTP
+	// floor writes Opportunity_Stage=Onboarding before that gate is evaluated, so its
+	// primaryStageNow=="Commercial Agreement" precondition is already false (proven live
+	// 2026-07-20 via the Contact Stage audit trail + handleCallOutcome function log).
+	//
+	// Placed OUTSIDE if(!isQuoteSrc) so whichever reconcile performs the crossing (quote- or
+	// activity-source) dispatches it, and BEFORE the (now-dead) commercial:signed branch below.
+	// sendSequencedEmail is the SOLE sender and owns SendKey dedup + its own blocked/failed
+	// Manual Reviews: a repeat reconcile finds the audit and idempotency-skips (no duplicate
+	// email/task), and a genuine block/failure raises a visible review rather than vanishing.
+	// crossedIntoOnboarding is true on exactly one reconcile (the never-regress floor prevents a
+	// second crossing), so this dispatches once.
+	// =========================================================================
+	if(crossedIntoOnboarding && signedTermExists && primaryContactId != "")
+	{
+		automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_selected", "commercials_signed_confirmation", {"deal":targetDealId, "stage":"Onboarding", "trigger":"onboarding_floor_crossing"});
+		sigMsgId = automation.sendSequencedEmail(primaryContactId, targetDealId, "Onboarding", 0, "commercials_signed_confirmation", "", "");
+		sigResult = "not_sent_or_idempotent";
+		if(ifnull(sigMsgId, "").toString() != "") { sigResult = "sent"; }
+		automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_dispatch", sigResult, {"deal":targetDealId, "stage":"Onboarding", "message_id":ifnull(sigMsgId, "").toString()});
+	}
+
 	routedTransition = "";
 
 	// Only an activity-source reconciliation may route a transition. Quote-source recompute-only.
@@ -2677,37 +2729,15 @@ pplTmp = agg.get("planProductsList"); pplTmp.add(fam);
 			dealRankV = ifnull(stageRanks.get(dealStageV), 0).toLong();
 			if((pcStageV == "Onboarding" || pcStageV == "Renewal") && dealRankV >= onboardingRank)
 			{
-				// =========================================================
-				// SIGNED-CONFIRMATION EMAIL - SINGLE DISPATCH ORIGIN.
-				// Dispatched HERE, only after the signing transition is fully
-				// verified (Contact at Onboarding/Renewal AND Deal at/above the
-				// RTP floor). It is NO LONGER dispatched inside the nested
-				// routeContactSequence("commercial:signed") call above; sideEmailKind
-				// for that trigger is now left blank there, so this is the sole origin.
-				//
-				// WHY: that nested dispatch ran 5 frames deep and re-entrant
-				// (handleCallOutcome -> routeContactSequence(call:positive) ->
-				// processDeal -> routeContactSequence(commercial:signed) ->
-				// sendSequencedEmail). At that depth the send AND its own blocked/
-				// failed review both silently no-op'd - the email vanished with no
-				// audit and no review. This frame is two levels shallower (the same
-				// depth at which commercial:sent's terms email dispatches fine).
-				//
-				// sendSequencedEmail stays the SOLE sender and owns SendKey dedup +
-				// its own blocked/failed Manual Reviews, so re-runs idempotency-skip
-				// (no duplicate email/audit) and any real failure surfaces a visible
-				// review instead of disappearing.
-				// =========================================================
-				sigStage = pcStageV;
-				automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_selected", "commercials_signed_confirmation", {"deal":targetDealId, "stage":sigStage, "trigger":"commercial:signed"});
-				sigMsgId = automation.sendSequencedEmail(primaryContactId, targetDealId, sigStage, 0, "commercials_signed_confirmation", "", "");
-				// sent -> a message_id was returned. "" covers deduplicated / blocked /
-				// failed, each logged granularly by sendSequencedEmail (idempotency_skip /
-				// guard / send=failed) which also raises its own review for blocked/failed.
-				sigResult = "not_sent_or_idempotent";
-				if(ifnull(sigMsgId, "").toString() != "") { sigResult = "sent"; }
-				automation.logAutomationEvent("processDeal", "Contacts", primaryContactId, "signed_confirmation_dispatch", sigResult, {"deal":targetDealId, "stage":sigStage, "message_id":ifnull(sigMsgId, "").toString()});
-
+				// NOTE: the signed-confirmation email is NO LONGER dispatched from this
+				// commercial:signed branch. This lifecycle reaches Onboarding via the RTP
+				// floor recompute (section 6b), NOT this trigger — the floor writes
+				// Opportunity_Stage=Onboarding before this gate is ever evaluated, so
+				// primaryStageNow=="Commercial Agreement" is already false and this branch
+				// is dead for the confirmed-Quote + completed-Call path (proven live 2026-07-20).
+				// The single authoritative dispatch now lives at the Onboarding floor-crossing
+				// in section 6b (search: signed_confirmation_selected). This branch is left
+				// intact (routing + verify) but performs no email dispatch.
 				result.put("transitionRouted", true);
 				result.put("routedTrigger", "commercial:signed");
 				result.put("success", true);
