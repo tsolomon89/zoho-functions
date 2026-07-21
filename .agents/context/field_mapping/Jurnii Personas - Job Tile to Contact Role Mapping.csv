@@ -1,163 +1,421 @@
 Job_Title,Contact_Role
-Acquisition Manager,Influencer
-Analytics Engineer,End User
-Attribution Manager,End User
-Behavioural Analyst,End User
-Betting Operations Manager,End User
-BI Analyst,End User
-BI Developer,End User
-BI Manager,Influencer
-Bonus Manager,End User
-Brand Manager,Influencer
-Campaign Manager,End User
-Campaign Manager,Influencer
-Campaign Strategy Manager,Influencer
+Automation & AI Transformation Director,Decision Maker
 Casino Director,Decision Maker
-Casino Manager,End User
-Casino Product Manager,End User
+Chief Architect,Decision Maker
 Chief Commercial Officer,Decision Maker
 Chief Customer Officer,Decision Maker
 Chief Data Officer,Decision Maker
+Chief Executive Officer,Decision Maker
 Chief Financial Officer,Decision Maker
 Chief Marketing Officer,Decision Maker
+Chief Operating Officer,Decision Maker
 Chief Product Officer,Decision Maker
-Commercial Analyst,End User
+Chief Strategy Officer,Decision Maker
+Chief Systems Officer,Decision Maker
+Chief Technology Officer,Decision Maker
+Chief Transformation Officer,Decision Maker
+Co-Founder,Decision Maker
 Commercial Director,Decision Maker
-Commercial Finance Manager,Influencer
-Competitor Intelligence Analyst,End User
-Compliance Manager,Influencer
+Company Director,Decision Maker
 Country Manager,Decision Maker
-Creative Director,Influencer
-Creative Lead,Influencer
-CRM Director,Decision Maker
-CRM Manager,End User
-CRM Manager,Influencer
-CRO Director,Decision Maker
-CRO Manager,End User
-CRO Manager,Influencer
+CRM Director,End User
+CRO Director,End User
 Customer Experience Director,Decision Maker
-Customer Journey Manager,End User
-Customer Operations Manager,Influencer
-CX Manager,End User
-Data Analyst,Influencer
 Data Director,Decision Maker
-Data Layer Specialist,End User
-Data Visualisation Analyst,End User
 Design Director,Decision Maker
-Design Systems Engineer,End User
-Design Systems Lead,End User
-Digital Analyst,End User
 Digital Director,Decision Maker
 Digital Experience Director,Decision Maker
-Digital Product Manager,End User
-Engineering Manager,Influencer
-Experience Researcher,End User
 Experimentation Lead,Decision Maker
-Experimentation Manager,End User
-Finance Business Partner,Influencer
 FP&A Director,Decision Maker
-FP&A Manager,Influencer
-Frontend Developer,End User
-Frontend Lead,Influencer
 Gaming Director,Decision Maker
-Gaming Product Manager,End User
 General Manager,Decision Maker
-Go-to-Market Manager,End User
+Global CMO,Decision Maker
+Global CXO,Decision Maker
+Global Director of Product Support & Services,Decision Maker
+Global Head of Product,Decision Maker
+Global Product Director,Decision Maker
+Global Product Manager,Decision Maker
+Group CFO,Decision Maker
+Group Chief Operating Officer,Decision Maker
+Group Gaming Director EMEA,Decision Maker
+Group Head of Commercial Gaming Operations,Decision Maker
+Group Product Manager,Decision Maker
+Group Strategy Director,Decision Maker
+Group Trading Director,Decision Maker
 Growth Director,Decision Maker
+Head of Acquisition,Decision Maker
 Head of Analytics,Decision Maker
 Head of BI,Decision Maker
-Head of BI,Influencer
 Head of Brand,Decision Maker
+Head of Brand & Creative,Decision Maker
+Head of Brand Marketing,Decision Maker
 Head of Casino,Decision Maker
+Head of Casino Business Development,Decision Maker
 Head of Commercial,Decision Maker
 Head of CRM,Decision Maker
-Head of CRM,Influencer
 Head of CRO,Decision Maker
+Head of Customer Experience,Decision Maker
+Head of Customer Marketing,Decision Maker
+Head of Customer Value Management,Decision Maker
 Head of CX,Decision Maker
+Head of Data Platform,Decision Maker
 Head of Design,Decision Maker
 Head of Digital,Decision Maker
 Head of Digital Product,Decision Maker
+Head of Engineering,Decision Maker
+Head of Finance,Decision Maker
 Head of Gaming,Decision Maker
+Head of Group Marketing,Decision Maker
 Head of Growth,Decision Maker
+Head of iGaming,Decision Maker
+Head of Infrastructure,Decision Maker
+Head of Internal Audit,Decision Maker
+Head of International Horse Racing,Decision Maker
 Head of Marketing,Decision Maker
-Head of Operations,Influencer
+Head of Online,Decision Maker
+Head of Online & Customer Acquisition,Decision Maker
+Head of Online Casino Operations,Decision Maker
 Head of Product,Decision Maker
 Head of Product Design,Decision Maker
 Head of Promotions,Decision Maker
 Head of Proposition,Decision Maker
 Head of Research,Decision Maker
 Head of Retention,Decision Maker
+Head of Special Product Development,Decision Maker
+Head of Sports,Decision Maker
 Head of Sportsbook,Decision Maker
+Head of Strategy & Performance,Decision Maker
+Head of Technology,Decision Maker
 Head of UX,Decision Maker
-Head of VIP,Influencer
-Head Trader,End User
-Insight Manager,Influencer
-Interaction Designer,End User
-Legal Counsel,Influencer
 Lifecycle Director,Decision Maker
+Market Manager,Decision Maker
+Marketing Director,Decision Maker
+Performance Marketing Director,Decision Maker
+Product Design Director,Decision Maker
+Product Director,Decision Maker
+Product Operations Director,Decision Maker
+Promotions Director,Decision Maker
+Proposition Director,Decision Maker
+Regional Director,Decision Maker
+Revenue Director,Decision Maker
+Senior Product Manager,Decision Maker
+Senior Vice President Product Development,Decision Maker
+Sportsbook Director,Decision Maker
+SVP Product,Decision Maker
+UX Director,Decision Maker
+Vice Managing Director,Decision Maker
+Vice President,Decision Maker
+Vice President & General Manager,Decision Maker
+Vice President Marketing,Decision Maker
+Vice President of Commercials,Decision Maker
+Vice President of Finance,Decision Maker
+Vice President of Operations,Decision Maker
+Vice President of Pricing Strategy,Decision Maker
+Vice President of Product,Decision Maker
+Vice President of Product Development,Decision Maker
+Vice President of Sales & Marketing,Decision Maker
+Vice President Product Management,Decision Maker
+Vice President Risk,Decision Maker
+VP Customer Experience,Decision Maker
+VP Growth,Decision Maker
+VP Product,Decision Maker
+Director of Gaming,Decision Maker
+Director of Information Technology,Decision Maker
+Director of Operations,Decision Maker
+Director of Product,Decision Maker
+Director of Product & Operations Management,Decision Maker
+Director of Product Operations,Decision Maker
+Director of Strategy & Customer Experience,Decision Maker
+Director of Technology,Decision Maker
+Director Product & Technology,Decision Maker
+Director of Digital Product,Decision Maker
+Founder,Decision Maker
+Head of Gaming Commercial,Decision Maker
+Head of Gaming Operations,Decision Maker
+Head of Gaming Product,Decision Maker
+Head of Program Product + Chief of Staff,Decision Maker
+Manager of Global Product Management,Decision Maker
+Managing Director,Decision Maker
+Owner,Decision Maker
+President,Decision Maker
+Senior IA & AI Business Transformation Architect,Decision Maker
+Advanced Analytics Lead,End User
+AI & Automation Lead,End User
+AI Lead,End User
+Analytics Engineer,End User
+Attribution Manager,End User
+Behavioural Analyst,End User
+Betting Operations Manager,End User
+BI Analyst,End User
+BI Developer,End User
+Bonus Manager,End User
+Brand & Marketing Director,End User
+Brand & Product Marketing Lead,End User
+Business Operations Manager,End User
+Campaign Manager,End User
+Casino Manager,End User
+Casino Product Manager,End User
+Commercial Analyst,End User
+Competitor Intelligence Analyst,End User
+CRM Manager,End User
+CRO Manager,End User
+Customer Journey Manager,End User
+CX Manager,End User
+Data Layer Specialist,End User
+Data Visualisation Analyst,End User
+Design Systems Engineer,End User
+Design Systems Lead,End User
+Digital Analyst,End User
+Digital Product Manager,End User
+Experience Researcher,End User
+Experimentation Manager,End User
+Frontend Developer,End User
+Gaming Product Manager,End User
+Go-to-Market Manager,End User
+Head Trader,End User
+Interaction Designer,End User
 Lifecycle Manager,End User
-Lifecycle Manager,Influencer
-Lifecycle Marketing Manager,Influencer
 Live Casino Manager,End User
 Market Analyst,End User
-Market Manager,Decision Maker
 Marketing Analyst,End User
-Marketing Director,Decision Maker
-Marketing Director,Influencer
-Marketing Manager,Influencer
 Marketing Operations Manager,End User
 Offer Manager,End User
 Optimisation Manager,End User
-Paid Search Manager,Influencer
-Paid Social Manager,Influencer
-Performance Marketing Director,Decision Maker
-Performance Marketing Manager,Influencer
 Player Engagement Manager,End User
-Player Operations Manager,Influencer
-Player Protection Lead,Influencer
-Player Value Manager,Influencer
 Pricing Analyst,End User
 Product Analyst,End User
-Product Design Director,Decision Maker
 Product Designer,End User
-Product Director,Decision Maker
 Product Insights Manager,End User
 Product Manager,End User
 Product Marketing Manager,End User
-Product Operations Director,Decision Maker
 Product Operations Manager,End User
 Product Owner,End User
-Promotions Director,Decision Maker
 Promotions Manager,End User
-Proposition Director,Decision Maker
 Proposition Manager,End User
-Regional Director,Decision Maker
-Regulatory Affairs Manager,Influencer
-Responsible Gambling Manager,Influencer
 Retention Manager,End User
-Retention Manager,Influencer
-Revenue Director,Decision Maker
-Safer Gambling Analyst,Influencer
-Safer Gambling Lead,Influencer
-Senior Product Manager,Decision Maker
+Senior Product Designer,End User
+Senior Product Development Manager,End User
+Senior Project Leader,End User
+Senior Research Manager,End User
 Senior UX Researcher,End User
-Sportsbook Director,Decision Maker
+Sports Director,End User
+Sportsbook Operations Manager,End User
+Sportsbook Product Manager,End User
 Sportsbook Trading Manager,End User
 Tagging Specialist,End User
 Tracking Specialist,End User
 Trading Manager,End User
 UI Designer,End User
+User Experience Research Manager,End User
 User Research Lead,End User
+User Research Manager,End User
 User Researcher,End User
 UX Analyst,End User
+UX Architect,End User
 UX Designer,End User
-UX Director,Decision Maker
 UX Researcher,End User
-VIP Manager,Influencer
 Voice of Customer Manager,End User
-VP Customer Experience,Decision Maker
-VP Growth,Decision Maker
-VP Product,Decision Maker
 Web Analyst,End User
 Web Developer,End User
 Website Manager,End User
+Website Product Manager,End User
+Country Manager,End User
+CRO Product Manager,End User
+Customer Experience Insights Manager,End User
+Customer Experience Manager,End User
+Customer Insights Product Owner,End User
+Design Lead,End User
+Design Manager,End User
+Director Customer Experience & Strategy,End User
+Director of Applied Intelligence,End User
+Director of Digital Marketing,End User
+Director of Marketing,End User
+Director of Marketing & Affiliation,End User
+Director of Marketing Communications,End User
+Director of Poker & Bingo,End User
+Director of Poker Operations,End User
+Director of Sportsbook,End User
+Director of Strategy & Business Delivery,End User
+Director of User Experience,End User
+Generosity Analytics & Segmentation Senior Manager,End User
+Head of Generosity Transformation,End User
+Head of Performance,End User
+Head of Pricing Strategy & Insights,End User
+Head of Product Analytics,End User
+Head of Product Growth,End User
+Head of Sales,End User
+Head of SEO,End User
+Head of Trade Marketing,End User
+Head of UX & Design,End User
+iGaming Product Manager,End User
+Information & Product Analysis Specialist Manager,End User
+Lead Product Designer,End User
+Manager eGaming,End User
+Manager Product Management,End User
+Manager UX/UI & DA Gaming,End User
+Paid Search Executive,End User
+Planning & Execution Director,End User
+Pricing Strategy Director,End User
+Product & Design Operations Specialist,End User
+Product & Experience Operations Manager,End User
+Product Analytics,End User
+Product Experience Director,End User
+Product Manager & QA Lead,End User
+Regional Head of Digital,End User
+Research Manager,End User
+Senior CRM Marketing Specialist,End User
+Senior CVM Manager,End User
+Senior Director Sportsbook Product,End User
+Senior Generosity Transformation Manager,End User
+Account Executive,Influencer
+Acquisition Manager,Influencer
+Art Director,Influencer
+Associate Director of Product,Influencer
+BI Manager,Influencer
+Brand Manager,Influencer
+Business Development Director,Influencer
+Business Development Executive,Influencer
+Campaign Strategy Manager,Influencer
+Chief Assurance Officer,Influencer
+Chief of Staff,Influencer
+Client Partner,Influencer
+Commercial Finance Manager,Influencer
+Commercial Manager,Influencer
+Commercial Planning Manager,Influencer
+Compliance Manager,Influencer
+Compliance Product Manager,Influencer
+Consultant,Influencer
+Creative Director,Influencer
+Creative Lead,Influencer
+Customer Operations Manager,Influencer
+Data Analyst,Influencer
+Engineering Manager,Influencer
+Finance Business Partner,Influencer
+FP&A Manager,Influencer
+Frontend Lead,Influencer
+Head Cashier,Influencer
+Head of Affiliates,Influencer
+"Head of AML, Fraud & Risk",Influencer
+Head of B2B,Influencer
+Head of Backend Engineering,Influencer
+Head of Compliance,Influencer
+Head of Corporate Communications,Influencer
+Head of Creative,Influencer
+Head of Customer Care,Influencer
+Head of Customer Service,Influencer
+Head of Customer Support,Influencer
+Head of Customer Support & VIP Accounts Management,Influencer
+Head of Facility & Workplace Strategy,Influencer
+Head of Greyhound Racing Operations,Influencer
+Head of Operations,Influencer
+Head of VIP,Influencer
+Insight Manager,Influencer
+Legal Counsel,Influencer
+Lifecycle Marketing Manager,Influencer
+Marketing Manager,Influencer
+Paid Search Manager,Influencer
+Paid Social Manager,Influencer
+Performance Marketing Manager,Influencer
+Player Operations Manager,Influencer
+Player Protection Lead,Influencer
+Player Value Manager,Influencer
+Regulatory Affairs Manager,Influencer
+Responsible Gambling Manager,Influencer
+Safer Gambling Analyst,Influencer
+Safer Gambling Lead,Influencer
+Sportsbook Property Director Kentucky,Influencer
+Strategy Consultant,Influencer
+Supplier Manager,Influencer
+Team Lead HR Business Partner,Influencer
+Technical Director,Influencer
+Trading Graduate,Influencer
+UK News Editor,Influencer
+Vice President of Human Resources,Influencer
+VIP Manager,Influencer
+Head of Customer Excellence,Influencer
+Head of Customer Service,Influencer
+Delivery Director,Influencer
+Deputy Director,Influencer
+Designer,Influencer
+Director,Influencer
+Director & General Manager,Influencer
+Director of Corporate Compliance,Influencer
+Director of Corporate Security,Influencer
+Director of Engineering,Influencer
+Director of Generosity Transformation,Influencer
+Director of Hospitality & General Services,Influencer
+Director of Hotel Sales,Influencer
+Director of Payments,Influencer
+Director of People & Culture,Influencer
+Director of Product Compliance,Influencer
+Director of Product Design,Influencer
+Director of Product Development,Influencer
+Director of Product Management,Influencer
+Director of Project Management,Influencer
+Director of Trading Strategy,Influencer
+"Experience Director (Product, CX, Data, Research & PMO)",Influencer
+Freelance Writer,Influencer
+Head of Human Resources,Influencer
+Head of Investor Relations & Capital Deployment,Influencer
+Head of Legal,Influencer
+Head of Liquidity,Influencer
+Head of Live Casino,Influencer
+Head of Operations & Support,Influencer
+Head of People & Culture,Influencer
+Head of Propositions,Influencer
+Head of Social,Influencer
+Head of Streaming Operations,Influencer
+Head of Support Department,Influencer
+Head of Trading,Influencer
+Head of Trading & Risk,Influencer
+Head of VIP Services,Influencer
+Human Resources Business Partner,Influencer
+Human Resources Director,Influencer
+Live Ops Product Manager,Influencer
+"Live Ops Product Manager, Head of Content",Influencer
+OBG Strategy,Influencer
+Payment Product Manager,Influencer
+Player Experience Lead,Influencer
+Poker Product Manager,Influencer
+Product & Customer Support Manager,Influencer
+Product Release Manager,Influencer
+Program Manager,Influencer
+Sales Manager,Influencer
+Senior Business Development Manager,Influencer
+Senior Commercial Manager,Influencer
+Senior Legal & Regulatory Counsel,Influencer
+Senior Manager,Influencer
+Senior Manager New Business & Sales Executive,Influencer
+Administrative Assistant,Influencer
+Chief Online Gaming,Decision Maker
+Chief Revenue Officer,Decision Maker
+Chief Trading Officer,Decision Maker
+Client Director,Influencer
+Commerical Director,Decision Maker
+Customer Excellence Department Head,End User
+Director of CX & Optimisation,End User
+Director of Product Analysis,Decision Maker
+Director of UX & Growth,Decision Maker
+Director Product & Tech,Decision Maker
+Head of AML,Influencer
+Head of Business Development,Influencer
+Head of Creative Research & Insights,Influencer
+Head of Experience,End User
+Head of Partnerships,Influencer
+Head of Product Marketing,Decision Maker
+Head of Strategy & Performance ,Decision Maker
+M&A Principal,Influencer
+Managing Director ,Decision Maker
+Operational Product Supplier Manager,Decision Maker
+Principal Product Manager,Influencer
+Product & Insight Director,Influencer
+Product Lead,Influencer
+Product Management Lead,Decision Maker
+Senior eCommerce Consultant,Influencer
+Senior Global Brand Manager,Decision Maker
+Senior Graphic Designer,Influencer
+Senior Product Owner,Influencer
+Senior Sales Manager,Influencer
+Senior Vice President Product Development ,Decision Maker
+UX/UI Designer,Influencer
+Vice President of Global Operations & Media,Decision Maker
