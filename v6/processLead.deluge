@@ -60,6 +60,8 @@ void automation.processLead(string lead_id)
 	leadReferrer = ifnull(leadRecord.get("Lead_Referrer"), "").toString().trim();
 	importedRecordType = ifnull(leadRecord.get("Imported_Record_Type"), "").toString().trim();
 	leadCompanyTier = ifnull(leadRecord.get("Company_Tier"), "").toString().trim();
+	// General-marketing consent checkbox (two-state: true or blank/null; no false state).
+	leadMktConsent = leadRecord.get("Contact_Marketing_Consent");
 	// CONTRACT EVIDENCE (canonical v6): the Lead's structured contract terms live in the
 	// Acquisition_/Expansion_/Renewal_ Quote groups ({G}_Quote_ACV, _Contract_Date_Start/_End,
 	// _Plan_Products/_Plan_Type/_Plan_Brands/_Plan_Frequency, _Stage, ...). We do NOT read them
@@ -485,6 +487,14 @@ void automation.processLead(string lead_id)
 	if(leadReferrer != "" && ifnull(contactRecord.get("Lead_Referrer"), "") == "")
 	{
 		updCon.put("Lead_Referrer", leadReferrer);
+	}
+	// Carry affirmative general-marketing consent from the Lead.
+	// Zoho checkbox semantics here are true or blank.
+	// Only copy true into a blank Contact field. Never fabricate consent,
+	// never clear existing consent, and never overwrite Contact-side updates.
+	if(leadMktConsent == true && contactRecord.get("Marketing_Consent") == null)
+	{
+		updCon.put("Marketing_Consent", true);
 	}
 	// Product_Interest_Staging is a read-only formula. Lead Product Interest is
 	// preserved below by creating Contacts_X_Products junction rows.

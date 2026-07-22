@@ -1,6 +1,15 @@
 # v6 Flow Reference
 
 ## Current Architecture
+- **A Deal is `Account × Product`** (`Deal_Key = accountKey::productKey`). There is one
+  canonical open Deal *per product key* under an Account — not one Deal per Account and
+  not one Deal per Lead. Where this doc says "the canonical open Deal", read it as "the
+  canonical open Deal for that product key". `processAccount` elects the lowest-id live
+  Deal per product key and silences the rest as duplicates.
+- **`processDeal` is the sole commercial owner** — Amount, Quotes, contract ledger,
+  primary Contact, stage transitions, and the Account rollup all flow through it. The
+  Contact owns the outreach sequence; `Deal.Opportunity_Stage` rolls up from the
+  furthest-progressed open Contact under the Account.
 - Leads remain intake/staging. Contacts, Accounts, Deals, Products, and Quotes are the durable graph.
 - Activity Product evidence comes from multi-select picklist values on Tasks, Calls, and Events.
 - Activity handlers pass Product-name strings in `contextJson.products`.

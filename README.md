@@ -1,128 +1,164 @@
-# Zoho CRM Deluge Commercial Operations Automation
+# Zoho CRM Deluge — Commercial Operations Automation (v6)
 
-This repository houses the suite of **Zoho CRM Deluge** custom functions designed to run a robust, automated sales pipeline. The core objective is to treat **Leads** as transient staging inputs and process them into canonical CRM records (**Contacts, Accounts, Deals, and Products**), keeping aggregate values and status gates automatically in sync.
+This repository holds the **Zoho CRM Deluge** custom functions that run Jurnii's sales
+pipeline end to end. Leads are transient intake; the durable graph is
+**Contacts → Accounts → Deals → Products → Quotes**. The automation keeps that graph
+canonical: it deduplicates records, resolves products, drives the sequenced outreach,
+prices and maintains Quotes, and keeps every Deal's stage, state, amount, and contract
+ledger in sync.
 
----
-
-## 1. Commercial Architecture Pipeline
-
-The diagram below illustrates how intake leads are processed, converted, and normalized throughout the CRM entities.
-
-```mermaid
-graph TD
-    A[Lead Created/Updated] -->|Intake Stage| B(convert2lead.deluge)
-    B -->|Convert & Deduplicate| C[Contact]
-    B -->|Convert & Deduplicate| D[Account]
-    B -->|Convert & Staging Deal| E[Deal]
-    
-    C -->|Trigger Normalizer| F(normalizeContactCommercialState.deluge)
-    E -->|Trigger Normalizer| G(normalizeDealCommercialState.deluge)
-    
-    F -->|Link Products & Price Sum| H(syncDealProductsAndValue.deluge)
-    G -->|Link Products & Price Sum| H
-    
-    H -->|Sum prices to Deal.Amount| I[Deals Products List]
-    F -->|Rollup Parent State| J(rollupAccountCommercialState.deluge)
-    G -->|Rollup Parent State| J
-    J -->|Aggregate State / Status| D
-```
+> **Audience.** This README is the technical entry point for engineers/admins.
+> If you are an SDR or AE, read **[docs/SALES_GUIDE.md](docs/SALES_GUIDE.md)** instead —
+> it explains how to *use* the system day to day.
 
 ---
 
-## 2. Commercial Ontology Map
+## 1. The model in one paragraph
 
-The pipeline enforces a strict four-tiered commercial ontology to standardize operations.
-
-### Active Commercial Motions (`Opportunity`)
-*   `MQL` (Marketing Qualified Lead): Initial intake or marketing qualification phase.
-*   `SQL` (Sales Qualified Lead): Validated consent or booked/attended demo.
-*   `FTP` (First Time Purchase): Moving into commercial negotiations and sent contracts.
-*   `RTP` (Retention Purchase): Signed contracts, onboarding, or renewal periods.
-
-### Progression Stages (`Stage`)
-The progression stages map directly to active commercial motions:
-$$\text{Marketing Qualification} \to \text{Demo Booking} \to \text{Demo Confirmation} \to \text{Demo Hosted} \to \text{Proposal Preparation} \to \text{Commercial Agreement} \to \text{Onboarding} \to \text{Renewal}$$
-
-### Record Status & States
-*   **State**: Must be either `Open` or `Lost` (Do **not** use "Won" as a persistent state; winning a gate simply opens the next commercial motion).
-*   **Status**: 
-    *   `Closed`: Set only when State is `Lost`.
-    *   `Working`: Set when at least one manual activity (Tasks, Calls, Events, or Notes) exists.
-    *   `New`: Default status when no human interaction has occurred.
+A **Deal is always `Account × Product`** (`Deal_Key = accountKey::productKey`). A single
+lead or contact who is interested in three products produces three Deals — never one
+generic account Deal, never one Deal per lead. **`processDeal` is the sole commercial
+owner**: it owns Amount, Quotes, the contract ledger, the primary Contact, stage
+advancement, and the Account rollup. The other three orchestrators (`processLead`,
+`processContact`, `processAccount`) resolve the graph and then delegate every commercial
+decision to `processDeal`. The **Contact** owns the outreach sequence; the Deal's stage
+rolls up from the furthest-progressed open Contact under the Account.
 
 ---
 
-## 3. Deluge Script Directory & Deep Dive (v5)
+## 2. Commercial ontology
 
-The automation in `v5` is divided into modular Deluge custom functions.
+### Opportunity Type — `Stage` field (the pipeline bucket)
 
-### 1. Intake Processor: `v5/processLead.deluge`
-*   **Trigger**: Lead Created or Updated.
-*   **Purpose**: Implements an **always-convert policy**. Missing fields (e.g. Website, Phone, Product Interest) never block conversion.
-*   **Deduplication Trees**:
-    1.  **Contact lookup**: Searches first by `Email`, then falls back to `Phone`.
-    2.  **Account lookup**: Priority tree (Contact lookup → `Account_Key` → Company Name → Website).
-*   **Key Operations**:
-    *   Maps Lead `Imported_Record_Type` to `Contacts.Contact_Source_Class` and `Accounts.Account_Source_Class`.
-    *   Resolves proposed sequence routing mode first: if Deal `Sequence_Status` is empty, determine `Sequence_Action_Mode` and set `Sequence_Status = "Not Started"` before running the sequence router.
+| Value | Meaning |
+| --- | --- |
+| `MQL` | Marketing-qualified: intake / top-of-funnel. |
+| `SQL` | Sales-qualified: demo booked, confirmed, or held. |
+| `FTP` | First-Time Purchase: proposal out, in commercial negotiation. |
+| `RTP` | Retention Purchase: signed, onboarding, or renewing. |
 
-### 2. Contact State Normalizer: `v5/processContact.deluge`
-*   **Trigger**: Contact Created or Updated.
-*   **Purpose**: Normalizes Contact Stage, State, and Status fields. Prevents stage rank regression.
+### Stage — `Opportunity_Stage` field (the current step) → Opportunity Type
 
-### 3. Account Aggregator: `v5/processAccount.deluge`
-*   **Trigger**: Account Created or Updated.
-*   **Purpose**: Rolls up commercial values and operational status onto the parent Account record. Sets `State = Open` if any Deal is `Open`.
+| # | Stage | Opportunity Type |
+| --- | --- | --- |
+| 1 | `Marketing Consent` | MQL |
+| 2 | `Demo Booking` | SQL |
+| 3 | `Demo Confirmation` | SQL |
+| 4 | `Demo Hosted` | SQL |
+| 5 | `Proposal Preparation` | FTP |
+| 6 | `Commercial Agreement` | FTP |
+| 7 | `Onboarding` | RTP |
+| 8 | `Renewal` | RTP |
 
-### 4. Deal State Normalizer: `v5/processDeal.deluge`
-*   **Trigger**: Deal Created or Updated.
-*   **Purpose**: Validates commercial readiness gates, maps direct Deal edits to target opportunities, and rolls up contact stages.
+> **Naming note.** Stage 1 is literally **`Marketing Consent`** in the data. The
+> completion-timestamp field is named `*_Marketing_Qualification_Completed_At` for
+> legacy reasons — that field name does **not** imply a separate "Marketing
+> Qualification" stage. There is one stage-1 value: `Marketing Consent`.
 
-### 5. Sequence Router: `v5/activity/sequenceRouter.deluge`
-*   **Trigger**: Called from `processLead` hook and workflow rules (WF002/WF003/WF010).
-*   **Purpose**: State-machine routing engine. Determines if the sequence needs activation gating (`Manual Review First` or blank route) and schedules the appropriate sequence (Call First, Email First, Meeting First, Task First).
+### State & Status
 
-### 6. Task Completion Handler: `v5/activity/handleTaskCompletion.deluge`
-*   **Trigger**: Called from Task Completion (WF008).
-*   **Purpose**: Processes sequence task completions, mapping `Sequence Activation` outcomes (`Activate Call First`, `Activate Email First`, `Manual Only`, `Suppress`, `Already Handled`, `Stage Incorrect`) to Deal state changes. Implements strict idempotency checks.
+- **`State`** (`Opportunity_State` on Deals): `Open` or `Lost` only.
+  **Deals are never persistently `Won`.** Winning a gate advances the Deal into the
+  next commercial motion; the "won" signal lives on the Quote (`Closed Won`) and on the
+  advance into Onboarding.
+- **`Status`** (`Opportunity_Status` on Deals): `New` (no meaningful manual activity),
+  `Working` (a human logged a Call/Task/Meeting/Note — automated emails do **not** make a
+  record `Working`), or `Closed` (only when `State = Lost`).
 
----
-
-## 4. Workflow Rules & Triggers (v5)
-
-The automation logic is triggered by Zoho CRM Workflow Rules. All rules are configured to fire on **Create or Edit (Update)** for **All Records**.
-
-### v5 Workflows
-*   **Lead (WF001)**: Triggers `v5/processLead.deluge` to convert leads and resolve proposed routes.
-*   **Deal Sequence Router (WF002)**: Triggers `v5/activity/sequenceRouter.deluge` when `Sequence_Status = "Not Started"`. Resolves and bootstraps the sequence mode (Task-gating unresolved/Manual modes, creating Calls for Call-first, sending Email 1 + creating follow-up Call 1 for Email-first).
-*   **Deal Stage Change Router (WF003)**: Triggers `v5/activity/sequenceRouter.deluge` on `Opportunity_Stage` changes to supersede the old sequence and restart with the default action mode for the new Stage.
-*   **Task Completion Handler (WF008)**: Triggers `v5/activity/handleTaskCompletion.deluge` on task completion or outcome setting. Handles `Sequence Activation` task outcomes to confirm and activate routes.
-*   **Call Outcome Handler (WF006)**: Triggers `v5/activity/handleCallOutcome.deluge` when sequence calls are completed. Handles progression semantics for Call-first and Email-first cadences.
-*   **Date-Based Follow-Up Router (WF010)**: Triggers `v5/activity/sequenceRouter.deluge` at `Next_Action_Due_Date` or `Sequence_Paused_Until`.
+Stage never regresses. An RTP-floor rule prevents a signed Deal from being pulled
+backward by later low-stage evidence.
 
 ---
 
-## 5. Loop Prevention & Best Practices
+## 3. Deluge functions (`v6/`)
 
-To prevent cascading execution loops, workflows must only trigger on **source fields** and never on fields populated by the custom functions themselves.
+### Orchestrators (module triggers)
 
-| Source/Trigger Fields (Safe) | Calculated Fields (Never Trigger On) |
-| :--- | :--- |
-| `Stage` (custom, UI label "Stage") | `Stage` (standard, UI label "Opportunity") |
-| `Marketing_Consent` | `State` |
-| `Lost_Reasons` | `Status` |
-| `Product_Interest` | `Amount` |
-| `Products_Linked` (Leads) | `Expected_Revenue` |
-| `Reason_For_Loss__s` | |
+| Function | Fires on | Role |
+| --- | --- | --- |
+| `processLead.deluge` | Lead create/edit | Always-convert intake. Resolves the canonical Account, converts the Lead to a Contact, creates one Product Deal per resolved product of interest, links products, and bootstraps imported-contract Quotes. Delegates commercials to `processDeal`. |
+| `processContact.deluge` | Contact create (WF001b2) | Normalizes Stage/role/dates, creates Product Deals and Contact-Role links, and — for a Decision-Maker Contact with exactly one B2B Deal — raises the **Sequence Activation** task (the human start-gate). |
+| `processAccount.deluge` | Account create/edit (WF001c) | Elects one canonical Deal per product key, silences duplicates, backfills missing Product Deals, and reconciles each via `processDeal`. |
+| `processDeal.deluge` | Deal create (WF001d) + all delegated calls | **Commercial owner.** Contact-Roles, primary Contact, activity/import Quote upserts, scaffold Quote, Confirmed prerequisites, A/E/R lifecycle, Amount, contract ledger, stage transitions, Account rollup, signed-confirmation email. |
+
+### Activity layer (`v6/activity/`)
+
+| Function | Fires on | Role |
+| --- | --- | --- |
+| `routeContactSequence.deluge` | called by every handler | The Contact sequence-state executor / state machine. Advances Stage, dispatches the next Call/Task/email, delegates Deal reconciliation to `processDeal`. |
+| `handleCallOutcome.deluge` | Call edit (WF006) | Routes a sequenced Call's Won/Open/Lost outcome into the sequence. |
+| `handleMeetingEvent.deluge` | Event create/edit (WF007) | Routes a Meeting's state; source of truth for demos and commercial/renewal meetings. |
+| `handleTaskCompletion.deluge` | Task edit (WF008) | Applies task commands: activation, Draft/Send Commercials, Onboarding Setup, activity loss. |
+| `handleQuoteStageChange.deluge` | Quote create/edit (WF021) | Thin Quote→Deal reconciliation adapter; owns Deal-reassignment via `Quote_Last_Deal_ID`. |
+| `handleEmailEvent.deluge` + `handleEmail{Replied,Bounced,NotReplied,OpenedNotReplied,Clicked}.deluge` | Email events (WF009a–e) | Interrupt the Contact with review/repair tasks on engagement events. Never advance the Deal. |
+| `sendSequencedEmail.deluge` | called by senders | **Sole email owner.** Resolves one template from the inline registry and sends it behind all send gates. |
+| `sendScheduledEmailFromTask.deluge` | Task `Due_Date` reached | Fires a scheduled (`ScheduledSend|…`) email. |
+| `sendDemoReminder.deluge` | date-based (WF010c) | Sends the demo reminder from the Deal's demo mirrors. |
+| `sendCommercialFollowUp.deluge` | date-based (WF010d) | Re-engages the Commercial Agreement cadence. |
+| `createAuxTask.deluge` / `createManualReview.deluge` | called throughout | Create (idempotent, deduped) blocking Tasks and canonical `[code]` Manual Reviews. |
+| `_util_*.deluge` (17) | called throughout | Pure/near-pure helpers: pricing, product/pipeline resolution, business-date math, quote-subject builder, A/E/R lifecycle, evidence collection, account rollup, logging. |
+
+> **Deployment.** Deluge source cannot be pushed via the MCP integration — functions are
+> published **by hand** in the Zoho UI. Do not commit function changes until they are
+> live (they must be published before the repo is treated as source of truth).
 
 ---
 
-## 6. Workspace Context & Reference Data
+## 4. Sequences, emails, and the activation gate
 
-To guide development, testing, and agent behaviors, this repository includes core context, schemas, example records, and system specifications:
+- **Nothing sends automatically until a human activates the sequence.** For a
+  Decision-Maker Contact with one B2B Deal, automation raises a **Sequence Activation**
+  task. The rep picks a route (`Email` / `Call` / `Manual`) and optionally a `warm`/`cold`
+  note; only then is `Sequence_Activated_At` stamped and outreach begins.
+- **Cadence families** are 5 steps each: `Marketing Consent`, `Demo Booking`,
+  `Demo Hosted` (demo-*recovery*, i.e. a demo was scheduled but not held),
+  `Commercial Agreement`, `Renewal`. Plus single-shot event emails
+  (demo confirmation / reminder / no-show, post-demo, proposal-sent, signed-confirmation).
+- **Send gates** enforced by `sendSequencedEmail` on every send: SendKey idempotency,
+  the activation gate, a non-blank Contact email (no-recipient guard), B2B-pipeline
+  resolution (Partnership/unresolved blocked), template resolution, and — for date-based
+  senders — `Deal.Automation_Suppressed != true`.
 
-*   **API Field Reference**: [.agents/context/api_field_names](file:///c:/Development/Projects/zoho-functions/.agents/context/api_field_names) contains canonical CSV exports of API names for fields and related lists (Accounts, Contacts, Deals, and Leads).
-*   **Example CRM Data**: [.agents/context/example_data](file:///c:/Development/Projects/zoho-functions/.agents/context/example_data) contains CSV exports of matched sample entities demonstrating how normalized fields are constructed.
-*   **Test Data Sets**: [.agents/context/test_data](file:///c:/Development/Projects/zoho-functions/.agents/context/test_data) contains test upload lists used to validate lead ingestion and workflow trigger rules.
-*   **System Convergence Spec**: [spec.md](file:///c:/Development/Projects/zoho-functions/spec.md) defines the authoritative architectural specifications for deduplication logic, stage/opportunity progression mappings, and the invariant rules that all Deluge automations must preserve.
+> **Consent policy.** Every email `sendSequencedEmail` sends is a B2B sales, pipeline,
+> transactional, or operational email — these are **not** gated by `Marketing_Consent`.
+> `Contacts.Marketing_Consent` is a two-state checkbox (`true` or blank) that records
+> affirmative consent for **general-marketing / promotional campaigns only**; blank does
+> **not** block B2B or pipeline communication. Affirmative consent is carried from the
+> Lead (`Leads.Contact_Marketing_Consent`) onto a blank Contact field on conversion —
+> never fabricated. Only a future general-marketing campaign sender should require
+> `Marketing_Consent == true`. See [docs/SALES_GUIDE.md §11](docs/SALES_GUIDE.md#11-maintaining-the-system-admin).
 
+---
+
+## 5. Guardrails worth knowing
+
+- **`Deal.Automation_Suppressed = true`** is the master kill switch for a Deal's automation.
+- **Loss is module-local.** An activity or single Contact going Lost never auto-closes a
+  Deal; a Deal closes only when all its Contacts are Lost (or an explicit Deal-level loss),
+  or on Renewal churn.
+- **Manual Review tasks** (canonical `[code]` prefix) surface every anomaly the automation
+  refuses to guess through — unresolved/ambiguous products, missing pricing, unverified
+  writes, tier conflicts, etc. Automation **never auto-picks** on ambiguity.
+- **Quotes use the REST API**, not native `getRecordById`, because Deluge drops custom
+  subform fields and line ids — this prevents duplicate Quote lines / inflated Amounts on
+  re-fire.
+- **Pricing** comes from a banded matrix (`_util_resolveQuoteLinePrice`). Jurnii Cortex has
+  no auto-price; unpriced lines raise Manual Review rather than inventing a value.
+
+---
+
+## 6. Documentation map
+
+| Doc | What it is |
+| --- | --- |
+| **[docs/SALES_GUIDE.md](docs/SALES_GUIDE.md)** | **Start here if you're an SDR/AE.** How to use and maintain the system. |
+| [docs/v6/zoho_v6_refactor_spec_pack/](docs/v6/zoho_v6_refactor_spec_pack/) | Authoritative current spec (ontology, fields, import, quote lifecycle, automation). |
+| [docs/v6/FLOW_REFERENCE.md](docs/v6/FLOW_REFERENCE.md) | End-to-end flow, cadences, and the Amount/valuation hierarchy. |
+| [docs/v6/PHASE3_A_E_R_LIFECYCLE_SCOPE.md](docs/v6/PHASE3_A_E_R_LIFECYCLE_SCOPE.md) | Acquisition / Expansion / Renewal quote lifecycle. |
+| [docs/v6/ACTIVATION_GATE_TEST_PLAN.md](docs/v6/ACTIVATION_GATE_TEST_PLAN.md) | Activation-gate + email-idempotency invariants. |
+| [docs/v6/FINAL_CANONICAL_FIELD_MATRIX.md](docs/v6/FINAL_CANONICAL_FIELD_MATRIX.md) | Per-module field authority reference. |
+| [.agents/context/activity-workflows/](.agents/context/activity-workflows/) | Email drafts and call scripts, per stage/step. |
+
+Historical migration artifacts (v1–v5, the June 2026 closeout cluster, one-time E2E
+reports, completed deployment runsheets) have been removed from the working tree; they
+remain in git history if ever needed.

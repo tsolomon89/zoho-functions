@@ -168,7 +168,7 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		}
 	}
 
-	// ---- contact + consent guards ----
+	// ---- contact and send-time guards ----
 	// ROBUSTNESS: a deeply-nested dispatch (the commercial:signed side email runs
 	// Call -> routeContactSequence -> processDeal -> routeContactSequence -> here, one level deeper
 	// than commercial:sent) can make the native getRecordById return null, which previously DROPPED
@@ -239,12 +239,13 @@ string automation.sendSequencedEmail(string contactIdStr, string dealIdStr, stri
 		automation.createManualReview(contactId.toString(), dealId.toString(), "email_no_recipient", "Sequenced email '" + canonicalKey + "' was not sent: the Contact has no Email address. Add an email, then re-trigger.");
 		return "";
 	}
-	consentRaw = ifnull(contact.get("Marketing_Consent_Status"), "").toString();
-	if(consentRaw == "Not Consented" || consentRaw == "Withdrawn")
-	{
-		automation.logAutomationEvent("sendSequencedEmail", "Contacts", contactId.toString(), "guard", "skip_no_consent", {"consent":consentRaw});
-		return "";
-	}
+	// These emails are B2B sales, pipeline, transactional, or operational emails.
+	// They are intentionally not gated by Contacts.Marketing_Consent.
+	// Marketing_Consent records affirmative consent for future general-marketing
+	// campaigns only. A future promotional campaign sender must require
+	// Marketing_Consent == true. The no-recipient guard above and all applicable
+	// suppression, unsubscribe, opt-out, invalid-address, and DNC controls remain
+	// authoritative where implemented.
 
 	// ---- "from" = Deal Owner (absorbed _util_sendTemplateToContact) ----
 	deal = zoho.crm.getRecordById("Deals", dealId);
